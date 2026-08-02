@@ -1,18 +1,19 @@
 import { Command } from './Command';
+import type { GameState } from '../../GameState';
 
 class DoNothingCommand extends Command {
-    unitIndex: any;
+    unitIndex: number;
 
-    constructor(unitIndex) {
+    constructor(unitIndex: number) {
         super();
         this.unitIndex = unitIndex;
     }
 
-    apply(gameState) {
+    apply(gameState: GameState): void {
         // Do nothing
     }
 
-    static generate(gameState) {
+    static generate(gameState: GameState): DoNothingCommand | null {
         const units = gameState.units;
         if (units.length === 0) return null;
 

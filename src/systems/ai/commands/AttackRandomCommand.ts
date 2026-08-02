@@ -1,17 +1,18 @@
 import { Command } from './Command';
 import { UnitSystem } from '../../../shared/hexengine/UnitSystem';
+import type { GameState } from '../../GameState';
 
 class AttackRandomCommand extends Command {
-    unitIndex: any;
-    targetIndex: any;
+    unitIndex: number;
+    targetIndex: number;
 
-    constructor(unitIndex, targetIndex) {
+    constructor(unitIndex: number, targetIndex: number) {
         super();
         this.unitIndex = unitIndex;
         this.targetIndex = targetIndex;
     }
 
-    apply(gameState) {
+    apply(gameState: GameState): void {
         const unit = gameState.units[this.unitIndex];
         const target = gameState.units[this.targetIndex];
 
@@ -23,7 +24,7 @@ class AttackRandomCommand extends Command {
         }
     }
 
-    static generate(gameState) {
+    static generate(gameState: GameState): AttackRandomCommand | null {
         const attackableUnits = gameState.units.filter(unit => !unit.hasAttacked);
         if (attackableUnits.length === 0) return null;
 

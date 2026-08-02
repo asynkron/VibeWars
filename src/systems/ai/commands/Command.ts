@@ -1,3 +1,5 @@
+import type { GameState } from '../../GameState';
+
 class Command {
     constructor() {
         if (this.constructor === Command) {
@@ -6,12 +8,12 @@ class Command {
     }
 
     // Apply the command to a game state
-    apply(gameState) {
+    apply(gameState: GameState): void {
         throw new Error("apply() must be implemented by subclasses");
     }
 
     // Generate a new command with random parameters
-    static generate(gameState) {
+    static generate(gameState: GameState): Command | null {
         throw new Error("generate() must be implemented by subclasses");
     }
 
