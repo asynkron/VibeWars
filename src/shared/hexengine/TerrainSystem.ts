@@ -220,10 +220,24 @@ static terrainTypes = {
     }
 
     static getHeight(hex: any): number {
+        // Prefer the actual rendered surface height over the tile's raw,
+        // unsmoothed userData.height. GridSystem.smoothHexTile() blends each
+        // hex's center vertex (index 13) with its neighbors' heights after
+        // creation, so the two can diverge -- units/decorators/projectiles
+        // placed at userData.height then sit visibly above or below the
+        // terrain they're standing on, especially on rough terrain where
+        // neighbor heights vary a lot. Before smoothing has run, vertex 13
+        // still equals userData.height, so this is safe at any point in
+        // the map lifecycle.
+        const hexMesh = hex?.children?.find(
+            (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+        );
+        const position = hexMesh?.geometry?.attributes?.position;
+        if (position && position.count > 13) {
+            return position.getY(13);
+        }
 
-        const baseHeight = hex.userData.height || 0;
-
-        return baseHeight;
+        return hex?.userData?.height || 0;
     }
 
     static getTerrainTypeFromNoise(noiseValue: number): string {
