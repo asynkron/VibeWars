@@ -65,6 +65,11 @@ export interface UnitTypeConfig {
   model?: string;
   scale?: number;
   rotation?: number;
+  // Height above terrain to render this unit type at (e.g. helicopters,
+  // jets). Copied onto each unit's visualUnit.userData.flightAltitude at
+  // creation time, so it's a per-type default that a specific unit instance
+  // can still override individually by mutating its own userData.
+  flightAltitude?: number;
   attackEffect?: string;
   footprintTexture?: string | null;
   terrainCosts: Record<string, number | null>;
