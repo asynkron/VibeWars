@@ -6,6 +6,7 @@ import { PathfindingSystem } from './PathfindingSystem';
 import { setSelectedUnit } from '../../game';
 import { AudioSystem } from './AudioSystem';
 import { ModelSystem } from './ModelSystem';
+import { GridSystem } from './GridSystem';
 
 class UnitSystem {
     static unitTypes = {

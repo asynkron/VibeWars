@@ -2,6 +2,7 @@
 import { scene, group } from '../../render';
 import { PathIndicatorSystem } from './PathIndicatorSystem';
 import { AudioSystem } from './AudioSystem';
+import { GridSystem } from './GridSystem';
 
 /*
 Render Order Hierarchy (from top to bottom):

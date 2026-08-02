@@ -3,6 +3,7 @@ import { group } from '../../render';
 import { VisualizationSystem } from './VisualizationSystem';
 import { PathfindingSystem } from './PathfindingSystem';
 import { UnitSystem } from './UnitSystem';
+import { GridSystem } from './GridSystem';
 
 class RoadSystem {
     static roads: any[] = [];

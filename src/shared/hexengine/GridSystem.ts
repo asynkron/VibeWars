@@ -1,12 +1,17 @@
 /**
  * GridSystem.js - Manages the hex grid and provides grid-related utilities.
  */
+import { group, miniMapScene, renderer } from '../../render';
+import { ModelSystem } from './ModelSystem';
+import { RoadSystem } from './RoadSystem';
+import { FootprintSystem } from './FootprintSystem';
+
 class GridSystem {
-    static hexGrid = [];
+    static hexGrid: any[] = [];
     static textureLoader = new THREE.TextureLoader();
-    static textures = {}; // Cache for loaded textures
+    static textures: Record<string, any> = {}; // Cache for loaded textures
     static materialCache = new Map(); // Cache for materials
-    static miniHexGeometry = null; // Shared geometry for minimap hexes
+    static miniHexGeometry: any = null; // Shared geometry for minimap hexes
 
     static getOption(key) {
         const engine = typeof window !== 'undefined' ? window.HEX_ENGINE : null;
@@ -24,9 +29,9 @@ class GridSystem {
     // ---------------------------
     // Generates vertices, UVs, and indices for a hexagon prism
     static generateHexBufferData(radius, height) {
-        const vertices = [];
-        const uvs = [];
-        const indices = [];
+        const vertices: any[] = [];
+        const uvs: any[] = [];
+        const indices: any[] = [];
 
         // Bottom vertices (indices 0-5)
         for (let i = 0; i < 6; i++) {
@@ -144,7 +149,6 @@ class GridSystem {
                     loadedTexture.encoding = THREE.sRGBEncoding;
                     loadedTexture.minFilter = THREE.LinearMipMapLinearFilter;
                     loadedTexture.magFilter = THREE.LinearFilter;
-                    const renderer = window.renderer;
                     if (renderer) {
                         loadedTexture.anisotropy = renderer.capabilities.getMaxAnisotropy();
                     }
@@ -196,7 +200,7 @@ class GridSystem {
     }
 
     static getHexIntersects(raycaster) {
-        const intersectObjects = [];
+        const intersectObjects: any[] = [];
         console.log('Starting hex intersection check');
 
         GridSystem.hexGrid.forEach((hexGroup, index) => {
@@ -244,7 +248,7 @@ class GridSystem {
         hexGroup.add(hexMesh);
 
         // Set up shared userData for this hex group
-        const userData = { x, z, height, moveCost, type, q, r };
+        const userData: any = { x, z, height, moveCost, type, q, r };
         if (type === 'water') {
             userData.timeOffset = Math.random() * Math.PI * 2;
             userData.originalHeight = height;
@@ -279,8 +283,8 @@ class GridSystem {
     static createMiniHex(color, x, z) {
         const miniHexGroup = new THREE.Group();
         if (!this.miniHexGeometry) {
-            const vertices = [];
-            const indices = [];
+            const vertices: any[] = [];
+            const indices: any[] = [];
             for (let i = 0; i < 6; i++) {
                 const angle = (i * Math.PI) / 3;
                 vertices.push(
@@ -731,8 +735,8 @@ class GridSystem {
             if (!this.getOption('enableDecorations') || typeof ModelSystem === 'undefined') {
                 return false;
             }
-            const modelConfigs = {};
-            Object.values(TerrainSystem.terrainTypes).forEach((terrain) => {
+            const modelConfigs: Record<string, any> = {};
+            Object.values(TerrainSystem.terrainTypes).forEach((terrain: any) => {
                 terrain.decorations.forEach((decoration) => {
                     if (!modelConfigs[decoration.model]) {
                         modelConfigs[decoration.model] = {
@@ -759,4 +763,7 @@ class GridSystem {
 
 // Expose hexGrid for external scripting integrations
 window.hexGrid = GridSystem.hexGrid;
+window.GridSystem = GridSystem;
 console.log('GridSystem.js loaded');
+
+export { GridSystem };

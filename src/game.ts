@@ -15,6 +15,7 @@ import { FootprintSystem } from './shared/hexengine/FootprintSystem';
 import { PathfindingSystem } from './shared/hexengine/PathfindingSystem';
 import { UnitSystem } from './shared/hexengine/UnitSystem';
 import { AudioSystem } from './shared/hexengine/AudioSystem';
+import { GridSystem } from './shared/hexengine/GridSystem';
 
 // Game Data
 let selectedUnit: any = null;

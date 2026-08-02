@@ -1,4 +1,5 @@
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
+import { GridSystem } from './shared/hexengine/GridSystem';
 
 // Scene Objects
 const scene = new THREE.Scene();
