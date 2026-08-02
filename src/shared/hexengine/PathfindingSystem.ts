@@ -201,4 +201,4 @@ class PathfindingSystem {
 
 }
 
-export { PathfindingSystem };
+export { PathfindingSystem, PriorityQueue };
