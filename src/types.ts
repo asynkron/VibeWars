@@ -9,7 +9,7 @@
 // this codebase actually touches on THREE.Object3D/Group/Mesh instances.
 
 export interface Object3DLike {
-  position: { x: number; y: number; z: number; copy(v: any): any; set(x: number, y: number, z: number): any };
+  position: { x: number; y: number; z: number; copy(v: any): any; set(x: number, y: number, z: number): any; clone(): any };
   rotation: { x: number; y: number; z: number };
   scale: { x: number; y: number; z: number; set(x: number, y: number, z: number): any };
   userData: any;

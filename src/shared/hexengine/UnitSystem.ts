@@ -10,8 +10,13 @@ import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 import { players, HIGHLIGHT_COLORS } from '../../constants';
+import type { UnitTypeConfig, GameUnit } from '../../types';
 
 class UnitSystem {
+    static get unitTypesRecord(): Record<string, UnitTypeConfig> {
+        return this.unitTypes as unknown as Record<string, UnitTypeConfig>;
+    }
+
     static unitTypes = {
         "Road": {
             symbol: "E",
@@ -247,15 +252,15 @@ class UnitSystem {
         }
     };
 
-    static getMovementCost(type, terrainType) {
-        return this.unitTypes[type].terrainCosts[terrainType];
+    static getMovementCost(type: string, terrainType: string): number | null | undefined {
+        return this.unitTypesRecord[type].terrainCosts[terrainType];
     }
 
     static async loadUnitModels() {
         await ModelSystem.loadModels(this.unitTypes);
     }
 
-    static createUnitSprite(type, hp, maxHp, playerIndex) {
+    static createUnitSprite(type: string, hp: number, maxHp: number, playerIndex: number) {
         const canvas = document.createElement('canvas');
         canvas.width = 128;
         canvas.height = 128;
@@ -319,7 +324,7 @@ class UnitSystem {
         }
 
         // Dynamic font sizing for unit name
-        const unitName = this.unitTypes[type].name;
+        const unitName = this.unitTypesRecord[type].name;
         let fontSize = 24; // Start with large font
         ctx.font = `${fontSize}px Arial`;
         let textWidth = ctx.measureText(unitName).width;
@@ -342,14 +347,14 @@ class UnitSystem {
         }));
     }
 
-    static createModelWithColor(model, playerColor, usePlayerColor = true, replaceColor = null) {
+    static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null) {
         const modelClone = model.clone();
 
         if (usePlayerColor) {
-            modelClone.traverse((child) => {
+            modelClone.traverse((child: any) => {
                 if (child instanceof THREE.Mesh) {
                     if (Array.isArray(child.material)) {
-                        child.material = child.material.map(mat => {
+                        child.material = child.material.map((mat: any) => {
                             const clonedMat = mat.clone();
                             clonedMat.color.setHex(playerColor);
                             return clonedMat;
@@ -362,7 +367,7 @@ class UnitSystem {
             });
         } else if (replaceColor !== null) {
             // Function to check if a color is close to the target color using Euclidean distance in RGB space
-            const isColorClose = (color1, color2) => {
+            const isColorClose = (color1: number, color2: number): boolean => {
                 const r1 = (color1 >> 16) & 0xFF;
                 const g1 = (color1 >> 8) & 0xFF;
                 const b1 = color1 & 0xFF;
@@ -381,10 +386,10 @@ class UnitSystem {
                 return distance < 50;
             };
 
-            modelClone.traverse((child) => {
+            modelClone.traverse((child: any) => {
                 if (child instanceof THREE.Mesh) {
                     if (Array.isArray(child.material)) {
-                        child.material = child.material.map(mat => {
+                        child.material = child.material.map((mat: any) => {
                             const clonedMat = mat.clone();
                             if (isColorClose(clonedMat.color.getHex(), replaceColor)) {
                                 clonedMat.color.setHex(playerColor);
@@ -404,15 +409,15 @@ class UnitSystem {
         return modelClone;
     }
 
-    static createUnit(type, q, r, playerIndex) {
+    static createUnit(type: string, q: number, r: number, playerIndex: number) {
         // Create sprite for UI elements (health bar, name, etc)
-        const unitSprite = this.createUnitSprite(type, this.unitTypes[type].hp, this.unitTypes[type].maxHp, playerIndex);
+        const unitSprite = this.createUnitSprite(type, this.unitTypesRecord[type].hp, this.unitTypesRecord[type].maxHp, playerIndex);
         unitSprite.scale.set(1, 1, 1);
         unitSprite.rotation.x = 0;
         scene.add(unitSprite);  // Add sprite directly to scene
 
         // Add 3D model if available
-        const unitType = this.unitTypes[type];
+        const unitType = this.unitTypesRecord[type];
         if (unitType.model && ModelSystem.getModel(unitType.model)) {
             const modelClone = ModelSystem.createModelWithColor(
                 ModelSystem.getModel(unitType.model),
@@ -430,17 +435,17 @@ class UnitSystem {
                 type,
                 q,
                 r,
-                hp: this.unitTypes[type].hp,
-                maxHp: this.unitTypes[type].maxHp,
-                move: this.unitTypes[type].move,
-                attack: this.unitTypes[type].attack,
-                minRange: this.unitTypes[type].minRange,
-                maxRange: this.unitTypes[type].maxRange,
+                hp: this.unitTypesRecord[type].hp,
+                maxHp: this.unitTypesRecord[type].maxHp,
+                move: this.unitTypesRecord[type].move,
+                attack: this.unitTypesRecord[type].attack,
+                minRange: this.unitTypesRecord[type].minRange,
+                maxRange: this.unitTypesRecord[type].maxRange,
                 playerIndex,
                 hasAttacked: false,
                 sprite: unitSprite,  // Store reference to sprite
                 modelHeight: modelHeight,  // Store model height for positioning
-                terrainCosts: this.unitTypes[type].terrainCosts
+                terrainCosts: this.unitTypesRecord[type].terrainCosts
             };
 
             const miniUnit = new THREE.Mesh(
@@ -465,7 +470,7 @@ class UnitSystem {
         return null;
     }
 
-    static setPosition(unit, coord, hex, rotation?: any, customPosition: any = null) {
+    static setPosition(unit: any, coord: any, hex: any, rotation?: number, customPosition: any = null) {
         // Get the old position's hex before updating
         const oldHex = HexCoord.findHex(unit.userData.q, unit.userData.r);
 
@@ -486,7 +491,7 @@ class UnitSystem {
         unit.userData.r = coord.r;
 
         // Get the hex mesh to access its geometry
-        const hexMesh = hex.children.find(child =>
+        const hexMesh = hex.children.find((child: any) =>
             child instanceof THREE.Mesh && !child.userData.isBoundingMesh
         );
 
@@ -573,15 +578,15 @@ class UnitSystem {
         }
     }
 
-    static getUnitStats(type) {
-        return this.unitTypes[type];
+    static getUnitStats(type: string) {
+        return this.unitTypesRecord[type];
     }
 
-    static isHexOccupied(q, r, excludeUnit = null) {
-        return gameState.units.some(u => u.q === q && u.r === r && u !== excludeUnit);
+    static isHexOccupied(q: number, r: number, excludeUnit: any = null): boolean {
+        return gameState.units.some((u: any) => u.q === q && u.r === r && u !== excludeUnit);
     }
 
-    static getRotation(oldQ, oldR, newQ, newR) {
+    static getRotation(oldQ: number, oldR: number, newQ: number, newR: number): number {
         // Calculate the direction based on coordinate changes
         const dq = newQ - oldQ;
         const dr = newR - oldR;
@@ -617,7 +622,7 @@ class UnitSystem {
         return 0; // Default to South if no direction found
     }
 
-    static move(unit, path) {
+    static move(unit: GameUnit, path: any[]) {
         // Start engine sound when movement begins
         AudioSystem.playEngineSound(unit);
 
@@ -628,7 +633,7 @@ class UnitSystem {
         const transitionDuration = 200; // Duration of transition between hexes
         const stepDuration = 250; // Total duration for each step (including transition)
 
-        path.forEach((hex, index) => {
+        path.forEach((hex: any, index: number) => {
             setTimeout(() => {
                 // Store previous position
                 const oldQ = unit.q;
@@ -665,7 +670,7 @@ class UnitSystem {
                 while (rotationDiff < -Math.PI) rotationDiff += 2 * Math.PI;
 
                 // Animation function
-                const animate = (timestamp) => {
+                const animate = (timestamp: number) => {
                     const elapsed = timestamp - startTime;
                     const progress = Math.min(elapsed / transitionDuration, 1);
 
@@ -707,7 +712,7 @@ class UnitSystem {
         });
     }
 
-    static handleSelection(unit) {
+    static handleSelection(unit: GameUnit | null) {
         setSelectedUnit(unit);
         VisualizationSystem.clearPathLine();
         VisualizationSystem.clearHighlights();  // Clear existing highlights first
@@ -718,7 +723,7 @@ class UnitSystem {
         }
     }
 
-    static handleMovement(unit, targetHex) {
+    static handleMovement(unit: GameUnit, targetHex: any): boolean {
         const path = PathfindingSystem.getPath(unit.q, unit.r, targetHex.userData.q, targetHex.userData.r, unit.move, unit);
 
         if (path.length > 0) {
@@ -742,13 +747,13 @@ class UnitSystem {
         return false;
     }
 
-    static highlightMoveRange(unit) {
+    static highlightMoveRange(unit: GameUnit) {
         console.log("highlightMoveRange!!!!!!!!!!!");
         console.log(unit);
         const unitCoord = new HexCoord(unit.q, unit.r);
         const { reachable } = PathfindingSystem.dijkstra(unitCoord.q, unitCoord.r, unit.move, unit);
 
-        reachable.forEach(key => {
+        reachable.forEach((key: string) => {
             const coord = HexCoord.fromKey(key);
             const hex = coord.getHex();
             if (hex && !this.isHexOccupied(coord.q, coord.r, unit)) {
@@ -757,7 +762,7 @@ class UnitSystem {
         });
     }
 
-    static offsetToCube(col, row) {
+    static offsetToCube(col: number, row: number): { x: number; y: number; z: number } {
         // Convert from odd-q offset (flat-topped) to cube coordinates
         const x = col;
         const z = row - (col - (col & 1)) / 2;
@@ -765,7 +770,7 @@ class UnitSystem {
         return { x, y, z };
     }
 
-    static getHexDistance(q1, r1, q2, r2) {
+    static getHexDistance(q1: number, r1: number, q2: number, r2: number): number {
         // Convert from offset coordinates to cube coordinates
         const cube1 = this.offsetToCube(q1, r1);
         const cube2 = this.offsetToCube(q2, r2);
@@ -778,9 +783,9 @@ class UnitSystem {
         );
     }
 
-    static highlightAttackRange(unit) {
+    static highlightAttackRange(unit: GameUnit) {
         // Loop through all units and check enemy units
-        gameState.units.forEach(targetUnit => {
+        gameState.units.forEach((targetUnit: GameUnit) => {
             // Skip if it's our own unit
             if (targetUnit.playerIndex === unit.playerIndex) return;
 
@@ -800,7 +805,7 @@ class UnitSystem {
         });
     }
 
-    static isValidMove(unit, targetHex) {
+    static isValidMove(unit: GameUnit, targetHex: any): boolean {
         if (!targetHex) return false;
         console.log("is Valid move!!!!");
 
@@ -811,31 +816,31 @@ class UnitSystem {
         return reachable.has(targetCoord.getKey());
     }
 
-    static setHasAttacked(unit, value) {
+    static setHasAttacked(unit: GameUnit, value: boolean): void {
         unit.hasAttacked = value;
         unit.visualUnit.userData.hasAttacked = value;
     }
 
-    static hasUnitAttacked(unit) {
+    static hasUnitAttacked(unit: GameUnit): boolean {
         return unit.hasAttacked;  // We only need to check one since they're kept in sync
     }
 
-    static calculateDamage(attackerStats, defender) {
+    static calculateDamage(attackerStats: UnitTypeConfig, defender: GameUnit): number {
         // Calculate base damage using attacker's min and max damage
         const baseDamage = Math.floor(Math.random() * (attackerStats.maxDamage - attackerStats.minDamage + 1)) + attackerStats.minDamage;
 
         // Log the damage calculation
-        console.log(`${attackerStats.name} attacks ${this.unitTypes[defender.type].name}!`);
+        console.log(`${attackerStats.name} attacks ${this.unitTypesRecord[defender.type].name}!`);
         console.log(`Damage roll: ${baseDamage}`);
 
         return baseDamage;
     }
 
-    static applyDamage(unit, damage) {
+    static applyDamage(unit: GameUnit, damage: number): void {
         // Update HP in both the game state unit and the visual unit
         unit.hp -= damage;
         unit.visualUnit.userData.hp = unit.hp;  // Sync the HP values
-        console.log(`${this.unitTypes[unit.type].name} takes ${damage} damage! HP: ${unit.hp}/${unit.maxHp}`);
+        console.log(`${this.unitTypesRecord[unit.type].name} takes ${damage} damage! HP: ${unit.hp}/${unit.maxHp}`);
 
         // Update the sprite to show new HP
         if (unit.visualUnit.userData.sprite) {
@@ -846,7 +851,7 @@ class UnitSystem {
         }
     }
 
-    static getAttackAngle(startHex, targetHex) {
+    static getAttackAngle(startHex: any, targetHex: any): number {
         // Get world positions
         const startPos = new HexCoord(startHex.userData.q, startHex.userData.r).getWorldPosition();
         const targetPos = new HexCoord(targetHex.userData.q, targetHex.userData.r).getWorldPosition();
@@ -879,16 +884,16 @@ class UnitSystem {
         return closestAngle * Math.PI / 180;
     }
 
-    static async attack(attacker, defender) {
+    static async attack(attacker: GameUnit, defender: GameUnit): Promise<void> {
         if (this.hasUnitAttacked(attacker)) {
-            console.log(`${this.unitTypes[attacker.type].name} has already attacked this turn!`);
+            console.log(`${this.unitTypesRecord[attacker.type].name} has already attacked this turn!`);
             return;
         }
 
         // Check if target is within attack range
         const distance = this.getHexDistance(attacker.q, attacker.r, defender.q, defender.r);
         if (distance < attacker.minRange || distance > attacker.maxRange) {
-            console.log(`${this.unitTypes[attacker.type].name} cannot attack target at this range!`);
+            console.log(`${this.unitTypesRecord[attacker.type].name} cannot attack target at this range!`);
             return;
         }
 
@@ -929,7 +934,7 @@ class UnitSystem {
             const possibleTargets = [defenderHex];
 
             // Add all valid neighbors
-            targetCoord.getNeighbors().forEach(neighbor => {
+            targetCoord.getNeighbors().forEach((neighbor: any) => {
                 const neighborHex = GridSystem.findHex(neighbor.q, neighbor.r);
                 if (neighborHex) {
                     possibleTargets.push(neighborHex);
@@ -943,7 +948,7 @@ class UnitSystem {
             await new Promise(resolve => setTimeout(resolve, 1000));
 
             // Apply damage to each hex that was hit
-            possibleTargets.forEach(targetHex => {
+            possibleTargets.forEach((targetHex: any) => {
                 const unitAtTarget = GridSystem.getUnitAtHex(targetHex);
                 if (unitAtTarget) {
                     // Apply full damage to the original target, reduced damage to neighbors
@@ -980,14 +985,14 @@ class UnitSystem {
         VisualizationSystem.clearHighlights();
     }
 
-    static resetTurnFlags() {
-        gameState.units.forEach(unit => {
+    static resetTurnFlags(): void {
+        gameState.units.forEach((unit: GameUnit) => {
             this.setHasAttacked(unit, false);
         });
     }
 
-    static updateUnitVisuals(unit) {
-        const sprite = unit.visualUnit.children.find(child => child instanceof THREE.Sprite);
+    static updateUnitVisuals(unit: GameUnit): void {
+        const sprite = unit.visualUnit.children.find((child: any) => child instanceof THREE.Sprite);
         if (sprite) {
             sprite.material.map.dispose();
             const newSprite = this.createUnitSprite(unit.type, unit.hp, unit.maxHp, unit.playerIndex);
@@ -995,7 +1000,7 @@ class UnitSystem {
         }
     }
 
-    static removeUnit(unit) {
+    static removeUnit(unit: GameUnit): void {
         // Get the hex before removing the unit
         const hex = HexCoord.findHex(unit.q, unit.r);
 

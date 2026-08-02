@@ -1,11 +1,12 @@
 // GameState.js - Manages the overall game state
 import { UnitSystem } from '../shared/hexengine/UnitSystem';
 import { GameMap } from '../shared/hexengine/MapSystem';
+import type { GameUnit, GamePlayer } from '../types';
 
 class GameState {
-    map: any;
-    players: any[];
-    units: any[];
+    map: GameMap;
+    players: GamePlayer[];
+    units: GameUnit[];
     currentTurn: number;
 
     constructor() {
@@ -19,12 +20,12 @@ class GameState {
         this.players.push({ id: 1, name: "cpu1", color: 0xff0000 });   // Red for AI
     }
 
-    nextTurn() {
+    nextTurn(): void {
         this.currentTurn = (this.currentTurn + 1) % this.players.length;
         // Reset movement points and attack flags for all units of the current player
         this.units.forEach(unit => {
             if (unit.playerIndex === this.currentTurn) {
-                unit.move = UnitSystem.unitTypes[unit.type].move;
+                unit.move = UnitSystem.unitTypesRecord[unit.type].move;
                 unit.hasAttacked = false;
             }
         });
@@ -33,27 +34,27 @@ class GameState {
         }
     }
 
-    cpuTurn() {
+    cpuTurn(): void {
         setTimeout(() => this.nextTurn(), 1000);
     }
 
-    getCurrentPlayer() {
+    getCurrentPlayer(): GamePlayer {
         return this.players[this.currentTurn];
     }
 
-    isPlayerTurn(playerIndex) {
+    isPlayerTurn(playerIndex: number): boolean {
         return this.currentTurn === playerIndex;
     }
 
-    getUnitAt(q, r) {
+    getUnitAt(q: number, r: number): GameUnit | undefined {
         return this.units.find(unit => unit.q === q && unit.r === r);
     }
 
-    getPlayerUnits(playerIndex) {
+    getPlayerUnits(playerIndex: number): GameUnit[] {
         return this.units.filter(unit => unit.playerIndex === playerIndex);
     }
 
-    initializeUnits() {
+    initializeUnits(): void {
         // Player units (matching existing setup)
         const playerStartingUnits = [
             { type: 'Droid', q: 2, r: 2 },
@@ -86,12 +87,12 @@ class GameState {
                     q: unitData.q,
                     r: unitData.r,
                     playerIndex: 0,
-                    hp: UnitSystem.unitTypes[unitData.type].hp,
-                    maxHp: UnitSystem.unitTypes[unitData.type].maxHp,
-                    move: UnitSystem.unitTypes[unitData.type].move,
-                    attack: UnitSystem.unitTypes[unitData.type].attack,
-                    minRange: UnitSystem.unitTypes[unitData.type].minRange,
-                    maxRange: UnitSystem.unitTypes[unitData.type].maxRange,
+                    hp: UnitSystem.unitTypesRecord[unitData.type].hp,
+                    maxHp: UnitSystem.unitTypesRecord[unitData.type].maxHp,
+                    move: UnitSystem.unitTypesRecord[unitData.type].move,
+                    attack: UnitSystem.unitTypesRecord[unitData.type].attack,
+                    minRange: UnitSystem.unitTypesRecord[unitData.type].minRange,
+                    maxRange: UnitSystem.unitTypesRecord[unitData.type].maxRange,
                     hasAttacked: false,
                     visualUnit: unit  // Reference to the 3D unit for visualization
                 });
@@ -113,12 +114,12 @@ class GameState {
                     q: unitData.q,
                     r: unitData.r,
                     playerIndex: 1,
-                    hp: UnitSystem.unitTypes[unitData.type].hp,
-                    maxHp: UnitSystem.unitTypes[unitData.type].maxHp,
-                    move: UnitSystem.unitTypes[unitData.type].move,
-                    attack: UnitSystem.unitTypes[unitData.type].attack,
-                    minRange: UnitSystem.unitTypes[unitData.type].minRange,
-                    maxRange: UnitSystem.unitTypes[unitData.type].maxRange,
+                    hp: UnitSystem.unitTypesRecord[unitData.type].hp,
+                    maxHp: UnitSystem.unitTypesRecord[unitData.type].maxHp,
+                    move: UnitSystem.unitTypesRecord[unitData.type].move,
+                    attack: UnitSystem.unitTypesRecord[unitData.type].attack,
+                    minRange: UnitSystem.unitTypesRecord[unitData.type].minRange,
+                    maxRange: UnitSystem.unitTypesRecord[unitData.type].maxRange,
                     hasAttacked: false,
                     visualUnit: unit  // Reference to the 3D unit for visualization
                 });
@@ -126,9 +127,9 @@ class GameState {
         });
     }
 
-    clone() {
+    clone(): GameState {
         const clone = new GameState();
-        clone.map = this.map.clone();  // Assuming GameMap has a clone method
+        clone.map = (this.map as any).clone();  // pre-existing: GameMap has no clone() method, throws if ever called (dead code, see git history)
         clone.players = JSON.parse(JSON.stringify(this.players));
         clone.units = JSON.parse(JSON.stringify(this.units));
         clone.currentTurn = this.currentTurn;
