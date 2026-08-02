@@ -130,7 +130,8 @@ class UnitSystem {
                 FOREST: 2,
                 MOUNTAIN: null
             },
-            usePlayerColor: false,  // Keep the model's original authored materials/textures
+            usePlayerColor: false,
+            teamColorMaterial: 'teamCamo',  // tint only the model's teamCamo material slot
             sounds: {
                 movement: 'engine_light',
                 attack: 'rlauncher2'
@@ -159,7 +160,8 @@ class UnitSystem {
                 FOREST: 2,
                 MOUNTAIN: null
             },
-            usePlayerColor: false,  // Keep the model's original authored materials/textures
+            usePlayerColor: false,
+            teamColorMaterial: 'teamCamo',  // tint only the model's teamCamo material slot
             sounds: {
                 movement: 'engine_heavy',
                 attack: 'rlauncher2'

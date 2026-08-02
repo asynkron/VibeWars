@@ -42,15 +42,14 @@ const CHAR_TO_TYPE: Record<string, string> = {
 // Edge columns carry roads across the whole map.
 const ROAD_COLUMNS = [0, COLS - 1];
 
-// One shared roster; the player spawns it on the southern back row, the
-// CPU mirrored on the northern.
+// One shared roster of four units; the player spawns it on the southern
+// back row, the CPU mirrored on the northern. Mix: heavy tank, rocket
+// barrage, medium tank, attack helicopter.
 const ROSTER: Array<{ type: string; q: number }> = [
-    { type: 'Tank1', q: 1 },
-    { type: 'Tank2', q: 2 },
-    { type: 'Artillery', q: 3 },
-    { type: 'NightjarHelo', q: 4 },
-    { type: 'Tank3', q: 5 },
-    { type: 'DroverAPC', q: 6 },
+    { type: 'Tank1', q: 2 },
+    { type: 'Tank2', q: 3 },
+    { type: 'Tank3', q: 4 },
+    { type: 'NightjarHelo', q: 5 },
 ];
 
 const asSpawns = (r: number): StartingUnit[] => ROSTER.map(({ type, q }) => ({ type, q, r }));
