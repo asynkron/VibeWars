@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hexagon Tile Game (Three.js)</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+        }
+
+        #minimap-overlay {
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            top: 10px;
+            right: 10px;
+            pointer-events: auto;
+            cursor: pointer;
+        }
+
+        #end-turn-button {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            background-color: #4CAF50;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.1s;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #end-turn-button:hover {
+            background-color: #45a049;
+            transform: translateY(-2px);
+        }
+
+        #end-turn-button:active {
+            transform: translateY(0px);
+        }
+
+        #end-turn-button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="minimap-overlay"></div>
+    <button id="end-turn-button">End Turn</button>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/MTLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegmentsGeometry.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineGeometry.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineMaterial.js"></script>
+    <script src="constants.js"></script>
+    <script>
+        window.HEX_ENGINE_OPTIONS = {
+            loadModels: true,
+            enableDecorations: true,
+            enableUnitSystems: true,
+            enableRoads: true,
+        };
+    </script>
+    <script src="shared/hexengine/options.js"></script>
+    <script src="shared/hexengine/perlinNoise.js"></script>
+    <script src="shared/hexengine/utils.js"></script>
+    <script src="shared/hexengine/TerrainSystem.js"></script>
+    <script src="shared/hexengine/HexCoord.js"></script>
+    <script src="shared/hexengine/MapSystem.js"></script>
+    <script src="shared/hexengine/GridSystem.js"></script>
+    <script src="shared/hexengine/ModelSystem.js"></script>
+    <script src="shared/hexengine/AudioSystem.js"></script>
+    <script src="shared/hexengine/UnitSystem.js"></script>
+    <script src="shared/hexengine/PathfindingSystem.js"></script>
+    <script src="shared/hexengine/FootprintSystem.js"></script>
+    <script src="shared/hexengine/PathIndicatorSystem.js"></script>
+    <script src="shared/hexengine/VisualizationSystem.js"></script>
+    <script src="shared/hexengine/RoadSystem.js"></script>
+    <script src="shared/hexengine/ScoringSystem.js"></script>
+    <script src="systems/GameState.js"></script>
+    <script src="systems/ai/commands/Command.js"></script>
+    <script src="systems/ai/commands/MoveRandomCommand.js"></script>
+    <script src="systems/ai/commands/AttackRandomCommand.js"></script>
+    <script src="systems/ai/commands/MoveTowardsEnemyCommand.js"></script>
+    <script src="systems/ai/commands/MoveAwayFromEnemyCommand.js"></script>
+    <script src="systems/ai/commands/DoNothingCommand.js"></script>
+    <script src="shared/hexengine/ai/AISystem.js"></script>
+    <script src="render.js"></script>
+    <script src="shared/hexengine/SkyboxSystem.js"></script>
+    <script src="game.js"></script>
+    <script>
+        window.onload = function () {
+            console.log('Scripts loaded, calling initGame');
+            initGame(); // Should work now
+        };
+    </script>
+</body>
+
+</html>

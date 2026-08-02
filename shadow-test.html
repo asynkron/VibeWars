@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Three.js Shadow Test</title>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.157.0/build/three.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xffffff);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 1000);
+        camera.position.set(20, 20, 20);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.VSMShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.2);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 5);
+        directionalLight.position.set(10, 5, 2);
+        directionalLight.castShadow = true;
+
+        directionalLight.shadow.mapSize.width = 256;
+        directionalLight.shadow.mapSize.height = 256;
+        directionalLight.shadow.camera.near = 0.5;
+        directionalLight.shadow.camera.far = 25;
+        directionalLight.shadow.camera.left = -10;
+        directionalLight.shadow.camera.right = 10;
+        directionalLight.shadow.camera.top = 10;
+        directionalLight.shadow.camera.bottom = -10;
+
+        directionalLight.shadow.radius = 5;
+        directionalLight.shadow.blurSamples = 25;
+
+        scene.add(directionalLight);
+
+        // Ground plane
+        const planeGeometry = new THREE.PlaneGeometry(30, 30);
+        const planeMaterial = new THREE.MeshPhongMaterial({
+            color: 0xcccccc,
+            side: THREE.DoubleSide
+        });
+        const ground = new THREE.Mesh(planeGeometry, planeMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = -2;
+        ground.receiveShadow = true;
+        scene.add(ground);
+
+        // Box
+        const boxGeometry = new THREE.BoxGeometry(4, 4, 4);
+        const boxMaterial = new THREE.MeshPhongMaterial({
+            color: 0xff0000
+        });
+        const box = new THREE.Mesh(boxGeometry, boxMaterial);
+        box.position.y = 2;
+        box.castShadow = true;
+        box.receiveShadow = true;
+        scene.add(box);
+
+        // Optional: Add shadow camera helper for debugging
+        const helper = new THREE.CameraHelper(directionalLight.shadow.camera);
+        scene.add(helper);
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            box.rotation.y += 0.01;
+            box.rotation.x += 0.005;
+            helper.update();
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+
+</html>
