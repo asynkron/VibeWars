@@ -8,7 +8,7 @@ const grass = () => ({ height: 1, type: 'GRASS', hasRoad: false, moveCost: 1 });
 
 function makeUnit(patch: any = {}) {
     return {
-        type: 'Tank1', q: 2, r: 2, playerIndex: 1, hp: 10, maxHp: 10,
+        type: 'Bulwark', q: 2, r: 2, playerIndex: 1, hp: 10, maxHp: 10,
         move: 2, attack: 5, minRange: 1, maxRange: 1, hasAttacked: false,
         ...patch,
     };
@@ -23,18 +23,18 @@ function makeState(units: any[]): SimState {
 
 describe('expectedDamage', () => {
     it('is round((min+max)/2) from the type config', () => {
-        // Tank1: minDamage 4, maxDamage 6 -> 5
-        expect(expectedDamage('Tank1')).toBe(5);
-        // Artillery: 5..7 -> 6
-        expect(expectedDamage('Artillery')).toBe(6);
+        // Bulwark: minDamage 4, maxDamage 6 -> 5
+        expect(expectedDamage('Bulwark')).toBe(5);
+        // Mortar: 5..7 -> 6
+        expect(expectedDamage('Mortar')).toBe(6);
     });
 });
 
 describe('resolveAttack: projectile/laser', () => {
     it('single hit on the defender, no craters', () => {
-        // Tank1 = projectile, Droid = laser
+        // Bulwark = projectile, Droid = laser
         const state = makeState([
-            makeUnit({ type: 'Tank1', q: 1, r: 1, playerIndex: 1 }),
+            makeUnit({ type: 'Bulwark', q: 1, r: 1, playerIndex: 1 }),
             makeUnit({ type: 'Droid', q: 2, r: 2, playerIndex: 0, hp: 2, maxHp: 2 }),
         ]);
         const resolved = resolveAttack(state, 0, 1, 42)!;
@@ -51,15 +51,15 @@ describe('resolveAttack: projectile/laser', () => {
 
 describe('resolveAttack: rocketBarrage', () => {
     it('splashes every unit on target + neighbor hexes, friendly fire included', () => {
-        // Tank2 uses rocketBarrage, expected damage (4+6)/2 = 5, splash floor(2.5) = 2.
+        // Kestrel uses rocketBarrage, expected damage (4+6)/2 = 5, splash floor(2.5) = 2.
         const defenderPos = { q: 2, r: 2 };
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const farAway = { q: 5, r: 5 };
         const state = makeState([
-            makeUnit({ type: 'Tank2', q: 0, r: 0, playerIndex: 1 }),                    // attacker
+            makeUnit({ type: 'Kestrel', q: 0, r: 0, playerIndex: 1 }),                    // attacker
             makeUnit({ type: 'Droid', ...defenderPos, playerIndex: 0, hp: 2 }),          // primary target
-            makeUnit({ type: 'Tank1', q: neighbor.q, r: neighbor.r, playerIndex: 1 }),   // AI's own unit in splash!
-            makeUnit({ type: 'Tank3', ...farAway, playerIndex: 0 }),                     // outside splash
+            makeUnit({ type: 'Bulwark', q: neighbor.q, r: neighbor.r, playerIndex: 1 }),   // AI's own unit in splash!
+            makeUnit({ type: 'Sabre', ...farAway, playerIndex: 0 }),                     // outside splash
         ]);
         const resolved = resolveAttack(state, 0, 1, 7)!;
 
@@ -79,7 +79,7 @@ describe('resolveAttack: rocketBarrage', () => {
 
     it('same seed gives identical impacts, different seeds diverge', () => {
         const state = makeState([
-            makeUnit({ type: 'Tank2', q: 0, r: 0, playerIndex: 1 }),
+            makeUnit({ type: 'Kestrel', q: 0, r: 0, playerIndex: 1 }),
             makeUnit({ type: 'Droid', q: 2, r: 2, playerIndex: 0 }),
         ]);
         const a = resolveAttack(state, 0, 1, 1234)!;

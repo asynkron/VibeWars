@@ -11,7 +11,7 @@ const forest = () => ({ height: 1, type: 'FOREST', hasRoad: false, moveCost: 2 }
 
 function makeUnit(patch: any = {}) {
     return {
-        type: 'Tank1', q: 2, r: 2, playerIndex: 1, hp: 10, maxHp: 10,
+        type: 'Bulwark', q: 2, r: 2, playerIndex: 1, hp: 10, maxHp: 10,
         move: 2, attack: 5, minRange: 1, maxRange: 1, hasAttacked: false,
         ...patch,
     };
@@ -32,15 +32,15 @@ const key = (q: number, r: number) => `${q},${r}`;
 describe('simMoveCost', () => {
     it('roads cost 0.5 regardless of terrain and unit type', () => {
         const state = makeState((q, r) => (q === 3 && r === 2 ? { ...water(), hasRoad: true } : grass()), [makeUnit()]);
-        expect(simMoveCost(state, 'Tank1', 3, 2)).toBe(0.5);
+        expect(simMoveCost(state, 'Bulwark', 3, 2)).toBe(0.5);
     });
 
     it('uses the unit type terrain costs, null when impassable', () => {
         const state = makeState((q) => (q === 3 ? water() : q === 4 ? forest() : grass()), [makeUnit()]);
-        expect(simMoveCost(state, 'Tank1', 2, 2)).toBe(1);      // grass
-        expect(simMoveCost(state, 'Tank1', 4, 2)).toBe(2);      // forest
-        expect(simMoveCost(state, 'Tank1', 3, 2)).toBeNull();   // water impassable for tanks
-        expect(simMoveCost(state, 'NightjarHelo', 3, 2)).toBe(1); // flyer crosses water
+        expect(simMoveCost(state, 'Bulwark', 2, 2)).toBe(1);      // grass
+        expect(simMoveCost(state, 'Bulwark', 4, 2)).toBe(2);      // forest
+        expect(simMoveCost(state, 'Bulwark', 3, 2)).toBeNull();   // water impassable for tanks
+        expect(simMoveCost(state, 'Nightjar', 3, 2)).toBe(1); // flyer crosses water
     });
 });
 
@@ -61,13 +61,13 @@ describe('simDijkstra', () => {
     it('water blocks ground units but not flyers', () => {
         // Everything except the start tile is water.
         const state = makeState((q, r) => (q === 2 && r === 2 ? grass() : water()), [
-            makeUnit({ type: 'Tank1', move: 2 }),
+            makeUnit({ type: 'Bulwark', move: 2 }),
         ]);
         const tank = simDijkstra(state, 0, 2);
         expect(tank.reachable.size).toBe(1); // only the start
 
         const state2 = makeState((q, r) => (q === 2 && r === 2 ? grass() : water()), [
-            makeUnit({ type: 'NightjarHelo', move: 2 }),
+            makeUnit({ type: 'Nightjar', move: 2 }),
         ]);
         const helo = simDijkstra(state2, 0, 2);
         expect(helo.reachable.size).toBeGreaterThan(1);

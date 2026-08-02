@@ -17,7 +17,7 @@ function makeSource() {
     tiles[0][3] = { height: 0, type: 'WATER', hasRoad: false, moveCost: Infinity };
 
     const units = [
-        { type: 'Tank1', q: 1, r: 1, playerIndex: 0, hp: 10, maxHp: 10, move: 2, attack: 5, minRange: 1, maxRange: 1, hasAttacked: false },
+        { type: 'Bulwark', q: 1, r: 1, playerIndex: 0, hp: 10, maxHp: 10, move: 2, attack: 5, minRange: 1, maxRange: 1, hasAttacked: false },
         { type: 'Droid', q: 2, r: 2, playerIndex: 1, hp: 2, maxHp: 2, move: 3, attack: 4, minRange: 1, maxRange: 2, hasAttacked: false },
     ];
     return {
@@ -34,7 +34,7 @@ describe('SimState.snapshot', () => {
         expect(sim.getTile(0, 0)).toEqual({ height: 1.0, type: 'GRASS', hasRoad: false, moveCost: 1 });
         expect(sim.getTile(0, 3)!.type).toBe('WATER');
         expect(sim.unitCount).toBe(2);
-        expect(sim.getUnit(0)!.type).toBe('Tank1');
+        expect(sim.getUnit(0)!.type).toBe('Bulwark');
         expect(sim.getUnit(1)!.playerIndex).toBe(1);
     });
 

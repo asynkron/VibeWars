@@ -46,10 +46,10 @@ const ROAD_COLUMNS = [0, COLS - 1];
 // back row, the CPU mirrored on the northern. Mix: heavy tank, rocket
 // barrage, medium tank, attack helicopter.
 const ROSTER: Array<{ type: string; q: number }> = [
-    { type: 'Tank1', q: 2 },
-    { type: 'Tank2', q: 3 },
-    { type: 'Tank3', q: 4 },
-    { type: 'NightjarHelo', q: 5 },
+    { type: 'Bulwark', q: 2 },
+    { type: 'Kestrel', q: 3 },
+    { type: 'Sabre', q: 4 },
+    { type: 'Nightjar', q: 5 },
 ];
 
 const asSpawns = (r: number): StartingUnit[] => ROSTER.map(({ type, q }) => ({ type, q, r }));

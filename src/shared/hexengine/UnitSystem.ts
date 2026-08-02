@@ -47,14 +47,14 @@ class UnitSystem {
                 attack: 'laser'
             }
         },
-        "Boat1": {
+        "Gunboat": {
             symbol: "O",
-            name: "Boat1",
+            name: "Gunboat",
             maxHp: 10,
             hp: 10,
             move: 2,
-            minRange: 2,
-            maxRange: 6,
+            minRange: 1,
+            maxRange: 2,
             minDamage: 4,
             maxDamage: 6,
             attack: 5,
@@ -77,9 +77,9 @@ class UnitSystem {
                 attack: 'rlauncher1'
             }
         },
-        "Tank1": {
+        "Bulwark": {
             symbol: "O",
-            name: "Tank1",
+            name: "Bulwark",
             maxHp: 10,
             hp: 10,
             move: 2,
@@ -107,14 +107,14 @@ class UnitSystem {
                 attack: 'rlauncher2'
             }
         },
-        "Tank2": {
+        "Kestrel": {
             symbol: "O",
-            name: "Tank2",
+            name: "Kestrel",
             maxHp: 7,
             hp: 7,
-            move: 2,
-            minRange: 3,
-            maxRange: 5,
+            move: 1,
+            minRange: 2,
+            maxRange: 3,
             minDamage: 4,
             maxDamage: 6,
             attack: 5,
@@ -137,12 +137,12 @@ class UnitSystem {
                 attack: 'rlauncher2'
             }
         },
-        "Tank3": {
+        "Sabre": {
             symbol: "O",
-            name: "Tank3",
+            name: "Sabre",
             maxHp: 5,
             hp: 5,
-            move: 2,
+            move: 3,
             minRange: 1,
             maxRange: 1,
             minDamage: 4,
@@ -172,9 +172,9 @@ class UnitSystem {
             name: "Droid",
             maxHp: 2,
             hp: 2,
-            move: 3,
+            move: 2,
             minRange: 1,
-            maxRange: 2,
+            maxRange: 1,
             minDamage: 3,
             maxDamage: 5,
             attack: 4,
@@ -195,14 +195,14 @@ class UnitSystem {
                 attack: 'laser'
             }
         },
-        "Artillery": {
+        "Mortar": {
             symbol: "T",
-            name: "Artillery",
+            name: "Mortar",
             maxHp: 3,
             hp: 3,
-            move: 2,
+            move: 1,
             minRange: 2,
-            maxRange: 4,
+            maxRange: 3,
             minDamage: 5,
             maxDamage: 7,
             attack: 6,
@@ -230,8 +230,8 @@ class UnitSystem {
             maxHp: 10,
             hp: 10,
             move: 1,
-            minRange: 3,
-            maxRange: 4,
+            minRange: 2,
+            maxRange: 3,
             minDamage: 6,
             maxDamage: 8,
             attack: 15,
@@ -251,14 +251,14 @@ class UnitSystem {
                 attack: 'rlauncher3'
             }
         },
-        "DroverAPC": {
+        "Drover": {
             symbol: "A",
-            name: "Drover APC",
+            name: "Drover",
             maxHp: 6,
             hp: 6,
             move: 3,
             minRange: 1,
-            maxRange: 2,
+            maxRange: 1,
             minDamage: 3,
             maxDamage: 5,
             attack: 4,
@@ -281,14 +281,14 @@ class UnitSystem {
                 attack: 'rlauncher1'
             }
         },
-        "HalberdAA": {
+        "Halberd": {
             symbol: "H",
-            name: "Halberd AA",
+            name: "Halberd",
             maxHp: 8,
             hp: 8,
             move: 2,
-            minRange: 2,
-            maxRange: 5,  // long reach, reflecting its anti-air role
+            minRange: 1,
+            maxRange: 2,  // short standoff, anti-air role
             minDamage: 4,
             maxDamage: 6,
             attack: 5,
@@ -311,14 +311,14 @@ class UnitSystem {
                 attack: 'rlauncher3'
             }
         },
-        "LynxIFV": {
+        "Lynx": {
             symbol: "L",
-            name: "Lynx IFV",
+            name: "Lynx",
             maxHp: 5,
             hp: 5,
             move: 4,  // fast scout/skirmisher
             minRange: 1,
-            maxRange: 2,
+            maxRange: 1,
             minDamage: 2,
             maxDamage: 4,
             attack: 3,
@@ -341,14 +341,14 @@ class UnitSystem {
                 attack: 'rlauncher1'
             }
         },
-        "NightjarHelo": {
+        "Nightjar": {
             symbol: "N",
-            name: "Nightjar Helo",
+            name: "Nightjar",
             maxHp: 6,
             hp: 6,
-            move: 5,  // flight
+            move: 4,  // flight
             minRange: 1,
-            maxRange: 3,
+            maxRange: 1,
             minDamage: 4,
             maxDamage: 6,
             attack: 5,
@@ -373,14 +373,14 @@ class UnitSystem {
                 attack: 'rlauncher2'
             }
         },
-        "ShrikeJet": {
+        "Shrike": {
             symbol: "S",
-            name: "Shrike Jet",
+            name: "Shrike",
             maxHp: 4,  // fragile, hit-and-run
             hp: 4,
-            move: 7,  // very fast
-            minRange: 2,
-            maxRange: 4,
+            move: 5,  // very fast
+            minRange: 1,
+            maxRange: 1,
             minDamage: 6,
             maxDamage: 9,
             attack: 7,

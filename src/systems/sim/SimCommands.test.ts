@@ -9,7 +9,7 @@ const grass = () => ({ height: 1, type: 'GRASS', hasRoad: false, moveCost: 1 });
 
 function makeUnit(patch: any = {}) {
     return {
-        type: 'Tank1', q: 2, r: 2, playerIndex: 1, hp: 10, maxHp: 10,
+        type: 'Bulwark', q: 2, r: 2, playerIndex: 1, hp: 10, maxHp: 10,
         move: 2, attack: 5, minRange: 1, maxRange: 1, hasAttacked: false,
         ...patch,
     };
@@ -24,7 +24,7 @@ function makeState(units: any[]): SimState {
 
 describe('attack gene', () => {
     it('records unitAttacked and unitDied when lethal, and marks hasAttacked', () => {
-        // Tank1 expected damage 5, Droid has 2 hp -> dies.
+        // Bulwark expected damage 5, Droid has 2 hp -> dies.
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const state = makeState([
             makeUnit({ playerIndex: 1 }),
@@ -63,7 +63,7 @@ describe('attack gene', () => {
     it('rocketBarrage genes record terrainModified craters', () => {
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const state = makeState([
-            makeUnit({ type: 'Tank2', q: neighbor.q, r: neighbor.r, playerIndex: 1, minRange: 1, maxRange: 5 }),
+            makeUnit({ type: 'Kestrel', q: neighbor.q, r: neighbor.r, playerIndex: 1, minRange: 1, maxRange: 5 }),
             makeUnit({ type: 'Droid', q: 2, r: 2, playerIndex: 0, hp: 2 }),
         ]);
         applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 99 });

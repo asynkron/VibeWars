@@ -9,7 +9,7 @@ const grass = () => ({ height: 1, type: 'GRASS', hasRoad: false, moveCost: 1 });
 
 function makeUnit(patch: any = {}) {
     return {
-        type: 'Tank1', q: 2, r: 2, playerIndex: 1, hp: 10, maxHp: 10,
+        type: 'Bulwark', q: 2, r: 2, playerIndex: 1, hp: 10, maxHp: 10,
         move: 2, attack: 5, minRange: 1, maxRange: 1, hasAttacked: false,
         ...patch,
     };
@@ -60,7 +60,7 @@ describe('planTurn', () => {
     });
 
     it('chains move + attack for one unit in the same turn (regression)', () => {
-        // Tank1 has range 1 and move 2; the 2hp Droid sits at distance 2.
+        // Bulwark has range 1 and move 2; the 2hp Droid sits at distance 2.
         // The kill requires moving adjacent AND attacking in one turn --
         // with single-command-per-unit plans this was impossible (units
         // either moved or attacked, never both).
@@ -79,7 +79,7 @@ describe('planTurn', () => {
     it('is deterministic given the seed', () => {
         const build = () => makeState([
             makeUnit({ q: 1, r: 1, playerIndex: 1 }),
-            makeUnit({ q: 3, r: 3, playerIndex: 1, type: 'Tank2', minRange: 3, maxRange: 5 }),
+            makeUnit({ q: 3, r: 3, playerIndex: 1, type: 'Kestrel', minRange: 3, maxRange: 5 }),
             makeUnit({ q: 6, r: 6, playerIndex: 0 }),
         ]);
         const a = planTurn(build(), 1, { population: 12, rounds: 2, seed: 7 });
