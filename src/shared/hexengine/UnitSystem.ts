@@ -1,4 +1,9 @@
 // UnitSystem.js
+import { scene, miniMapScene } from '../../render';
+import { FootprintSystem } from './FootprintSystem';
+import { VisualizationSystem } from './VisualizationSystem';
+import { PathfindingSystem } from './PathfindingSystem';
+import { setSelectedUnit } from '../../game';
 
 class UnitSystem {
     static unitTypes = {
@@ -248,7 +253,7 @@ class UnitSystem {
         const canvas = document.createElement('canvas');
         canvas.width = 128;
         canvas.height = 128;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d')!;
 
         // Draw HP bar background (black)
         ctx.fillStyle = '#000000';
@@ -454,7 +459,7 @@ class UnitSystem {
         return null;
     }
 
-    static setPosition(unit, coord, hex, rotation, customPosition = null) {
+    static setPosition(unit, coord, hex, rotation?: any, customPosition: any = null) {
         // Get the old position's hex before updating
         const oldHex = HexCoord.findHex(unit.userData.q, unit.userData.r);
 
@@ -697,7 +702,7 @@ class UnitSystem {
     }
 
     static handleSelection(unit) {
-        selectedUnit = unit;
+        setSelectedUnit(unit);
         VisualizationSystem.clearPathLine();
         VisualizationSystem.clearHighlights();  // Clear existing highlights first
 
@@ -965,7 +970,7 @@ class UnitSystem {
         // Set the hasAttacked flag for the attacker
         this.setHasAttacked(attacker, true);
 
-        selectedUnit = null;
+        setSelectedUnit(null);
         VisualizationSystem.clearHighlights();
     }
 
@@ -1021,3 +1026,5 @@ class UnitSystem {
 
 window.UnitSystem = UnitSystem;
 console.log('UnitSystem.js loaded');
+
+export { UnitSystem };

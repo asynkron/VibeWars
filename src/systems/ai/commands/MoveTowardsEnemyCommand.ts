@@ -1,5 +1,6 @@
 import { Command } from './Command';
 import { PathfindingSystem } from '../../../shared/hexengine/PathfindingSystem';
+import { UnitSystem } from '../../../shared/hexengine/UnitSystem';
 
 class MoveTowardsEnemyCommand extends Command {
     unitIndex: any;

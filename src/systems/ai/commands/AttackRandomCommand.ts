@@ -1,4 +1,5 @@
 import { Command } from './Command';
+import { UnitSystem } from '../../../shared/hexengine/UnitSystem';
 
 class AttackRandomCommand extends Command {
     unitIndex: any;

@@ -1,6 +1,7 @@
 // PathIndicatorSystem.js
 import { group } from '../../render';
 import { VisualizationSystem } from './VisualizationSystem';
+import { UnitSystem } from './UnitSystem';
 
 class PathIndicatorSystem {
     static pathIndicators: any[] = [];

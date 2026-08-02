@@ -1,5 +1,6 @@
 import { group } from '../../render';
 import { VisualizationSystem } from './VisualizationSystem';
+import { UnitSystem } from './UnitSystem';
 
 class FootprintSystem {
     static footprints: any[] = [];

@@ -13,11 +13,23 @@ import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { PathIndicatorSystem } from './shared/hexengine/PathIndicatorSystem';
 import { FootprintSystem } from './shared/hexengine/FootprintSystem';
 import { PathfindingSystem } from './shared/hexengine/PathfindingSystem';
+import { UnitSystem } from './shared/hexengine/UnitSystem';
 
 // Game Data
 let selectedUnit: any = null;
 let pathLine: any = null;
 let isDragging = false;
+
+// Exposed so UnitSystem (attack/handleSelection) can read and clear the
+// selection -- same reasoning as render.ts's getCameraHeight/setCameraHeight:
+// module scope doesn't share a mutable `let` across files.
+function getSelectedUnit() {
+    return selectedUnit;
+}
+
+function setSelectedUnit(unit: any) {
+    selectedUnit = unit;
+}
 let isDraggingMinimap = false;
 let isRotating = false;
 let previousMousePosition = { x: 0, y: 0 };
@@ -156,7 +168,7 @@ function setupEventListeners(matrices) {
             if (selectedUnit) {
                 await VisualizationSystem.clearPathLine();
                 const path = PathfindingSystem.getPath(selectedUnit.q, selectedUnit.r, hexGroup.userData.q, hexGroup.userData.r, selectedUnit.move, selectedUnit);
-                if (path.length > 0 && UnitSystem.isValidMove(selectedUnit, hexGroup, selectedUnit)) {
+                if (path.length > 0 && UnitSystem.isValidMove(selectedUnit, hexGroup)) {
                     await VisualizationSystem.drawPath(selectedUnit, path);  // Use default VISUAL_COLORS.PATH
                 }
             }
@@ -253,7 +265,7 @@ function setupEventListeners(matrices) {
                 if (selectUnit(unitOnHex)) {
                     return;
                 }
-            } else if (selectedUnit && UnitSystem.isValidMove(selectedUnit, hexGroup, selectedUnit)) {
+            } else if (selectedUnit && UnitSystem.isValidMove(selectedUnit, hexGroup)) {
                 UnitSystem.handleMovement(selectedUnit, hexGroup);
             } else if (selectedUnit) {
                 // Clear selection when clicking an empty hex that's not a valid move
@@ -520,3 +532,5 @@ function initializeLighting() {
     scene.add(ambientLight);
     scene.add(directionalLight);
 }
+
+export { getSelectedUnit, setSelectedUnit };
