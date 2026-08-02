@@ -36,8 +36,16 @@ function initRenderer() {
     isRendererInitialized = true;
 }
 
-// Make initRenderer available globally
+// Make renderer internals available globally (needed by game.js and other classic scripts)
 window.initRenderer = initRenderer;
+window.scene = scene;
+window.camera = camera;
+window.renderer = renderer;
+window.group = group;
+window.miniMapScene = miniMapScene;
+window.mapWidth = mapWidth;
+window.mapHeight = mapHeight;
+window.cameraTarget = cameraTarget;
 
 // Call initRenderer when the page loads
 window.addEventListener('load', initRenderer);
@@ -226,3 +234,12 @@ function updateMiniMapHighlights(highlightGroup, matrices) {
 
     console.log("Visible hexes in minimap:", visibleHexes.length);
 }
+
+window.setupCamera = setupCamera;
+window.getLookDirection = getLookDirection;
+window.setCameraPosition = setCameraPosition;
+window.updateCameraPosition = updateCameraPosition;
+window.updateCameraZoom = updateCameraZoom;
+window.setupMinimap = setupMinimap;
+window.animate = animate;
+window.updateMiniMapHighlights = updateMiniMapHighlights;

@@ -324,4 +324,8 @@ class TerrainSystem {
     }
 }
 
+if (typeof window !== 'undefined') {
+    window.TerrainSystem = TerrainSystem;
+}
+
 console.log('TerrainSystem.js loaded');

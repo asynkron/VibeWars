@@ -42,4 +42,8 @@ class SkyboxSystem {
         console.log('Camera position:', camera.position);
         console.log('Camera target:', cameraTarget);
     }
-} 
+}
+
+if (typeof window !== 'undefined') {
+    window.SkyboxSystem = SkyboxSystem;
+}

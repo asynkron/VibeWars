@@ -189,4 +189,8 @@ class PathfindingSystem {
 
 }
 
+if (typeof window !== 'undefined') {
+    window.PathfindingSystem = PathfindingSystem;
+}
+
 console.log('PathfindingSystem.js loaded');

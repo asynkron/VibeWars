@@ -129,4 +129,8 @@ class GameState {
     }
 }
 
-console.log('GameState.js loaded'); 
+if (typeof window !== 'undefined') {
+    window.GameState = GameState;
+}
+
+console.log('GameState.js loaded');
