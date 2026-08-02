@@ -1,7 +1,31 @@
+// Map selection: which map to play is chosen via the ?map=<key> URL
+// parameter. The full map definitions (terrain, roads, spawns) live in
+// src/systems/maps/, but the SIZE must be known here, import-free --
+// render.ts and others read MAP_CONFIG.ROWS/COLS while modules are still
+// evaluating, and importing the providers from here would create an
+// import cycle. mapRegistry.selectedMapProvider() asserts this table
+// stays in sync with the providers.
+const MAP_SIZES: Record<string, { rows: number; cols: number }> = {
+    mirror8: { rows: 8, cols: 8 },
+    random50: { rows: 50, cols: 50 },
+};
+
+const DEFAULT_MAP_KEY = 'mirror8';
+
+function pickMapKey(): string {
+    if (typeof window !== 'undefined' && window.location?.search) {
+        const requested = new URLSearchParams(window.location.search).get('map');
+        if (requested && MAP_SIZES[requested]) return requested;
+    }
+    return DEFAULT_MAP_KEY;
+}
+
+const MAP_KEY = pickMapKey();
+
 // Map and camera constants
 const MAP_CONFIG = {
-    ROWS: 50,
-    COLS: 50,
+    ROWS: MAP_SIZES[MAP_KEY].rows,
+    COLS: MAP_SIZES[MAP_KEY].cols,
     HEX_RADIUS: 1,
     TILT_ANGLE: 0,
     CAMERA: {
@@ -66,6 +90,6 @@ const WATER_FOAM_COLOR = 0x236DA6; // Hex color for water foam
 const CRATER_COLOR = '#3A2B1B';
 
 export {
-    MAP_CONFIG, TERRAIN_CONFIG, players, HIGHLIGHT_COLORS, VISUAL_COLORS,
+    MAP_CONFIG, MAP_KEY, TERRAIN_CONFIG, players, HIGHLIGHT_COLORS, VISUAL_COLORS,
     VISUAL_OFFSETS, DEBUG_SETTINGS, WATER_FOAM_COLOR, CRATER_COLOR,
 };

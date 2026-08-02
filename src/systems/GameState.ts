@@ -2,6 +2,7 @@
 import { UnitSystem } from '../shared/hexengine/UnitSystem';
 import { GameMap } from '../shared/hexengine/MapSystem';
 import { AIController } from './ai/AIController';
+import { selectedMapProvider } from './maps/mapRegistry';
 import type { GameUnit, GamePlayer } from '../types';
 
 class GameState {
@@ -60,27 +61,9 @@ class GameState {
     }
 
     initializeUnits(): void {
-        // Player units (matching existing setup)
-        const playerStartingUnits = [
-            { type: 'Droid', q: 2, r: 2 },
-            { type: 'Artillery', q: 3, r: 3 },
-            { type: 'Tank1', q: 4, r: 4 },
-            { type: 'Tank2', q: 5, r: 4 },
-            { type: 'Tank3', q: 6, r: 4 },
-            { type: 'Boat1', q: 6, r: 6 },
-            { type: 'DroverAPC', q: 7, r: 4 },
-            { type: 'HalberdAA', q: 7, r: 5 },
-            { type: 'LynxIFV', q: 4, r: 5 },
-            { type: 'NightjarHelo', q: 3, r: 5 },
-            { type: 'ShrikeJet', q: 8, r: 3 }
-        ];
-
-        // AI units (matching existing setup)
-        const aiStartingUnits = [
-            { type: 'Tank1', q: 1, r: 5 },
-            { type: 'Artillery', q: 2, r: 6 }
-
-        ];
+        // Starting units come from the selected map's provider, so each
+        // map owns its own (possibly mirrored) lineup.
+        const { player: playerStartingUnits, cpu: aiStartingUnits } = selectedMapProvider().spawns;
 
         // Create player units
         playerStartingUnits.forEach(unitData => {

@@ -1,6 +1,7 @@
 import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { HexCoord } from './HexCoord';
+import { MAP_CONFIG } from '../../constants';
 
 describe('HexCoord', () => {
     it('getKey/fromKey round-trip', () => {
@@ -15,9 +16,9 @@ describe('HexCoord', () => {
         expect(HexCoord.isWithinMapBounds(0, 0)).toBe(true);
         expect(HexCoord.isWithinMapBounds(-1, 0)).toBe(false);
         expect(HexCoord.isWithinMapBounds(0, -1)).toBe(false);
-        expect(HexCoord.isWithinMapBounds(49, 49)).toBe(true);
-        expect(HexCoord.isWithinMapBounds(50, 0)).toBe(false);
-        expect(HexCoord.isWithinMapBounds(0, 50)).toBe(false);
+        expect(HexCoord.isWithinMapBounds(MAP_CONFIG.COLS - 1, MAP_CONFIG.ROWS - 1)).toBe(true);
+        expect(HexCoord.isWithinMapBounds(MAP_CONFIG.COLS, 0)).toBe(false);
+        expect(HexCoord.isWithinMapBounds(0, MAP_CONFIG.ROWS)).toBe(false);
     });
 
     it('getDistance returns 0 for the same hex and is symmetric', () => {

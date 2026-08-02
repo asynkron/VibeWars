@@ -1,24 +1,12 @@
-// Shared map generator building on the Battle Isle terrain rules.
-import { TerrainSystem } from './TerrainSystem';
-import { perlinNoise } from './perlinNoise';
-import { MAP_CONFIG, TERRAIN_CONFIG } from '../../constants';
+// GameMap delegates tile generation to the selected MapProvider (see
+// src/systems/maps/) -- the perlin wilderness, the mirrored 8x8 skirmish
+// map, and any future maps all plug in through the same interface. The
+// Tile class lives with the providers now; re-exported here for existing
+// importers.
+import { selectedMapProvider } from '../../systems/maps/mapRegistry';
+import { Tile } from '../../systems/maps/MapProvider';
+import { MAP_CONFIG } from '../../constants';
 import type { TileLike } from '../../types';
-
-class Tile implements TileLike {
-  height: number;
-  type: string;
-  color: number;
-  hasRoad: boolean;
-  moveCost: number;
-
-  constructor(height: number, type: string, color: number) {
-    this.height = height;
-    this.type = type;
-    this.color = color;
-    this.hasRoad = false;
-    this.moveCost = (TerrainSystem.terrainTypes as any)[type]?.moveCost ?? 1;
-  }
-}
 
 class GameMap {
   rows: number;
@@ -28,38 +16,7 @@ class GameMap {
   constructor(rows = MAP_CONFIG.ROWS, cols = MAP_CONFIG.COLS) {
     this.rows = rows;
     this.cols = cols;
-    this.tiles = [];
-    for (let q = 0; q < cols; q++) {
-      this.tiles[q] = [];
-    }
-    this.generateMap();
-  }
-
-  generateMap() {
-    for (let q = 0; q < this.cols; q++) {
-      for (let r = 0; r < this.rows; r++) {
-        const rawNoise = perlinNoise(q / TERRAIN_CONFIG.PERLIN_SCALE, r / TERRAIN_CONFIG.PERLIN_SCALE);
-        const noiseValue = (rawNoise + 1) / 2;
-
-        const terrainType = TerrainSystem.getTerrainTypeFromNoise(noiseValue);
-        const baseHeight = TerrainSystem.getTerrainBaseHeight(terrainType);
-        const heightVariation = Math.random() * TerrainSystem.getTerrainHeightVariation(terrainType);
-
-        let height: number;
-        if (terrainType === 'WATER') {
-          height = baseHeight;
-        } else {
-          height =
-            baseHeight +
-            noiseValue * TERRAIN_CONFIG.HEIGHT_SCALE +
-            heightVariation -
-            TERRAIN_CONFIG.VALLEY_OFFSET;
-        }
-
-        const color = TerrainSystem.getLerpedTerrainColor(noiseValue);
-        this.tiles[q][r] = new Tile(height, terrainType, color);
-      }
-    }
+    this.tiles = selectedMapProvider().generate();
   }
 
   getTile(q: number, r: number): TileLike | null {

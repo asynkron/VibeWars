@@ -25,6 +25,7 @@ import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
 import { MAP_CONFIG } from './constants';
 import { setGameState, getGameState } from './systems/gameStateStore';
+import { selectedMapProvider } from './systems/maps/mapRegistry';
 import type { CameraMatrices, GameUnit } from './types';
 
 // Game Data
@@ -477,7 +478,10 @@ window.onload = () => {
 };
 
 function createRoads(gameState: GameState) {
-    for (let i = 0; i < 10; i++) {
+    // Authored maps bake their roads as tile.hasRoad and set randomRoads
+    // to 0; the random wilderness sprinkles this many on top.
+    const roadCount = selectedMapProvider().randomRoads;
+    for (let i = 0; i < roadCount; i++) {
         // Find a random valid start point (not water)
         let startQ, startR;
         do {
