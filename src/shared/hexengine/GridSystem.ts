@@ -8,6 +8,7 @@ import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
 import { addColorVariation, getVertexOffsets } from './utils';
 import { MAP_CONFIG, WATER_FOAM_COLOR, CRATER_COLOR } from '../../constants';
+import type { GameUnit } from '../../types';
 
 class GridSystem {
     static hexGrid: any[] = [];
@@ -16,7 +17,7 @@ class GridSystem {
     static materialCache = new Map(); // Cache for materials
     static miniHexGeometry: any = null; // Shared geometry for minimap hexes
 
-    static getOption(key) {
+    static getOption(key: string) {
         const engine = typeof window !== 'undefined' ? window.HEX_ENGINE : null;
         if (engine?.getOption) {
             const value = engine.getOption(key);
@@ -31,7 +32,7 @@ class GridSystem {
     // Geometry Helpers
     // ---------------------------
     // Generates vertices, UVs, and indices for a hexagon prism
-    static generateHexBufferData(radius, height) {
+    static generateHexBufferData(radius: number, height: number) {
         const vertices: any[] = [];
         const uvs: any[] = [];
         const indices: any[] = [];
@@ -75,7 +76,7 @@ class GridSystem {
     }
 
     // Applies vertex colors to a geometry based on geometry.userData.intendedColor
-    static applyVertexColors(geometry, vertices) {
+    static applyVertexColors(geometry: any, vertices: any[]) {
         const colors = new Float32Array(vertices.length);
         const intendedColor = geometry.userData.intendedColor;
         for (let i = 0; i < vertices.length; i += 3) {
@@ -91,7 +92,7 @@ class GridSystem {
     }
 
     // Creates a BufferGeometry for a hex with the specified color
-    static createHexGeometryWithColor(radius, height, color) {
+    static createHexGeometryWithColor(radius: number, height: number, color: number | string) {
         const geometry = new THREE.BufferGeometry();
         geometry.userData.intendedColor = new THREE.Color(color);
         const { vertices, uvs, indices } = this.generateHexBufferData(radius, height);
@@ -104,7 +105,7 @@ class GridSystem {
     }
 
     // Refactored to use the helper above; defaults to white color
-    static createHexGeometry(radius = MAP_CONFIG.HEX_RADIUS, height = 1) {
+    static createHexGeometry(radius: number = MAP_CONFIG.HEX_RADIUS, height: number = 1) {
         return this.createHexGeometryWithColor(radius, height, 0xffffff);
     }
 
@@ -112,7 +113,7 @@ class GridSystem {
     // Mesh Creation Helpers
     // ---------------------------
     // Creates the invisible bounding mesh used for raycasting
-    static createBoundingMesh(height, x, z) {
+    static createBoundingMesh(height: number, x: number, z: number) {
         const boundingGeometry = this.createHexGeometry(MAP_CONFIG.HEX_RADIUS, height);
         const boundingMaterial = new THREE.MeshBasicMaterial({
             visible: false,
@@ -126,7 +127,7 @@ class GridSystem {
     }
 
     // Creates the main hex mesh with shadows using the refactored geometry helper
-    static createBaseHexMesh(color, height, x, z, type) {
+    static createBaseHexMesh(color: number | string, height: number, x: number, z: number, type: string) {
         const geometry = this.createHexGeometryWithColor(MAP_CONFIG.HEX_RADIUS, height, color);
         const material = this.createStandardMaterial(type);
         const mesh = new THREE.Mesh(geometry, material);
@@ -139,12 +140,12 @@ class GridSystem {
     // ---------------------------
     // Material Helpers
     // ---------------------------
-    static loadTexture(path) {
+    static loadTexture(path: string) {
         if (!this.textures[path]) {
             console.log(`Loading texture: ${path}`);
             this.textures[path] = this.textureLoader.load(
                 path,
-                (loadedTexture) => {
+                (loadedTexture: any) => {
                     console.log(`Texture loaded successfully: ${path}`);
                     loadedTexture.wrapS = THREE.RepeatWrapping;
                     loadedTexture.wrapT = THREE.RepeatWrapping;
@@ -158,7 +159,7 @@ class GridSystem {
                     loadedTexture.needsUpdate = true;
                 },
                 undefined,
-                (error) => {
+                (error: any) => {
                     console.error(`Error loading texture ${path}:`, error);
                 }
             );
@@ -166,7 +167,7 @@ class GridSystem {
         return this.textures[path];
     }
 
-    static createStandardMaterial(type) {
+    static createStandardMaterial(type: string) {
         if (this.materialCache.has(type)) {
             return this.materialCache.get(type);
         }
@@ -184,7 +185,7 @@ class GridSystem {
         return material;
     }
 
-    static createDecoratorMaterial(color) {
+    static createDecoratorMaterial(color: number | string) {
         const baseColor = new THREE.Color(color);
         return new THREE.MeshStandardMaterial({
             color: baseColor,
@@ -198,17 +199,17 @@ class GridSystem {
     // ---------------------------
     // Grid & Mesh Management
     // ---------------------------
-    static addHex(hex) {
+    static addHex(hex: any) {
         this.hexGrid.push(hex);
     }
 
-    static getHexIntersects(raycaster) {
+    static getHexIntersects(raycaster: any) {
         const intersectObjects: any[] = [];
         console.log('Starting hex intersection check');
 
-        GridSystem.hexGrid.forEach((hexGroup, index) => {
+        GridSystem.hexGrid.forEach((hexGroup: any, index: number) => {
             let foundBoundingMesh = false;
-            hexGroup.children.forEach((child) => {
+            hexGroup.children.forEach((child: any) => {
                 if (child instanceof THREE.Mesh && child.userData.isBoundingMesh) {
                     foundBoundingMesh = true;
                     intersectObjects.push(child);
@@ -225,7 +226,7 @@ class GridSystem {
         return intersects;
     }
 
-    static createHexShape(radius = MAP_CONFIG.HEX_RADIUS) {
+    static createHexShape(radius: number = MAP_CONFIG.HEX_RADIUS) {
         const shape = new THREE.Shape();
         for (let i = 0; i < 6; i++) {
             const angle = (i * Math.PI) / 3;
@@ -239,7 +240,7 @@ class GridSystem {
     // ---------------------------
     // Hex Mesh Creation
     // ---------------------------
-    static createHexPrism(color, x, z, height, moveCost, type = 'grass', q, r) {
+    static createHexPrism(color: number | string, x: number, z: number, height: number, moveCost: number, type: string = 'grass', q: number, r: number) {
         const hexGroup = new THREE.Group();
 
         // Create and add the bounding mesh
@@ -266,7 +267,7 @@ class GridSystem {
             const decorMesh = ModelSystem.getModel(decoration.model).clone();
             const decoratorColor = addColorVariation(decoration.color, 0.1);
             const decorMaterial = this.createDecoratorMaterial(decoratorColor);
-            decorMesh.traverse((child) => {
+            decorMesh.traverse((child: any) => {
                 if (child.isMesh) {
                     child.material = decorMaterial;
                     child.castShadow = true;
@@ -283,7 +284,7 @@ class GridSystem {
     }
 
     // Creates the mini map hex using shared geometry
-    static createMiniHex(color, x, z) {
+    static createMiniHex(color: number | string, x: number, z: number) {
         const miniHexGroup = new THREE.Group();
         if (!this.miniHexGeometry) {
             const vertices: any[] = [];
@@ -322,7 +323,7 @@ class GridSystem {
     // ---------------------------
     // Map & Coordinate Helpers
     // ---------------------------
-    static async createMap(mapSource) {
+    static async createMap(mapSource: any) {
         console.log("Starting map creation...");
 
         if (this.getOption('loadModels') && typeof ModelSystem !== 'undefined') {
@@ -350,7 +351,7 @@ class GridSystem {
                     hex.userData.r = r;
                     hex.userData.type = type;
                     // Update bounding mesh coordinates
-                    hex.children.forEach((child) => {
+                    hex.children.forEach((child: any) => {
                         if (child.userData.isBoundingMesh) {
                             child.userData.q = q;
                             child.userData.r = r;
@@ -368,13 +369,13 @@ class GridSystem {
         return { mapCenterX, mapCenterZ, mapReady: true };
     }
 
-    static getWorldCoordinates(q, r) {
+    static getWorldCoordinates(q: number, r: number) {
         const x = MAP_CONFIG.HEX_RADIUS * 1.5 * q;
         const z = MAP_CONFIG.HEX_RADIUS * Math.sqrt(3) * (r + (q % 2) / 2);
         return new THREE.Vector3(x, 0, z);
     }
 
-    static getWorldCoordinatesWithHeight(q, r, height = 0) {
+    static getWorldCoordinatesWithHeight(q: number, r: number, height: number = 0) {
         const position = this.getWorldCoordinates(q, r);
         position.y = height;
         return position;
@@ -383,7 +384,7 @@ class GridSystem {
     // ---------------------------
     // Neighbor & Smoothing Helpers
     // ---------------------------
-    static getHexNeighborsCoords(q, r) {
+    static getHexNeighborsCoords(q: number, r: number) {
         const isOddColumn = q % 2 === 1;
         const neighborOffsets = isOddColumn
             ? [
@@ -405,13 +406,13 @@ class GridSystem {
         return neighborOffsets.map(([dq, dr]) => [q + dq, r + dr]);
     }
 
-    static getHexNeighbors(q, r) {
+    static getHexNeighbors(q: number, r: number) {
         return this.getHexNeighborsCoords(q, r).map(([nq, nr]) => this.findHex(nq, nr));
     }
 
-    static smoothHexTile(hexGroup) {
+    static smoothHexTile(hexGroup: any) {
         const hexMesh = hexGroup.children.find(
-            (child) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+            (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
         );
         if (!hexMesh) return;
 
@@ -446,12 +447,12 @@ class GridSystem {
             const currentColor = hexMesh.geometry.userData.intendedColor;
             let totalR = currentColor.r, totalG = currentColor.g, totalB = currentColor.b;
 
-            vertexNeighbors[i].forEach((neighbor) => {
+            vertexNeighbors[i].forEach((neighbor: any) => {
                 if (neighbor) {
                     totalHeight += neighbor.userData.height;
                     count++;
                     const neighborMesh = neighbor.children.find(
-                        (child) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+                        (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
                     );
                     if (neighborMesh && neighbor.userData.type !== 'water' && type !== 'water') {
                         const neighborColor = neighborMesh.geometry.userData.intendedColor;
@@ -468,7 +469,7 @@ class GridSystem {
                 }
             });
 
-            const hasWaterNeighbor = vertexNeighbors[i].some((n) => n && n.userData.type === 'water');
+            const hasWaterNeighbor = vertexNeighbors[i].some((n: any) => n && n.userData.type === 'water');
             const finalHeight =
                 hasWaterNeighbor || type === 'water'
                     ? TerrainSystem.getTerrainBaseHeight('WATER')
@@ -493,7 +494,7 @@ class GridSystem {
 
             const colors = geometry.attributes.color;
             if (type === 'water') {
-                const hasLandNeighbor = vertexNeighbors[i].some((n) => n && n.userData.type !== 'water');
+                const hasLandNeighbor = vertexNeighbors[i].some((n: any) => n && n.userData.type !== 'water');
                 if (hasLandNeighbor) {
                     const foamColor = new THREE.Color(WATER_FOAM_COLOR);
                     colors.setXYZ(vertexIndex, foamColor.r, foamColor.g, foamColor.b);
@@ -550,17 +551,17 @@ class GridSystem {
     }
 
     static smoothTerrain() {
-        this.hexGrid.forEach((hexGroup) => this.smoothHexTile(hexGroup));
+        this.hexGrid.forEach((hexGroup: any) => this.smoothHexTile(hexGroup));
     }
 
     // ---------------------------
     // Animation & Update Helpers
     // ---------------------------
-    static animateWater(time) {
-        this.hexGrid.forEach((hexGroup) => {
+    static animateWater(time: number) {
+        this.hexGrid.forEach((hexGroup: any) => {
             if (hexGroup.userData.type !== 'water') return;
             const hexMesh = hexGroup.children.find(
-                (child) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+                (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
             );
             if (!hexMesh) return;
             const geometry = hexMesh.geometry;
@@ -589,11 +590,11 @@ class GridSystem {
         });
     }
 
-    static updateDecoratorTransparency(hex) {
+    static updateDecoratorTransparency(hex: any) {
         if (!hex || !hex.userData || !hex.userData.decorator) return;
         const unit = gameState.getUnitAt(hex.userData.q, hex.userData.r);
         const decorator = hex.userData.decorator;
-        decorator.traverse((child) => {
+        decorator.traverse((child: any) => {
             if (child.isMesh) {
                 if (unit) {
                     child.material.transparent = true;
@@ -613,10 +614,10 @@ class GridSystem {
     }
 
     static updateAllDecoratorTransparency() {
-        this.hexGrid.forEach((hex) => this.updateDecoratorTransparency(hex));
+        this.hexGrid.forEach((hex: any) => this.updateDecoratorTransparency(hex));
     }
 
-    static updateHexGeometry(hexMesh, waterHeight, isWater = false) {
+    static updateHexGeometry(hexMesh: any, waterHeight: number, isWater: boolean = false) {
         if (!hexMesh) return;
         const geometry = hexMesh.geometry;
         const position = geometry.attributes.position;
@@ -637,9 +638,9 @@ class GridSystem {
         geometry.computeVertexNormals();
     }
 
-    static updateHexAndBoundingMeshHeight(hex, newHeight, craterColor) {
+    static updateHexAndBoundingMeshHeight(hex: any, newHeight: number, craterColor: any) {
         const hexMesh = hex.children.find(
-            (child) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+            (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
         );
         if (hexMesh) {
             const geometry = hexMesh.geometry;
@@ -650,7 +651,7 @@ class GridSystem {
             colors.needsUpdate = true;
             position.needsUpdate = true;
         }
-        const boundingMesh = hex.children.find((child) => child.userData.isBoundingMesh);
+        const boundingMesh = hex.children.find((child: any) => child.userData.isBoundingMesh);
         if (boundingMesh) {
             const boundingPosition = boundingMesh.geometry.attributes.position;
             boundingPosition.setY(13, newHeight);
@@ -661,7 +662,7 @@ class GridSystem {
         }
     }
 
-    static convertHexToWater(hex, tile) {
+    static convertHexToWater(hex: any, tile: any) {
         const waterHeight = TerrainSystem.getTerrainBaseHeight('WATER');
         tile.type = 'WATER';
         tile.height = waterHeight;
@@ -676,21 +677,21 @@ class GridSystem {
             hex.userData.decorator = null;
         }
         const hexMesh = hex.children.find(
-            (child) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+            (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
         );
         if (hexMesh) {
             hexMesh.material = this.createStandardMaterial('water');
             hexMesh.geometry.userData.intendedColor = new THREE.Color(tile.color);
             this.updateHexGeometry(hexMesh, waterHeight, true);
         }
-        const boundingMesh = hex.children.find((child) => child.userData.isBoundingMesh);
+        const boundingMesh = hex.children.find((child: any) => child.userData.isBoundingMesh);
         if (boundingMesh) {
             boundingMesh.userData.type = 'water';
             this.updateHexGeometry(boundingMesh, waterHeight, true);
         }
     }
 
-    static modifyHexHeight(coord, heightFactor) {
+    static modifyHexHeight(coord: { q: number; r: number }, heightFactor: number): boolean {
         if (typeof gameState === 'undefined' || !gameState?.map) {
             return false;
         }
@@ -713,23 +714,23 @@ class GridSystem {
 
         FootprintSystem.removeFootprintsAt(coord.q, coord.r);
         this.smoothHexTile(hex);
-        this.getHexNeighbors(coord.q, coord.r).forEach((neighbor) => {
+        this.getHexNeighbors(coord.q, coord.r).forEach((neighbor: any) => {
             if (neighbor) this.smoothHexTile(neighbor);
         });
         return true;
     }
 
-    static findHex(q, r) {
-        return this.hexGrid.find((h) => h.userData.q === q && h.userData.r === r);
+    static findHex(q: number, r: number) {
+        return this.hexGrid.find((h: any) => h.userData.q === q && h.userData.r === r);
     }
 
-    static getUnitAtHex(hex) {
+    static getUnitAtHex(hex: any) {
         if (!hex) return null;
         if (typeof gameState === 'undefined' || !gameState?.units) {
             return null;
         }
         return gameState.units.find(
-            (unit) => unit.q === hex.userData.q && unit.r === hex.userData.r
+            (unit: GameUnit) => unit.q === hex.userData.q && unit.r === hex.userData.r
         );
     }
 
@@ -740,7 +741,7 @@ class GridSystem {
             }
             const modelConfigs: Record<string, any> = {};
             Object.values(TerrainSystem.terrainTypes).forEach((terrain: any) => {
-                terrain.decorations.forEach((decoration) => {
+                terrain.decorations.forEach((decoration: any) => {
                     if (!modelConfigs[decoration.model]) {
                         modelConfigs[decoration.model] = {
                             model: decoration.model,
