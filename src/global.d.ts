@@ -30,7 +30,6 @@ declare const WATER_FOAM_COLOR: any;
 declare const CRATER_COLOR: any;
 
 // shared/hexengine/*.js
-declare const HEX_ENGINE: any;
 declare const hexGrid: any;
 
 // window extension for values assigned ad hoc across classic scripts
