@@ -59,6 +59,23 @@ describe('planTurn', () => {
         expect(result.events.some((e) => e.type === 'unitDied' && e.unitIndex === 1)).toBe(true);
     });
 
+    it('chains move + attack for one unit in the same turn (regression)', () => {
+        // Tank1 has range 1 and move 2; the 2hp Droid sits at distance 2.
+        // The kill requires moving adjacent AND attacking in one turn --
+        // with single-command-per-unit plans this was impossible (units
+        // either moved or attacked, never both).
+        const snapshot = makeState([
+            makeUnit({ q: 2, r: 2, playerIndex: 1, move: 2, minRange: 1, maxRange: 1 }),
+            makeUnit({ type: 'Droid', q: 4, r: 2, playerIndex: 0, hp: 2, maxHp: 2 }),
+        ]);
+        expect(HexCoord.getDistance(2, 2, 4, 2)).toBe(2);
+
+        const result = planTurn(snapshot, 1, { population: 24, rounds: 4, seed: 3 });
+
+        expect(result.events.some((e) => e.type === 'unitMoved' && e.unitIndex === 0)).toBe(true);
+        expect(result.events.some((e) => e.type === 'unitDied' && e.unitIndex === 1)).toBe(true);
+    });
+
     it('is deterministic given the seed', () => {
         const build = () => makeState([
             makeUnit({ q: 1, r: 1, playerIndex: 1 }),

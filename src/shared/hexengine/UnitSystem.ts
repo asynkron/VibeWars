@@ -799,8 +799,38 @@ class UnitSystem {
                 while (rotationDiff > Math.PI) rotationDiff -= 2 * Math.PI;
                 while (rotationDiff < -Math.PI) rotationDiff += 2 * Math.PI;
 
-                // Animation function
+                // Finalize the step exactly once: snap to the final
+                // position/rotation (creating footprints), and on the last
+                // step refresh highlights and resolve the move promise.
+                // Reached from the rAF animation completing normally, OR
+                // from the setTimeout backstop below -- browsers freeze
+                // requestAnimationFrame entirely in hidden tabs, and
+                // without the backstop an AI turn awaiting this move would
+                // hang until the tab becomes visible again.
+                let stepFinalized = false;
+                const finalizeStep = () => {
+                    if (stepFinalized) return;
+                    stepFinalized = true;
+                    // Ensure final position and rotation are exact and create footprints
+                    this.setPosition(unit.visualUnit, coord, hex, targetRotation);
+
+                    // After the last movement step, recalculate highlights with a small delay
+                    if (index === path.length - 1) {
+                        setTimeout(() => {
+                            VisualizationSystem.clearHighlights();
+                            this.highlightMoveRange(unit);
+                            this.highlightAttackRange(unit);
+                            // Stop engine sound when movement is complete
+                            AudioSystem.stopEngineSound(unit);
+                            movementDone();
+                        }, 50);
+                    }
+                };
+
+                // Animation function (visuals only -- completion is
+                // finalizeStep's job)
                 const animate = (timestamp: number) => {
+                    if (stepFinalized) return;
                     const elapsed = timestamp - startTime;
                     const progress = Math.min(elapsed / transitionDuration, 1);
 
@@ -819,25 +849,13 @@ class UnitSystem {
                     if (progress < 1) {
                         requestAnimationFrame(animate);
                     } else {
-                        // After transition completes, ensure final position and rotation are exact and create footprints
-                        this.setPosition(unit.visualUnit, coord, hex, targetRotation);
-
-                        // After the last movement step, recalculate highlights with a small delay
-                        if (index === path.length - 1) {
-                            setTimeout(() => {
-                                VisualizationSystem.clearHighlights();
-                                this.highlightMoveRange(unit);
-                                this.highlightAttackRange(unit);
-                                // Stop engine sound when movement is complete
-                                AudioSystem.stopEngineSound(unit);
-                                movementDone();
-                            }, 50);
-                        }
+                        finalizeStep();
                     }
                 };
 
                 const startTime = performance.now();
                 requestAnimationFrame(animate);
+                setTimeout(finalizeStep, transitionDuration + 50);
             }, delay);
             delay += stepDuration;
         });
