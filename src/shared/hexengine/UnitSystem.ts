@@ -88,8 +88,8 @@ class UnitSystem {
             minDamage: 4,
             maxDamage: 6,
             attack: 5,
-            model: "assets/tank_2_green.fbx",  // Bones for the barbaric orc
-            scale: 0.13,
+            model: "assets/units/bulwark-heavy-tank.glb",  // new-models test swap (was tank_2_green.fbx)
+            scale: 0.2,
             rotation: 0,
             attackEffect: 'projectile',  // default projectile attack
             footprintTexture: 'assets/textures/tracks2.png',  // Tank tracks
@@ -100,8 +100,7 @@ class UnitSystem {
                 FOREST: 2,
                 MOUNTAIN: null
             },
-            usePlayerColor: false,  // Keep original FBX materials
-            replaceColor: 0x22380F,  // Dark green color to replace
+            usePlayerColor: false,  // Keep the model's original authored materials/textures
             sounds: {
                 movement: 'engine_heavy',
                 attack: 'rlauncher2'
@@ -118,8 +117,8 @@ class UnitSystem {
             minDamage: 4,
             maxDamage: 6,
             attack: 5,
-            model: "assets/tank_3_green.fbx",  // Bones for the barbaric orc
-            scale: 0.13,
+            model: "assets/units/kestrel-missile-carrier.glb",  // new-models test swap (was tank_3_green.fbx); fits rocketBarrage thematically
+            scale: 0.16,
             rotation: 0,
             attackEffect: 'rocketBarrage',  // Changed from 'projectile' to 'rocketBarrage'
             footprintTexture: 'assets/textures/tracks2.png',  // Tank tracks
@@ -130,8 +129,7 @@ class UnitSystem {
                 FOREST: 2,
                 MOUNTAIN: null
             },
-            usePlayerColor: false,  // Keep original FBX materials
-            replaceColor: 0x22380F,  // Dark green color to replace
+            usePlayerColor: false,  // Keep the model's original authored materials/textures
             sounds: {
                 movement: 'engine_light',
                 attack: 'rlauncher2'
@@ -148,8 +146,8 @@ class UnitSystem {
             minDamage: 4,
             maxDamage: 6,
             attack: 5,
-            model: "assets/tank_4_green.fbx",  // Bones for the barbaric orc
-            scale: 0.13,
+            model: "assets/units/sabre-medium-tank.glb",  // new-models test swap (was tank_4_green.fbx)
+            scale: 0.18,
             rotation: 0,
             attackEffect: 'projectile',  // default projectile attack
             footprintTexture: 'assets/textures/tracks2.png',  // Tank tracks
@@ -160,8 +158,7 @@ class UnitSystem {
                 FOREST: 2,
                 MOUNTAIN: null
             },
-            usePlayerColor: false,  // Keep original FBX materials
-            replaceColor: 0x22380F,  // Dark green color to replace
+            usePlayerColor: false,  // Keep the model's original authored materials/textures
             sounds: {
                 movement: 'engine_heavy',
                 attack: 'rlauncher2'
@@ -424,7 +421,8 @@ class UnitSystem {
                 ModelSystem.getModel(unitType.model),
                 players[playerIndex].color,
                 unitType.usePlayerColor,
-                unitType.replaceColor
+                unitType.replaceColor,
+                unitType.teamColorMaterial
             );
 
             // Calculate bounding box for model height

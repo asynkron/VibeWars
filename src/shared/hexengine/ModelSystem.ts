@@ -146,8 +146,32 @@ class ModelSystem {
         }
     }
 
-    static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null) {
+    static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null, teamColorMaterial: string | null = null) {
         const modelClone = model.clone();
+
+        if (teamColorMaterial) {
+            // Tint only the mesh(es) using a specifically-named material
+            // (e.g. a "teamCamo" slot the model was authored with), leaving
+            // every other material's texture/color untouched. Unlike
+            // usePlayerColor/replaceColor below, this doesn't guess based on
+            // the material's current color.
+            const tintIfMatch = (mat: any) => {
+                if (mat?.name === teamColorMaterial) {
+                    const clonedMat = mat.clone();
+                    clonedMat.color.setHex(playerColor);
+                    return clonedMat;
+                }
+                return mat;
+            };
+            modelClone.traverse((child: any) => {
+                if (child instanceof THREE.Mesh) {
+                    child.material = Array.isArray(child.material)
+                        ? child.material.map(tintIfMatch)
+                        : tintIfMatch(child.material);
+                }
+            });
+            return modelClone;
+        }
 
         if (usePlayerColor) {
             modelClone.traverse((child: any) => {

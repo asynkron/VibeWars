@@ -70,6 +70,12 @@ export interface UnitTypeConfig {
   terrainCosts: Record<string, number | null>;
   usePlayerColor: boolean;
   replaceColor?: number;
+  // Name of a glTF material (e.g. "teamCamo") to tint with the player color,
+  // leaving every other material's texture/color untouched. Alternative to
+  // usePlayerColor (recolors everything) and replaceColor (recolors any
+  // material whose *current* color is close to a target) for models that
+  // were authored with a dedicated team-color material slot.
+  teamColorMaterial?: string;
   sounds: { movement: string | null; attack: string | null };
 }
 
