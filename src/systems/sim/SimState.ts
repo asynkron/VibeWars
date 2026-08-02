@@ -24,6 +24,7 @@
 // reproduces the same state.
 
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
+import { UnitSystem } from '../../shared/hexengine/UnitSystem';
 
 export interface SimTile {
     height: number;
@@ -53,7 +54,12 @@ export type GameEvent =
     | { type: 'unitMoved'; unitIndex: number; toQ: number; toR: number; moveSpent: number }
     | { type: 'unitAttacked'; attackerIndex: number; defenderIndex: number; damage: number }
     | { type: 'unitDied'; unitIndex: number }
-    | { type: 'terrainModified'; q: number; r: number; delta: number };
+    | { type: 'terrainModified'; q: number; r: number; delta: number }
+    // A new simulated turn begins for a player: their units regain full
+    // movement and may attack again (mirrors GameState.nextTurn's reset).
+    // Used by the search's multi-turn lookahead rollouts; never part of the
+    // executed first-turn plan.
+    | { type: 'turnStarted'; playerIndex: number };
 
 export class SimState {
     readonly cols: number;
@@ -178,6 +184,19 @@ export class SimState {
             case 'unitDied': {
                 if (event.unitIndex >= 0 && event.unitIndex < this.baseUnits.length) {
                     this.unitOverrides.set(event.unitIndex, null);
+                }
+                return;
+            }
+            case 'turnStarted': {
+                for (let i = 0; i < this.baseUnits.length; i++) {
+                    const unit = this.getUnit(i);
+                    if (unit && unit.playerIndex === event.playerIndex) {
+                        this.setUnit(i, {
+                            ...unit,
+                            move: UnitSystem.unitTypesRecord[unit.type].move,
+                            hasAttacked: false,
+                        });
+                    }
                 }
                 return;
             }

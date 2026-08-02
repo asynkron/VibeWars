@@ -93,6 +93,23 @@ describe('events', () => {
         expect(sim.getTile(0, 3)!.height).toBe(0);
     });
 
+    it('turnStarted resets movement and attack flag for that side only', () => {
+        const sim = SimState.snapshot(makeSource());
+        // Spend the Bulwark's (p0) resources.
+        sim.record({ type: 'unitMoved', unitIndex: 0, toQ: 2, toR: 1, moveSpent: 2 });
+        sim.record({ type: 'unitAttacked', attackerIndex: 0, defenderIndex: 1, damage: 1 });
+        expect(sim.getUnit(0)!.move).toBe(0);
+        expect(sim.getUnit(0)!.hasAttacked).toBe(true);
+        const enemyHpBefore = sim.getUnit(1)!.hp;
+
+        sim.record({ type: 'turnStarted', playerIndex: 0 });
+        const refreshed = sim.getUnit(0)!;
+        expect(refreshed.move).toBe(2); // Bulwark's configured move
+        expect(refreshed.hasAttacked).toBe(false);
+        // The other side is untouched (and damage persists).
+        expect(sim.getUnit(1)!.hp).toBe(enemyHpBefore);
+    });
+
     it('accumulates the log in order', () => {
         const sim = SimState.snapshot(makeSource());
         const events: GameEvent[] = [

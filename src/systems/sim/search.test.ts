@@ -76,6 +76,30 @@ describe('planTurn', () => {
         expect(result.events.some((e) => e.type === 'unitDied' && e.unitIndex === 1)).toBe(true);
     });
 
+    it('lookahead refuses the lone suicide rush that greedy search loves', () => {
+        // A lone Shrike (move 5, range 1, 4 hp, expected damage 8) with an
+        // enemy Bulwark (10 hp, expected damage 5) at distance 6. Greedy
+        // (no lookahead): fly adjacent and attack -- +80 score from damage,
+        // looks great. With lookahead the Bulwark's reply kills the 4hp
+        // Shrike, a terrible trade -- the plan must not end adjacent.
+        const build = () => makeState([
+            makeUnit({ type: 'Shrike', q: 1, r: 1, playerIndex: 1, hp: 4, maxHp: 4, move: 5, minRange: 1, maxRange: 1 }),
+            makeUnit({ type: 'Bulwark', q: 7, r: 1, playerIndex: 0, hp: 10, maxHp: 10, move: 2 }),
+        ]);
+        expect(HexCoord.getDistance(1, 1, 7, 1)).toBe(6);
+
+        const greedy = planTurn(build(), 1, { population: 24, rounds: 4, seed: 5, lookaheadPlies: 0 });
+        expect(greedy.events.some((e) => e.type === 'unitAttacked' && e.attackerIndex === 0)).toBe(true);
+
+        const farsighted = planTurn(build(), 1, { population: 24, rounds: 4, seed: 5, lookaheadPlies: 2 });
+        const replayed = build().fork();
+        farsighted.events.forEach((e) => replayed.record(e));
+        const shrike = replayed.getUnit(0)!;
+        const bulwark = replayed.getUnit(1)!;
+        // Not parked next to the enemy tank at end of turn.
+        expect(HexCoord.getDistance(shrike.q, shrike.r, bulwark.q, bulwark.r)).toBeGreaterThan(1);
+    });
+
     it('is deterministic given the seed', () => {
         const build = () => makeState([
             makeUnit({ q: 1, r: 1, playerIndex: 1 }),
@@ -94,7 +118,10 @@ describe('planTurn', () => {
             makeUnit({ q: 1, r: 1, playerIndex: 1 }),
             makeUnit({ q: 5, r: 5, playerIndex: 0, hp: 4, maxHp: 10 }),
         ]);
-        const result = planTurn(snapshot, 1, { population: 12, rounds: 2, seed: 11 });
+        // lookahead 0: with lookahead, `score` is the horizon score (after
+        // simulated replies), which the executed first-turn events alone
+        // can't reproduce by design.
+        const result = planTurn(snapshot, 1, { population: 12, rounds: 2, seed: 11, lookaheadPlies: 0 });
 
         const replayed = snapshot.fork();
         result.events.forEach((e) => replayed.record(e));
