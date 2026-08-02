@@ -1,4 +1,5 @@
 // VisualizationSystem.js
+import { scene, group } from '../../render';
 
 /*
 Render Order Hierarchy (from top to bottom):
@@ -10,16 +11,17 @@ Render Order Hierarchy (from top to bottom):
 */
 
 class VisualizationSystem {
-    static pathLine = null;
-    static highlightGroup = null;
+    static pathLine: any = null;
+    static highlightGroup: any = null;
     static highlightMeshes = new Map();
     static highlightMaterials = new Map();
     static highlightGeometries = new Map();
     static highlightGroups = new Map();
     static initialized = false;
-    static initializationPromise = null;
-    static cachedRocketModel = null;  // Cache for the rocket model
-    static rocketModelPromise = null;  // Promise for loading the rocket model
+    static initializationPromise: any = null;
+    static cachedRocketModel: any = null;  // Cache for the rocket model
+    static rocketModelPromise: any = null;  // Promise for loading the rocket model
+    static dashOffset: any;  // pre-existing: never initialized before use in updatePathAnimation
 
     static disposeObject(object) {
         if (!object) return;
@@ -255,9 +257,9 @@ class VisualizationSystem {
 
     static createHexGeometry(radius = 1) {
         const geometry = new THREE.BufferGeometry();
-        const vertices = [];
-        const indices = [];
-        const uvs = [];
+        const vertices: any[] = [];
+        const indices: any[] = [];
+        const uvs: any[] = [];
 
         for (let i = 0; i < 6; i++) {
             const angle = (i * Math.PI) / 3;
@@ -315,8 +317,8 @@ class VisualizationSystem {
 
     static createHexOutline(color = 0x000000) {
         const geometry = new THREE.BufferGeometry();
-        const vertices = [];
-        const indices = [];
+        const vertices: any[] = [];
+        const indices: any[] = [];
 
         for (let i = 0; i < 6; i++) {
             const angle = (i * Math.PI) / 3;
@@ -343,7 +345,7 @@ class VisualizationSystem {
         const canvas = document.createElement('canvas');
         canvas.width = 256;
         canvas.height = 128;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d')!;
 
         // Draw damage number
         ctx.font = 'bold 96px Arial';
@@ -406,7 +408,7 @@ class VisualizationSystem {
         requestAnimationFrame(animate);
     }
 
-    static createExplosion(position, options = {}) {
+    static createExplosion(position, options: any = {}) {
         const {
             particleCount = 100,
             size = 3.0,
@@ -442,7 +444,7 @@ class VisualizationSystem {
         });
     }
 
-    static createParticleEffect(position, options = {}) {
+    static createParticleEffect(position, options: any = {}) {
         const {
             particleCount = 100,
             size = 3.0,
@@ -462,11 +464,11 @@ class VisualizationSystem {
         } = options;
 
         const particleGeometry = new THREE.BufferGeometry();
-        const vertices = [];
-        const velocities = [];
-        const startTimes = [];
-        const startSizes = [];
-        const textureIndices = [];
+        const vertices: any[] = [];
+        const velocities: any[] = [];
+        const startTimes: any[] = [];
+        const startSizes: any[] = [];
+        const textureIndices: any[] = [];
 
         const textureLoader = new THREE.TextureLoader();
         const particleTextures = particleTexturePaths.map(path => textureLoader.load(path));
@@ -588,7 +590,7 @@ class VisualizationSystem {
         requestAnimationFrame(animateParticles);
     }
 
-    static createSmokeParticles(position, options = {}) {
+    static createSmokeParticles(position, options: any = {}) {
         this.createParticleEffect(position, {
             ...options,
             particleTexturePaths: options.particleTexturePaths || [
@@ -604,7 +606,7 @@ class VisualizationSystem {
         });
     }
 
-    static createExplosionParticles(position, options = {}) {
+    static createExplosionParticles(position, options: any = {}) {
         this.createParticleEffect(position, {
             ...options,
             particleTexturePaths: options.particleTexturePaths || [
@@ -796,7 +798,7 @@ class VisualizationSystem {
                 // Animation parameters
                 const duration = 500; // milliseconds
                 const arcHeight = 2; // maximum height of the arc
-                let startTime = null;
+                let startTime: any = null;
 
                 // Animate the projectile
                 const animate = (timestamp) => {
@@ -931,7 +933,7 @@ class VisualizationSystem {
         // Animation parameters
         const duration = 500; // milliseconds
         const arcHeight = 2; // maximum height of the arc
-        let startTime = null;
+        let startTime: any = null;
 
         // Animate the projectile
         const animate = (timestamp) => {
@@ -1011,7 +1013,7 @@ class VisualizationSystem {
         requestAnimationFrame(animate);
     }
 
-    static showRocketBarrageEffect(startHex, targetHex, options = {}) {
+    static showRocketBarrageEffect(startHex, targetHex, options: any = {}) {
         const {
             projectileCount = 6,
             delayBetweenShots = 100, // milliseconds
@@ -1072,7 +1074,7 @@ class VisualizationSystem {
             // Animation parameters
             const duration = 500; // milliseconds
             const arcHeight = 2; // maximum height of the arc
-            let startTime = null;
+            let startTime: any = null;
 
             // Animate the projectile
             const animate = (timestamp) => {
@@ -1233,7 +1235,7 @@ class VisualizationSystem {
 
         // Animation parameters
         const duration = 400; // milliseconds
-        let startTime = null;
+        let startTime: any = null;
 
         // Animate the laser beam
         function animate(timestamp) {
@@ -1273,7 +1275,7 @@ class VisualizationSystem {
         requestAnimationFrame(animate);
     }
 
-    static createTexturedHexGeometry(hex, texture, options = {}) {
+    static createTexturedHexGeometry(hex, texture, options: any = {}) {
         const {
             radius = MAP_CONFIG.HEX_RADIUS * 0.8,
             heightOffset = 0,
@@ -1297,7 +1299,7 @@ class VisualizationSystem {
         if (!geometry) return null;
 
         // Create material with the texture
-        const materialOptions = {
+        const materialOptions: any = {
             color: color,
             side: THREE.DoubleSide,
             transparent: true,
@@ -1356,12 +1358,12 @@ class VisualizationSystem {
 
         // Create geometry for the hex top face
         const geometry = new THREE.BufferGeometry();
-        const vertices = [];
-        const uvs = [];
-        const indices = [];
+        const vertices: any[] = [];
+        const uvs: any[] = [];
+        const indices: any[] = [];
 
         // Get the top vertices (indices 6-11) and top center (index 13) from the hex
-        const topVertices = [];
+        const topVertices: any[] = [];
         for (let i = 6; i < 12; i++) {
             topVertices.push(new THREE.Vector3(
                 hexPositions.getX(i),
@@ -1456,4 +1458,6 @@ class VisualizationSystem {
 console.log('VisualizationSystem.js loaded');
 
 // Export for use in other files
-window.VisualizationSystem = VisualizationSystem; 
+window.VisualizationSystem = VisualizationSystem;
+
+export { VisualizationSystem };

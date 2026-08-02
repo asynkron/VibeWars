@@ -1,5 +1,6 @@
 // RoadSystem.js - Handles road generation and management
 import { group } from '../../render';
+import { VisualizationSystem } from './VisualizationSystem';
 
 class RoadSystem {
     static roads: any[] = [];

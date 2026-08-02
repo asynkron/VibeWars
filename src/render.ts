@@ -1,3 +1,5 @@
+import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
+
 // Scene Objects
 const scene = new THREE.Scene();
 // scene.background = new THREE.Color(0xffffff); // Remove white background
