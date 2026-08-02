@@ -3,6 +3,7 @@ import { group } from '../../render';
 import { VisualizationSystem } from './VisualizationSystem';
 import { UnitSystem } from './UnitSystem';
 import { GridSystem } from './GridSystem';
+import { HexCoord } from './HexCoord';
 
 class PathIndicatorSystem {
     static pathIndicators: any[] = [];

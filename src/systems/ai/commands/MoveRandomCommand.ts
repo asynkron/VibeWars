@@ -1,6 +1,7 @@
 import { Command } from './Command';
 import { PathfindingSystem } from '../../../shared/hexengine/PathfindingSystem';
 import { UnitSystem } from '../../../shared/hexengine/UnitSystem';
+import { HexCoord } from '../../../shared/hexengine/HexCoord';
 
 class MoveRandomCommand extends Command {
     unitIndex: any;

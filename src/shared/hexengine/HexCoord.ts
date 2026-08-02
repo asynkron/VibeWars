@@ -1,5 +1,11 @@
 // Shared axial hex coordinate helper.
+import { GridSystem } from './GridSystem';
+import { UnitSystem } from './UnitSystem';
+
 class HexCoord {
+  q: any;
+  r: any;
+
   constructor(q, r) {
     this.q = q;
     this.r = r;
@@ -89,3 +95,5 @@ class HexCoord {
 if (typeof window !== 'undefined') {
   window.HexCoord = HexCoord;
 }
+
+export { HexCoord };

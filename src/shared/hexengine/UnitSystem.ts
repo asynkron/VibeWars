@@ -7,6 +7,7 @@ import { setSelectedUnit } from '../../game';
 import { AudioSystem } from './AudioSystem';
 import { ModelSystem } from './ModelSystem';
 import { GridSystem } from './GridSystem';
+import { HexCoord } from './HexCoord';
 
 class UnitSystem {
     static unitTypes = {

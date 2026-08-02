@@ -1,3 +1,5 @@
+import { HexCoord } from './HexCoord';
+
 // PriorityQueue implementation using a binary heap
 class PriorityQueue {
     heap: any[];
