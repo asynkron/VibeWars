@@ -1,9 +1,10 @@
 // RoadSystem.js - Handles road generation and management
+import { group } from '../../render';
 
 class RoadSystem {
-    static roads = [];
-    static roadTextures = {};
-    static roadTexturePromises = {};
+    static roads: any[] = [];
+    static roadTextures: Record<string, any> = {};
+    static roadTexturePromises: Record<string, any> = {};
     static terrainCosts = {
         'SAND': 1,
         'GRASS': 1,
@@ -172,4 +173,6 @@ class RoadSystem {
 // Export for use in other files
 window.RoadSystem = RoadSystem;
 
-console.log('RoadSystem.js loaded'); 
+console.log('RoadSystem.js loaded');
+
+export { RoadSystem };

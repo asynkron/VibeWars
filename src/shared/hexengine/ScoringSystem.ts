@@ -66,3 +66,5 @@ if (typeof window !== 'undefined') {
 }
 
 console.log('ScoringSystem.js loaded');
+
+export { ScoringSystem };

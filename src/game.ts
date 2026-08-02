@@ -8,6 +8,7 @@ import {
 } from './render';
 import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
 import { GameState } from './systems/GameState';
+import { RoadSystem } from './shared/hexengine/RoadSystem';
 
 // Game Data
 let selectedUnit: any = null;

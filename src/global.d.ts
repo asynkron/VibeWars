@@ -49,8 +49,6 @@ declare const PathfindingSystem: any;
 declare const FootprintSystem: any;
 declare const PathIndicatorSystem: any;
 declare const VisualizationSystem: any;
-declare const RoadSystem: any;
-declare const ScoringSystem: any;
 declare const hexGrid: any;
 
 // window extension for values assigned ad hoc across classic scripts
