@@ -50,8 +50,13 @@ export interface TerrainTypeConfig {
   material: { color: number; metalness: number; roughness: number };
 }
 
+// Combat class for rock/paper/scissors matchups -- see
+// UnitSystem.CLASS_COUNTERS: aa beats air, tank beats aa, air beats tank.
+export type UnitClass = 'tank' | 'air' | 'aa' | 'artillery' | 'infantry' | 'naval';
+
 // A single unit type's static config, see UnitSystem.unitTypes.
 export interface UnitTypeConfig {
+  unitClass: UnitClass;
   symbol: string;
   name: string;
   maxHp: number;

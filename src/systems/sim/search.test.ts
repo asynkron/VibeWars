@@ -76,15 +76,17 @@ describe('planTurn', () => {
         expect(result.events.some((e) => e.type === 'unitDied' && e.unitIndex === 1)).toBe(true);
     });
 
-    it('lookahead refuses the lone suicide rush that greedy search loves', () => {
-        // A lone Shrike (move 5, range 1, 4 hp, expected damage 8) with an
-        // enemy Bulwark (10 hp, expected damage 5) at distance 6. Greedy
-        // (no lookahead): fly adjacent and attack -- +80 score from damage,
-        // looks great. With lookahead the Bulwark's reply kills the 4hp
-        // Shrike, a terrible trade -- the plan must not end adjacent.
+    it('lookahead refuses flying a lone jet into AA that greedy search loves', () => {
+        // A lone Shrike (air, move 5, range 1, 4 hp) against a Halberd (aa,
+        // 8 hp, range 1-2). The class triangle makes this THE classic
+        // blunder: air deals half to aa (floor(8*0.5) = 4, Halberd
+        // survives) while aa deals double to air (floor(5*2) = 10, the 4hp
+        // Shrike is obliterated). Greedy (no lookahead) still loves the +40
+        // damage score and attacks; lookahead must not end the turn inside
+        // the Halberd's reply reach.
         const build = () => makeState([
             makeUnit({ type: 'Shrike', q: 1, r: 1, playerIndex: 1, hp: 4, maxHp: 4, move: 5, minRange: 1, maxRange: 1 }),
-            makeUnit({ type: 'Bulwark', q: 7, r: 1, playerIndex: 0, hp: 10, maxHp: 10, move: 2 }),
+            makeUnit({ type: 'Halberd', q: 7, r: 1, playerIndex: 0, hp: 8, maxHp: 8, move: 2, minRange: 1, maxRange: 2 }),
         ]);
         expect(HexCoord.getDistance(1, 1, 7, 1)).toBe(6);
 
@@ -95,9 +97,9 @@ describe('planTurn', () => {
         const replayed = build().fork();
         farsighted.events.forEach((e) => replayed.record(e));
         const shrike = replayed.getUnit(0)!;
-        const bulwark = replayed.getUnit(1)!;
-        // Not parked next to the enemy tank at end of turn.
-        expect(HexCoord.getDistance(shrike.q, shrike.r, bulwark.q, bulwark.r)).toBeGreaterThan(1);
+        const halberd = replayed.getUnit(1)!;
+        // Not parked inside the AA's direct-fire zone at end of turn.
+        expect(HexCoord.getDistance(shrike.q, shrike.r, halberd.q, halberd.r)).toBeGreaterThan(2);
     });
 
     it('is deterministic given the seed', () => {

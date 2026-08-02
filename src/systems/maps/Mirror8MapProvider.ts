@@ -43,12 +43,13 @@ const CHAR_TO_TYPE: Record<string, string> = {
 const ROAD_COLUMNS = [0, COLS - 1];
 
 // One shared roster of four units; the player spawns it on the southern
-// back row, the CPU mirrored on the northern. Mix: heavy tank, rocket
-// barrage, medium tank, attack helicopter.
+// back row, the CPU mirrored on the northern. Covers the full
+// rock/paper/scissors triangle: tank (Bulwark) beats AA (Halberd) beats
+// air (Nightjar) beats tank, plus artillery (Kestrel) for fire support.
 const ROSTER: Array<{ type: string; q: number }> = [
     { type: 'Bulwark', q: 2 },
     { type: 'Kestrel', q: 3 },
-    { type: 'Sabre', q: 4 },
+    { type: 'Halberd', q: 4 },
     { type: 'Nightjar', q: 5 },
 ];
 

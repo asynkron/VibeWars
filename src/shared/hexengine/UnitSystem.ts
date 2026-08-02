@@ -22,6 +22,7 @@ class UnitSystem {
         "Road": {
             symbol: "E",
             name: "Road",
+            unitClass: 'infantry' as const,
             maxHp: 2,
             hp: 2,
             move: 3,
@@ -50,6 +51,7 @@ class UnitSystem {
         "Gunboat": {
             symbol: "O",
             name: "Gunboat",
+            unitClass: 'naval' as const,
             maxHp: 10,
             hp: 10,
             move: 2,
@@ -80,6 +82,7 @@ class UnitSystem {
         "Bulwark": {
             symbol: "O",
             name: "Bulwark",
+            unitClass: 'tank' as const,
             maxHp: 10,
             hp: 10,
             move: 2,
@@ -110,6 +113,7 @@ class UnitSystem {
         "Kestrel": {
             symbol: "O",
             name: "Kestrel",
+            unitClass: 'artillery' as const,
             maxHp: 7,
             hp: 7,
             move: 1,
@@ -140,6 +144,7 @@ class UnitSystem {
         "Sabre": {
             symbol: "O",
             name: "Sabre",
+            unitClass: 'tank' as const,
             maxHp: 5,
             hp: 5,
             move: 3,
@@ -170,6 +175,7 @@ class UnitSystem {
         "Droid": {
             symbol: "E",
             name: "Droid",
+            unitClass: 'infantry' as const,
             maxHp: 2,
             hp: 2,
             move: 2,
@@ -198,6 +204,7 @@ class UnitSystem {
         "Mortar": {
             symbol: "T",
             name: "Mortar",
+            unitClass: 'artillery' as const,
             maxHp: 3,
             hp: 3,
             move: 1,
@@ -208,7 +215,7 @@ class UnitSystem {
             attack: 6,
             model: "assets/tank_1_green.fbx",  // Big bridge for the big troll
             scale: 0.13,
-            attackEffect: 'projectile',  // default projectile attack
+            attackEffect: 'rocketBarrage',  // classic artillery barrage
             footprintTexture: 'assets/textures/tracks2.png',  // Tank tracks
             terrainCosts: {
                 WATER: null,
@@ -224,36 +231,10 @@ class UnitSystem {
                 attack: 'rlauncher3'
             }
         },
-        "Catapult": {
-            symbol: "C",
-            name: "Catapult",
-            maxHp: 10,
-            hp: 10,
-            move: 1,
-            minRange: 2,
-            maxRange: 3,
-            minDamage: 6,
-            maxDamage: 8,
-            attack: 15,
-            model: "assets/3d/decorator_object_catapult.obj",  // Keep existing catapult
-            scale: 0.8,
-            footprintTexture: null,  // No footprints for catapults
-            terrainCosts: {
-                WATER: null,
-                SAND: 2,
-                GRASS: 1.5,
-                FOREST: 3,
-                MOUNTAIN: null
-            },
-            usePlayerColor: true,  // Use player color for this model
-            sounds: {
-                movement: null,  // No movement sound for catapults
-                attack: 'rlauncher3'
-            }
-        },
         "Drover": {
             symbol: "A",
             name: "Drover",
+            unitClass: 'tank' as const,
             maxHp: 6,
             hp: 6,
             move: 3,
@@ -284,6 +265,7 @@ class UnitSystem {
         "Halberd": {
             symbol: "H",
             name: "Halberd",
+            unitClass: 'aa' as const,
             maxHp: 8,
             hp: 8,
             move: 2,
@@ -314,6 +296,7 @@ class UnitSystem {
         "Lynx": {
             symbol: "L",
             name: "Lynx",
+            unitClass: 'tank' as const,
             maxHp: 5,
             hp: 5,
             move: 4,  // fast scout/skirmisher
@@ -344,6 +327,7 @@ class UnitSystem {
         "Nightjar": {
             symbol: "N",
             name: "Nightjar",
+            unitClass: 'air' as const,
             maxHp: 6,
             hp: 6,
             move: 4,  // flight
@@ -356,7 +340,7 @@ class UnitSystem {
             scale: 0.11,
             rotation: 0,
             flightAltitude: 1.2,  // hovers above terrain/units
-            attackEffect: 'rocketBarrage',
+            attackEffect: 'projectile',  // rockets, but single-target -- barrage is artillery-only
             footprintTexture: null,  // Flies -- leaves no tracks
             terrainCosts: {
                 // Flies over everything at a uniform cost, unlike ground units
@@ -376,6 +360,7 @@ class UnitSystem {
         "Shrike": {
             symbol: "S",
             name: "Shrike",
+            unitClass: 'air' as const,
             maxHp: 4,  // fragile, hit-and-run
             hp: 4,
             move: 5,  // very fast
@@ -405,6 +390,23 @@ class UnitSystem {
             }
         }
     };
+
+    // Rock/paper/scissors combat triangle: AA shreds air, tanks crush AA,
+    // air hunts tanks. Attacking your own counter is penalized. Artillery,
+    // infantry, and naval fight everything at 1.0 -- artillery's edge is
+    // range + splash, not matchups.
+    static readonly CLASS_COUNTERS: Record<string, Record<string, number>> = {
+        aa:   { air: 2.0, tank: 0.5 },
+        tank: { aa: 2.0, air: 0.5 },
+        air:  { tank: 2.0, aa: 0.5 },
+    };
+
+    static getClassModifier(attackerType: string, defenderType: string): number {
+        const attackerClass = this.unitTypesRecord[attackerType]?.unitClass;
+        const defenderClass = this.unitTypesRecord[defenderType]?.unitClass;
+        if (!attackerClass || !defenderClass) return 1.0;
+        return this.CLASS_COUNTERS[attackerClass]?.[defenderClass] ?? 1.0;
+    }
 
     static getMovementCost(type: string, terrainType: string): number | null | undefined {
         return this.unitTypesRecord[type].terrainCosts[terrainType];
@@ -1105,7 +1107,11 @@ class UnitSystem {
                 const unitAtHex = getGameState().getUnitAt(hex.q, hex.r);
                 if (!unitAtHex) continue;
                 const isPrimary = hex.q === defender.q && hex.r === defender.r;
-                damages.push({ unit: unitAtHex, damage: isPrimary ? damage : Math.floor(damage * 0.5) });
+                const classModifier = this.getClassModifier(attacker.type, unitAtHex.type);
+                damages.push({
+                    unit: unitAtHex,
+                    damage: Math.floor(damage * (isPrimary ? 1 : 0.5) * classModifier),
+                });
             }
 
             const rocketCount = 6;
@@ -1116,7 +1122,8 @@ class UnitSystem {
             }
         } else {
             // projectile/laser (and any future single-target effect)
-            damages.push({ unit: defender, damage });
+            const classModifier = this.getClassModifier(attacker.type, defender.type);
+            damages.push({ unit: defender, damage: Math.floor(damage * classModifier) });
         }
 
         return { damages, impacts };

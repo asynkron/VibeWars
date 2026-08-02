@@ -92,6 +92,43 @@ describe('resolveAttack: rocketBarrage', () => {
     });
 });
 
+describe('class counter triangle (aa > air > tank > aa)', () => {
+    const neighborOf = (q: number, r: number) => HexCoord.getNeighbors(q, r)[0];
+
+    function duel(attackerType: string, defenderType: string): number {
+        const n = neighborOf(2, 2);
+        const state = makeState([
+            makeUnit({ type: attackerType, q: 2, r: 2, playerIndex: 1 }),
+            makeUnit({ type: defenderType, q: n.q, r: n.r, playerIndex: 0 }),
+        ]);
+        const resolved = resolveAttack(state, 0, 1, 1)!;
+        return resolved.hits.find((h) => h.unitIndex === 1)!.damage;
+    }
+
+    it('AA deals double to air, half to tanks', () => {
+        // Halberd expected damage (4+6)/2 = 5.
+        expect(duel('Halberd', 'Nightjar')).toBe(10);
+        expect(duel('Halberd', 'Bulwark')).toBe(2);
+    });
+
+    it('tanks deal double to AA, half to air', () => {
+        // Bulwark expected damage 5.
+        expect(duel('Bulwark', 'Halberd')).toBe(10);
+        expect(duel('Bulwark', 'Nightjar')).toBe(2);
+    });
+
+    it('air deals double to tanks, half to AA', () => {
+        // Nightjar expected damage (4+6)/2 = 5.
+        expect(duel('Nightjar', 'Bulwark')).toBe(10);
+        expect(duel('Nightjar', 'Halberd')).toBe(2);
+    });
+
+    it('neutral matchups are unmodified', () => {
+        expect(duel('Bulwark', 'Sabre')).toBe(5);   // tank vs tank
+        expect(duel('Droid', 'Bulwark')).toBe(4);   // infantry neutral, expected (3+5)/2
+    });
+});
+
 describe('prng helpers', () => {
     it('mulberry32 is deterministic per seed and outputs [0, 1)', () => {
         const a = mulberry32(99);

@@ -11,7 +11,9 @@
 //   - projectile/laser: single hit on the defender.
 //   - rocketBarrage: damage hits EVERY unit on the defender's hex (x1) and
 //     on each in-bounds neighbor hex (x0.5, floored) -- friendly fire
-//     included -- independent of where the rockets visually land. Craters:
+//     included -- independent of where the rockets visually land. Each
+//     victim's damage is further scaled by the class counter triangle
+//     (UnitSystem.getClassModifier: aa>air, tank>aa, air>tank). Craters:
 //     6 rockets each pick a landing hex uniformly among
 //     [defender hex, ...in-bounds neighbors] and lower it by 0.5.
 //   - any other attackEffect deals no damage (mirrors the live if/else
@@ -88,7 +90,8 @@ export function resolveAttack(
     const impacts: ResolvedImpact[] = [];
 
     if (stats.attackEffect === 'projectile' || stats.attackEffect === 'laser') {
-        hits.push({ unitIndex: defenderIndex, damage });
+        const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);
+        hits.push({ unitIndex: defenderIndex, damage: Math.floor(damage * classModifier) });
     } else if (stats.attackEffect === 'rocketBarrage') {
         // Splash hexes: defender's hex + all in-bounds neighbors.
         const splashHexes = [{ q: defender.q, r: defender.r }];
@@ -103,9 +106,10 @@ export function resolveAttack(
         for (const hex of splashHexes) {
             const found = state.getUnitAt(hex.q, hex.r);
             if (!found) continue;
-            const [unitIndex] = found;
+            const [unitIndex, victim] = found;
             const isPrimary = hex.q === defender.q && hex.r === defender.r;
-            hits.push({ unitIndex, damage: isPrimary ? damage : Math.floor(damage * 0.5) });
+            const classModifier = UnitSystem.getClassModifier(attacker.type, victim.type);
+            hits.push({ unitIndex, damage: Math.floor(damage * (isPrimary ? 1 : 0.5) * classModifier) });
         }
 
         // Craters: each rocket lands on a seeded-random splash hex.
