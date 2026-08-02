@@ -129,6 +129,26 @@ export class SimState {
         return new SimState(cols, rows, tiles, units, [], new Map(), new Map());
     }
 
+    // Flatten this state's CURRENT tiles and live units into a fresh
+    // SimState with an empty log and compacted unit indices (dead units
+    // drop out). This is "start a new turn snapshot from here" -- exactly
+    // what AIController does against the live game, but usable headlessly
+    // to chain simulated turns without any UI.
+    condense(): SimState {
+        const units: SimUnit[] = [];
+        for (const [, unit] of this.liveUnits()) {
+            units.push({ ...unit });
+        }
+        return SimState.snapshot({
+            map: {
+                cols: this.cols,
+                rows: this.rows,
+                getTile: (q: number, r: number) => this.getTile(q, r),
+            },
+            units,
+        });
+    }
+
     // Cheap branch point: shares the base, copies the log and its cache
     // (both usually a handful of entries). Mutating the fork never affects
     // this state or sibling forks.
