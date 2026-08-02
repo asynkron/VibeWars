@@ -26,7 +26,7 @@ import { getHexIntersects } from './shared/hexengine/utils';
 import { MAP_CONFIG } from './constants';
 import { setGameState, getGameState } from './systems/gameStateStore';
 import { selectedMapProvider } from './systems/maps/mapRegistry';
-import type { CameraMatrices, GameUnit } from './types';
+import type { CameraMatrices, GameUnit, PlayerController } from './types';
 
 // Game Data
 let selectedUnit: any = null;
@@ -220,9 +220,15 @@ function setupEventListeners(matrices: CameraMatrices) {
         updateCameraZoom(matrices);
     }, { passive: false });
 
-    // Function to handle unit selection
+    // True when the player whose turn it is takes input from a human.
+    function isHumanTurn(): boolean {
+        return getGameState().getCurrentPlayer().controller === 'human';
+    }
+
+    // Function to handle unit selection -- the current (human) player's own
+    // units only, so hotseat human-vs-human works too.
     function selectUnit(unit: GameUnit | null): boolean {
-        if (unit && getGameState().isPlayerTurn(0) && unit.playerIndex === 0) {
+        if (unit && isHumanTurn() && getGameState().isPlayerTurn(unit.playerIndex)) {
             // Clear previous selection first, exactly as in the click handler
             if (selectedUnit) {
                 selectedUnit = null;
@@ -304,7 +310,7 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     // Add end turn button handler
     endTurnButton.addEventListener('click', () => {
-        if (getGameState().isPlayerTurn(0)) {  // Only allow player to end their turn
+        if (isHumanTurn()) {  // Only a human may end their own turn
             selectedUnit = null;
             VisualizationSystem.clearPathLine();
             VisualizationSystem.clearHighlights();
@@ -315,12 +321,12 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     // Update end turn button state when turn changes
     const updateEndTurnButton = () => {
-        if (getGameState().isPlayerTurn(0)) {
+        if (isHumanTurn()) {
             endTurnButton.disabled = false;
             endTurnButton.textContent = "End Turn";
         } else {
             endTurnButton.disabled = true;
-            endTurnButton.textContent = "Enemy Turn";
+            endTurnButton.textContent = "AI Turn";
         }
     };
 
@@ -339,9 +345,10 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     // Next Unit button handler
     nextUnitButton.addEventListener('click', () => {
-        if (!getGameState().isPlayerTurn(0)) return; // Only work during player's turn
+        if (!isHumanTurn()) return; // Only during a human player's turn
 
-        const playerUnits = getGameState().units.filter((unit: GameUnit) => unit.playerIndex === 0);
+        const currentPlayer = getGameState().currentTurn;
+        const playerUnits = getGameState().units.filter((unit: GameUnit) => unit.playerIndex === currentPlayer);
         if (playerUnits.length === 0) return;
 
         // Get next unit
@@ -376,7 +383,7 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     // Update next unit button state when turn changes
     const updateNextUnitButton = () => {
-        if (getGameState().isPlayerTurn(0)) {
+        if (isHumanTurn()) {
             nextUnitButton.disabled = false;
             nextUnitButton.style.opacity = '1';
         } else {
@@ -406,12 +413,12 @@ function setupEventListeners(matrices: CameraMatrices) {
     });
 }
 
-async function initGame() {
+async function initGame(controllers: [PlayerController, PlayerController]) {
     // Initialize renderer first
     initRenderer();  // This sets up the renderer and adds it to the document
 
     // Initialize game state
-    const gameState = new GameState();
+    const gameState = new GameState(controllers);
     setGameState(gameState);
 
     // Initialize systems in parallel
@@ -468,13 +475,66 @@ async function initGame() {
     // Start animation
     animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup);
 
+    // Kick off the first turn (starts the AI immediately in AI-vs-AI mode)
+    gameState.start();
 }
 
-// Make sure to call initGame as async
+// Pre-game start menu: pick who controls each side, then boot the game.
+function showStartMenu() {
+    const overlay = document.createElement('div');
+    overlay.id = 'start-menu';
+    overlay.style.cssText =
+        'position:absolute;inset:0;background:#0a0f1e;display:flex;flex-direction:column;' +
+        'align-items:center;justify-content:center;gap:14px;z-index:100;font-family:Arial,sans-serif;';
+
+    const title = document.createElement('h1');
+    title.textContent = 'VibeWars';
+    title.style.cssText = 'color:#fff;font-size:44px;margin:0 0 4px 0;';
+    overlay.appendChild(title);
+
+    const subtitle = document.createElement('div');
+    subtitle.textContent = 'Choose match type';
+    subtitle.style.cssText = 'color:#8fa3c8;font-size:16px;margin-bottom:14px;';
+    overlay.appendChild(subtitle);
+
+    const modes: Array<{ label: string; controllers: [PlayerController, PlayerController] }> = [
+        { label: 'Human vs AI', controllers: ['human', 'cpu'] },
+        { label: 'AI vs AI', controllers: ['cpu', 'cpu'] },
+        { label: 'Human vs Human', controllers: ['human', 'human'] },
+    ];
+    for (const mode of modes) {
+        const button = document.createElement('button');
+        button.textContent = mode.label;
+        button.style.cssText =
+            'padding:14px 40px;font-size:20px;background-color:#4CAF50;color:white;border:none;' +
+            'border-radius:6px;cursor:pointer;min-width:280px;';
+        button.addEventListener('click', () => {
+            overlay.remove();
+            initGame(mode.controllers).catch(error => {
+                console.error("Error initializing game:", error);
+            });
+        });
+        overlay.appendChild(button);
+    }
+
+    document.body.appendChild(overlay);
+}
+
+// Victory banner, raised by GameState when one side runs out of units.
+window.addEventListener('vibewars:gameover', ((event: CustomEvent) => {
+    const banner = document.createElement('div');
+    banner.id = 'game-over-banner';
+    const headline = event.detail?.name ? `${event.detail.name} wins!` : 'Draw';
+    banner.textContent = event.detail?.reason ? `${headline} (${event.detail.reason})` : headline;
+    banner.style.cssText =
+        'position:absolute;top:40%;left:50%;transform:translate(-50%,-50%);z-index:100;' +
+        'padding:24px 60px;font-family:Arial,sans-serif;font-size:36px;font-weight:bold;color:#fff;' +
+        'background:rgba(10,15,30,0.92);border:2px solid #4CAF50;border-radius:10px;';
+    document.body.appendChild(banner);
+}) as EventListener);
+
 window.onload = () => {
-    initGame().catch(error => {
-        console.error("Error initializing game:", error);
-    });
+    showStartMenu();
 };
 
 function createRoads(gameState: GameState) {

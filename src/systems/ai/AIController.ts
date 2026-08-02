@@ -27,8 +27,17 @@ const ACTION_PAUSE_MS = 300;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// What a CPU turn actually did against the live world -- GameState uses
+// this to detect stalemates (e.g. armies separated by water that can
+// neither reach nor hurt each other).
+export interface CpuTurnStats {
+    moves: number;
+    attacks: number;
+}
+
 export class AIController {
-    static async runCpuTurn(gameState: { map: any; units: GameUnit[] }, playerIndex: number = 1): Promise<void> {
+    static async runCpuTurn(gameState: { map: any; units: GameUnit[] }, playerIndex: number = 1): Promise<CpuTurnStats> {
+        const stats: CpuTurnStats = { moves: 0, attacks: 0 };
         const snapshot = SimState.snapshot(gameState);
         // Parallel to the snapshot's unit indices, by construction: snapshot
         // maps source.units in order.
@@ -51,6 +60,7 @@ export class AIController {
                 const path = PathfindingSystem.getPath(unit.q, unit.r, event.toQ, event.toR, unit.move, unit);
                 if (path.length === 0) continue; // live world diverged; skip gracefully
                 unit.move -= event.moveSpent;
+                stats.moves++;
                 await UnitSystem.move(unit, path);
                 await sleep(ACTION_PAUSE_MS);
                 continue;
@@ -80,6 +90,7 @@ export class AIController {
 
                 const attacker = liveRefs[attackerIndex];
                 if (isAlive(attacker) && isAlive(primaryDefender)) {
+                    stats.attacks++;
                     await UnitSystem.attack(attacker, primaryDefender, outcome);
                     await sleep(ACTION_PAUSE_MS);
                 }
@@ -90,5 +101,7 @@ export class AIController {
             // gene layer never produces these, but skip defensively.
             i++;
         }
+
+        return stats;
     }
 }

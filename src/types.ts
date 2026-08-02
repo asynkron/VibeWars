@@ -91,11 +91,15 @@ export interface PlayerColorConfig {
   units: any[];
 }
 
+// Who drives a player's turns: a human at the input, or the search AI.
+export type PlayerController = 'human' | 'cpu';
+
 // A player as tracked by GameState (distinct shape from PlayerColorConfig).
 export interface GamePlayer {
   id: number;
   name: string;
   color: number;
+  controller: PlayerController;
 }
 
 // A unit as tracked in GameState.units -- the game-logic representation,
