@@ -11,14 +11,14 @@
 
   const api = {
     options: merged,
-    getOption(key) {
+    getOption(key: string): any {
       if (Object.prototype.hasOwnProperty.call(this.options, key)) {
-        return this.options[key];
+        return (this.options as any)[key];
       }
       return undefined;
     },
-    setOption(key, value) {
-      this.options[key] = value;
+    setOption(key: string, value: any): void {
+      (this.options as any)[key] = value;
     },
   };
 

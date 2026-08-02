@@ -14,27 +14,27 @@ const PERMUTATION = [
   236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180,
 ];
 
-const P = new Array(512);
+const P: number[] = new Array(512);
 for (let i = 0; i < 256; i++) {
   P[i] = P[i + 256] = PERMUTATION[i];
 }
 
-function fade(t) {
+function fade(t: number): number {
   return t * t * t * (t * (t * 6 - 15) + 10);
 }
 
-function lerp(t, a, b) {
+function lerp(t: number, a: number, b: number): number {
   return a + t * (b - a);
 }
 
-function grad(hash, x, y, z) {
+function grad(hash: number, x: number, y: number, z: number): number {
   const h = hash & 15;
   const u = h < 8 ? x : y;
   const v = h < 4 ? y : h === 12 || h === 14 ? x : z;
   return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
 }
 
-function perlinNoise(x, y, z = 0) {
+function perlinNoise(x: number, y: number, z: number = 0): number {
   const xi = Math.floor(x) & 255;
   const yi = Math.floor(y) & 255;
   const zi = Math.floor(z) & 255;

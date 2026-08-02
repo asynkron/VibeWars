@@ -1,23 +1,28 @@
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 
+interface HeapEntry<T> {
+    item: T;
+    priority: number;
+}
+
 // PriorityQueue implementation using a binary heap
-class PriorityQueue {
-    heap: any[];
+class PriorityQueue<T> {
+    heap: HeapEntry<T>[];
 
     constructor() {
         this.heap = [];
     }
 
-    enqueue(item, priority) {
+    enqueue(item: T, priority: number): void {
         this.heap.push({ item, priority });
         this._bubbleUp(this.heap.length - 1);
     }
 
-    dequeue() {
+    dequeue(): T | null {
         if (this.heap.length === 0) return null;
         const min = this.heap[0];
-        const end = this.heap.pop();
+        const end = this.heap.pop()!;
         if (this.heap.length > 0) {
             this.heap[0] = end;
             this._sinkDown(0);
@@ -25,11 +30,11 @@ class PriorityQueue {
         return min.item;
     }
 
-    isEmpty() {
+    isEmpty(): boolean {
         return this.heap.length === 0;
     }
 
-    _bubbleUp(n) {
+    _bubbleUp(n: number): void {
         const element = this.heap[n];
         while (n > 0) {
             const parentN = Math.floor((n - 1) / 2);
@@ -41,13 +46,13 @@ class PriorityQueue {
         }
     }
 
-    _sinkDown(n) {
+    _sinkDown(n: number): void {
         const length = this.heap.length;
         const element = this.heap[n];
         while (true) {
             let leftN = 2 * n + 1;
             let rightN = 2 * n + 2;
-            let swap: any = null;
+            let swap: number | null = null;
 
             if (leftN < length) {
                 const left = this.heap[leftN];
@@ -76,7 +81,7 @@ class PathfindingSystem {
     // Heuristic function: calculates hex distance between two HexCoord objects.
     // For axial coordinates, the distance formula is:
     // distance = (|q1 - q2| + |r1 - r2| + |(q1+r1) - (q2+r2)|) / 2.
-    static heuristic(a, b) {
+    static heuristic(a: { q: number; r: number }, b: { q: number; r: number } | null): number {
         if (!b) return 0;
         const dq = Math.abs(a.q - b.q);
         const dr = Math.abs(a.r - b.r);
@@ -85,14 +90,14 @@ class PathfindingSystem {
     }
 
     // Note: Function signature remains the same.
-    static dijkstra(startQ, startR, maxCost = Infinity, unit, endQ = null, endR = null) {
-        const distances = new Map();
-        const previous = new Map();
-        const reachable = new Set();
-        const closedSet = new Set(); // New closed set to track visited nodes
+    static dijkstra(startQ: number, startR: number, maxCost: number = Infinity, unit: any, endQ: number | null = null, endR: number | null = null) {
+        const distances = new Map<string, number>();
+        const previous = new Map<string, string>();
+        const reachable = new Set<string>();
+        const closedSet = new Set<string>(); // New closed set to track visited nodes
 
         // Initialize distances for every hex in hexGrid
-        hexGrid.forEach(hex => {
+        hexGrid.forEach((hex: any) => {
             const coord = new HexCoord(hex.userData.q, hex.userData.r);
             const key = coord.getKey();
             distances.set(key, Infinity);
@@ -104,23 +109,23 @@ class PathfindingSystem {
         reachable.add(startKey);
 
         // Determine if a target is specified and compute its key
-        let endCoord: any = null;
+        let endCoord: HexCoord | null = null;
         const endKey = (endQ !== null && endR !== null)
             ? (endCoord = new HexCoord(endQ, endR)).getKey()
             : null;
 
         // Use a priority queue for the frontier. Priority = current cost + heuristic.
-        const frontier = new PriorityQueue();
+        const frontier = new PriorityQueue<string>();
         frontier.enqueue(startKey, 0 + (endCoord ? this.heuristic(startCoord, endCoord) : 0));
 
         while (!frontier.isEmpty()) {
-            const currentKey = frontier.dequeue();
+            const currentKey = frontier.dequeue()!;
 
             // Skip if this node has already been fully processed.
             if (closedSet.has(currentKey)) continue;
             closedSet.add(currentKey);
 
-            const currentDistance = distances.get(currentKey);
+            const currentDistance = distances.get(currentKey)!;
 
             // If the smallest cost node exceeds maxCost, stop searching.
             if (currentDistance > maxCost) break;
@@ -134,7 +139,7 @@ class PathfindingSystem {
             // Get neighbors (you may pass a visited set if your implementation supports it)
             const validNeighbors = currentCoord.getValidNeighbors();
 
-            validNeighbors.forEach(({ coord, hex }) => {
+            validNeighbors.forEach(({ coord, hex }: { coord: HexCoord; hex: any }) => {
                 if (coord.isOccupied()) return;
 
                 const neighborKey = coord.getKey();
@@ -146,7 +151,7 @@ class PathfindingSystem {
                 if (!cost) return;
 
                 const newDistance = currentDistance + cost;
-                if (newDistance < distances.get(neighborKey)) {
+                if (newDistance < distances.get(neighborKey)!) {
                     distances.set(neighborKey, newDistance);
                     previous.set(neighborKey, currentKey);
                     if (newDistance <= maxCost) {
@@ -163,7 +168,7 @@ class PathfindingSystem {
     }
 
     // getPath remains unchanged in its API.
-    static getPath(q1, r1, q2, r2, move, unit) {
+    static getPath(q1: number, r1: number, q2: number, r2: number, move: number, unit: any): any[] {
         const startCoord = new HexCoord(q1, r1);
         const endCoord = new HexCoord(q2, r2);
 
@@ -181,7 +186,7 @@ class PathfindingSystem {
             if (hex) {
                 path.unshift(hex);
             }
-            currentKey = previous.get(currentKey);
+            currentKey = previous.get(currentKey)!;
         }
 
         const startHex = startCoord.getHex();

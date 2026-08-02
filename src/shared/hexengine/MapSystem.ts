@@ -2,26 +2,28 @@
 import { TerrainSystem } from './TerrainSystem';
 import { perlinNoise } from './perlinNoise';
 import { MAP_CONFIG, TERRAIN_CONFIG } from '../../constants';
-class Tile {
-  height: any;
-  type: any;
-  color: any;
-  hasRoad: boolean;
-  moveCost: any;
+import type { TileLike } from '../../types';
 
-  constructor(height, type, color) {
+class Tile implements TileLike {
+  height: number;
+  type: string;
+  color: number;
+  hasRoad: boolean;
+  moveCost: number;
+
+  constructor(height: number, type: string, color: number) {
     this.height = height;
     this.type = type;
     this.color = color;
     this.hasRoad = false;
-    this.moveCost = TerrainSystem.terrainTypes[type]?.moveCost ?? 1;
+    this.moveCost = (TerrainSystem.terrainTypes as any)[type]?.moveCost ?? 1;
   }
 }
 
 class GameMap {
   rows: number;
   cols: number;
-  tiles: any[];
+  tiles: TileLike[][];
 
   constructor(rows = MAP_CONFIG.ROWS, cols = MAP_CONFIG.COLS) {
     this.rows = rows;
@@ -43,7 +45,7 @@ class GameMap {
         const baseHeight = TerrainSystem.getTerrainBaseHeight(terrainType);
         const heightVariation = Math.random() * TerrainSystem.getTerrainHeightVariation(terrainType);
 
-        let height;
+        let height: number;
         if (terrainType === 'WATER') {
           height = baseHeight;
         } else {
@@ -60,7 +62,7 @@ class GameMap {
     }
   }
 
-  getTile(q, r) {
+  getTile(q: number, r: number): TileLike | null {
     if (q >= 0 && q < this.cols && r >= 0 && r < this.rows) {
       return this.tiles[q][r];
     }

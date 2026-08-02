@@ -3,9 +3,15 @@ import { scene } from '../../render';
 import { UnitSystem } from './UnitSystem';
 import { HexCoord } from './HexCoord';
 import { addColorVariation } from './utils';
+import type { TerrainTypeConfig, TerrainDecoration } from '../../types';
 
 class TerrainSystem {
     static decoratorModels: any; // never assigned anywhere -- addDecorator() is dead code
+
+    static get terrainTypesRecord(): Record<string, TerrainTypeConfig> {
+        return this.terrainTypes as unknown as Record<string, TerrainTypeConfig>;
+    }
+
 static terrainTypes = {
         WATER: {
             name: 'water',
@@ -167,35 +173,35 @@ static terrainTypes = {
         }
     };
 
-    static getTerrainColor(terrainType) {
-        return this.terrainTypes[terrainType]?.material?.color || this.terrainTypes.GRASS.material.color;
+    static getTerrainColor(terrainType: string): number {
+        return this.terrainTypesRecord[terrainType]?.material?.color || this.terrainTypes.GRASS.material.color;
     }
 
-    static getTerrainName(terrainType) {
-        return this.terrainTypes[terrainType]?.name || 'grass';
+    static getTerrainName(terrainType: string): string {
+        return this.terrainTypesRecord[terrainType]?.name || 'grass';
     }
 
-    static getTerrainBaseHeight(terrainType) {
-        return this.terrainTypes[terrainType]?.baseHeight || this.terrainTypes.GRASS.baseHeight;
+    static getTerrainBaseHeight(terrainType: string): number {
+        return this.terrainTypesRecord[terrainType]?.baseHeight || this.terrainTypes.GRASS.baseHeight;
     }
 
-    static getTerrainHeightVariation(terrainType) {
-        return this.terrainTypes[terrainType]?.heightVariation || this.terrainTypes.GRASS.heightVariation;
+    static getTerrainHeightVariation(terrainType: string): number {
+        return this.terrainTypesRecord[terrainType]?.heightVariation || this.terrainTypes.GRASS.heightVariation;
     }
 
-    static getTerrainHeightModifier(terrainType) {
-        return this.terrainTypes[terrainType]?.heightModifier || 0;
+    static getTerrainHeightModifier(terrainType: string): number {
+        return this.terrainTypesRecord[terrainType]?.heightModifier || 0;
     }
 
-    static getTerrainThreshold(terrainType) {
-        return this.terrainTypes[terrainType]?.threshold || this.terrainTypes.GRASS.threshold;
+    static getTerrainThreshold(terrainType: string): number {
+        return this.terrainTypesRecord[terrainType]?.threshold || this.terrainTypes.GRASS.threshold;
     }
 
-    static isImpassable(terrainType) {
-        return this.terrainTypes[terrainType]?.impassable || false;
+    static isImpassable(terrainType: string): boolean {
+        return this.terrainTypesRecord[terrainType]?.impassable || false;
     }
 
-    static getMoveCost(hex, unit) {
+    static getMoveCost(hex: any, unit: any): number {
         // Check if the tile has a road first
         const tile = gameState.map.getTile(hex.userData.q, hex.userData.r);
         if (tile && tile.hasRoad) {
@@ -212,16 +218,16 @@ static terrainTypes = {
         return 0;
     }
 
-    static getHeight(hex) {
+    static getHeight(hex: any): number {
 
         const baseHeight = hex.userData.height || 0;
 
         return baseHeight;
     }
 
-    static getTerrainTypeFromNoise(noiseValue) {
+    static getTerrainTypeFromNoise(noiseValue: number): string {
         // Convert terrainTypes to array and sort by threshold
-        const sortedTypes = Object.entries(this.terrainTypes)
+        const sortedTypes = Object.entries(this.terrainTypesRecord)
             .sort(([, a], [, b]) => a.threshold - b.threshold);
 
         // Check thresholds in ascending order
@@ -233,11 +239,11 @@ static terrainTypes = {
         return 'MOUNTAIN'; // Default to mountain if above all thresholds
     }
 
-    static getTerrainDecorations(terrainType) {
-        return this.terrainTypes[terrainType]?.decorations || [];
+    static getTerrainDecorations(terrainType: string): TerrainDecoration[] {
+        return this.terrainTypesRecord[terrainType]?.decorations || [];
     }
 
-    static getRandomDecoration(terrainType) {
+    static getRandomDecoration(terrainType: string): TerrainDecoration | null {
         const decorations = this.getTerrainDecorations(terrainType);
         if (decorations.length === 0) return null;
 
@@ -250,7 +256,7 @@ static terrainTypes = {
         return null;  // No decoration was selected
     }
 
-    static addDecorator(hex, decoratorType) {
+    static addDecorator(hex: any, decoratorType: string): void {
         if (this.decoratorModels[decoratorType]) {
             const decorator = this.decoratorModels[decoratorType].clone();
             const worldPos = new HexCoord(hex.userData.q, hex.userData.r).getWorldPosition();
@@ -265,13 +271,13 @@ static terrainTypes = {
         }
     }
 
-    static getTerrainMaterial(terrainType) {
-        return this.terrainTypes[terrainType]?.material || this.terrainTypes.GRASS.material;
+    static getTerrainMaterial(terrainType: string) {
+        return this.terrainTypesRecord[terrainType]?.material || this.terrainTypes.GRASS.material;
     }
 
-    static getLerpedTerrainColor(noiseValue) {
+    static getLerpedTerrainColor(noiseValue: number): number {
         // Convert terrainTypes to array and sort by threshold
-        const sortedTypes = Object.entries(this.terrainTypes)
+        const sortedTypes = Object.entries(this.terrainTypesRecord)
             .sort(([, a], [, b]) => a.threshold - b.threshold);
 
         // Find the current and next terrain type based on noise value
