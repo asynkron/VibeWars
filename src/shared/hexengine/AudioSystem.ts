@@ -1,7 +1,9 @@
+import { UnitSystem } from './UnitSystem';
+
 class AudioSystem {
-    static audioContext = null;
+    static audioContext: any = null;
     static sounds = new Map();
-    static music = null;
+    static music: any = null;
     static initialized = false;
     static FADE_DURATION = 0.2; // Duration of fade in/out in seconds
 
@@ -69,7 +71,7 @@ class AudioSystem {
         }
     }
 
-    static playSound(name, volume = 1.0, duration = null) {
+    static playSound(name, volume = 1.0, duration: any = null) {
         const sound = this.sounds.get(name);
         if (sound) {
             const source = this.audioContext.createBufferSource();
@@ -180,4 +182,6 @@ class AudioSystem {
 }
 
 window.AudioSystem = AudioSystem;
-console.log('AudioSystem.js loaded'); 
+console.log('AudioSystem.js loaded');
+
+export { AudioSystem };

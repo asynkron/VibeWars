@@ -4,6 +4,7 @@ import { FootprintSystem } from './FootprintSystem';
 import { VisualizationSystem } from './VisualizationSystem';
 import { PathfindingSystem } from './PathfindingSystem';
 import { setSelectedUnit } from '../../game';
+import { AudioSystem } from './AudioSystem';
 
 class UnitSystem {
     static unitTypes = {
