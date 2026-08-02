@@ -3,7 +3,7 @@
 class ModelSystem {
     static models: Record<string, any> = {};  // Cache for loaded 3D models
 
-    static async loadModels(modelConfigs) {
+    static async loadModels(modelConfigs: Record<string, any>) {
         const mtlLoader = new THREE.MTLLoader();
         const objLoader = new THREE.OBJLoader();
         const gltfLoader = new THREE.GLTFLoader();
@@ -24,14 +24,14 @@ class ModelSystem {
                 let loadedModel: any;
 
                 // Step 1: Load the raw model based on file type
-                const extension = filepath.split('.').pop().toLowerCase();
+                const extension: string = filepath.split('.').pop().toLowerCase();
                 switch (extension) {
                     case 'fbx':
                         loadedModel = await new Promise((resolve, reject) => {
                             fbxLoader.load(
                                 filepath,
-                                (object) => resolve(object),
-                                (xhr) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
+                                (object: any) => resolve(object),
+                                (xhr: any) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
                                 reject
                             );
                         });
@@ -41,8 +41,8 @@ class ModelSystem {
                     case 'glb':
                         loadedModel = await new Promise((resolve, reject) => {
                             gltfLoader.load(filepath,
-                                (gltf) => resolve(gltf.scene),
-                                (xhr) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
+                                (gltf: any) => resolve(gltf.scene),
+                                (xhr: any) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
                                 reject
                             );
                         });
@@ -52,7 +52,7 @@ class ModelSystem {
                         if (config.material) {
                             const materials = await new Promise((resolve, reject) => {
                                 mtlLoader.load(config.material,
-                                    (materials) => {
+                                    (materials: any) => {
                                         materials.preload();
                                         resolve(materials);
                                     },
@@ -64,8 +64,8 @@ class ModelSystem {
                         }
                         loadedModel = await new Promise((resolve, reject) => {
                             objLoader.load(filepath,
-                                (object) => resolve(object),
-                                (xhr) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
+                                (object: any) => resolve(object),
+                                (xhr: any) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
                                 reject
                             );
                         });
@@ -88,7 +88,7 @@ class ModelSystem {
                 loadedModel.rotation.y = (rotation * Math.PI) / 180;
 
                 // Initialize materials and shadows
-                loadedModel.traverse((child) => {
+                loadedModel.traverse((child: any) => {
                     if (child.isMesh) {
                         child.castShadow = true;
                         child.receiveShadow = true;
@@ -100,7 +100,7 @@ class ModelSystem {
 
                         // Handle both single materials and arrays
                         if (Array.isArray(child.material)) {
-                            child.material = child.material.map(mat => {
+                            child.material = child.material.map((mat: any) => {
                                 if (!mat) mat = new THREE.MeshStandardMaterial();
                                 const clonedMat = mat.clone();
                                 clonedMat.transparent = true;
@@ -147,14 +147,14 @@ class ModelSystem {
         }
     }
 
-    static createModelWithColor(model, playerColor, usePlayerColor = true, replaceColor = null) {
+    static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null) {
         const modelClone = model.clone();
 
         if (usePlayerColor) {
-            modelClone.traverse((child) => {
+            modelClone.traverse((child: any) => {
                 if (child instanceof THREE.Mesh) {
                     if (Array.isArray(child.material)) {
-                        child.material = child.material.map(mat => {
+                        child.material = child.material.map((mat: any) => {
                             const clonedMat = mat.clone();
                             clonedMat.color.setHex(playerColor);
                             return clonedMat;
@@ -169,7 +169,7 @@ class ModelSystem {
 
         if (replaceColor !== null) {
             // Function to check if a color is close to the target color using Euclidean distance in RGB space
-            const isColorClose = (color1, color2) => {
+            const isColorClose = (color1: number, color2: number): boolean => {
                 const r1 = (color1 >> 16) & 0xFF;
                 const g1 = (color1 >> 8) & 0xFF;
                 const b1 = color1 & 0xFF;
@@ -188,10 +188,10 @@ class ModelSystem {
                 return distance < 50;
             };
 
-            modelClone.traverse((child) => {
+            modelClone.traverse((child: any) => {
                 if (child instanceof THREE.Mesh) {
                     if (Array.isArray(child.material)) {
-                        child.material = child.material.map(mat => {
+                        child.material = child.material.map((mat: any) => {
                             const clonedMat = mat.clone();
                             if (isColorClose(clonedMat.color.getHex(), replaceColor)) {
                                 clonedMat.color.setHex(playerColor);
@@ -211,7 +211,7 @@ class ModelSystem {
         return modelClone;
     }
 
-    static getModel(filepath) {
+    static getModel(filepath: string) {
         return this.models[filepath];
     }
 }

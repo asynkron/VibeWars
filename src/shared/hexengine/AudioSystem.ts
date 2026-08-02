@@ -1,9 +1,16 @@
 import { UnitSystem } from './UnitSystem';
+import type { GameUnit } from '../../types';
+
+interface MusicState {
+    source: AudioBufferSourceNode;
+    gainNode: GainNode;
+    isPlaying: boolean;
+}
 
 class AudioSystem {
-    static audioContext: any = null;
-    static sounds = new Map();
-    static music: any = null;
+    static audioContext: AudioContext | null = null;
+    static sounds = new Map<string, AudioBuffer>();
+    static music: MusicState | null = null;
     static initialized = false;
     static FADE_DURATION = 0.2; // Duration of fade in/out in seconds
 
@@ -28,11 +35,11 @@ class AudioSystem {
         console.log('AudioSystem initialized');
     }
 
-    static async loadSound(name, url) {
+    static async loadSound(name: string, url: string) {
         try {
             const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
-            const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+            const audioBuffer = await this.audioContext!.decodeAudioData(arrayBuffer);
             this.sounds.set(name, audioBuffer);
             console.log(`Loaded sound: ${name}`);
         } catch (error) {
@@ -40,23 +47,23 @@ class AudioSystem {
         }
     }
 
-    static async loadMusic(url) {
+    static async loadMusic(url: string) {
         try {
             const response = await fetch(url);
             const arrayBuffer = await response.arrayBuffer();
-            const audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+            const audioBuffer = await this.audioContext!.decodeAudioData(arrayBuffer);
 
             // Create a source node
-            const source = this.audioContext.createBufferSource();
+            const source = this.audioContext!.createBufferSource();
             source.buffer = audioBuffer;
 
             // Create a gain node for volume control
-            const gainNode = this.audioContext.createGain();
+            const gainNode = this.audioContext!.createGain();
             gainNode.gain.value = 0.5; // Set default volume to 50%
 
             // Connect nodes
             source.connect(gainNode);
-            gainNode.connect(this.audioContext.destination);
+            gainNode.connect(this.audioContext!.destination);
 
             // Store the source and gain node
             this.music = {
@@ -71,17 +78,17 @@ class AudioSystem {
         }
     }
 
-    static playSound(name, volume = 1.0, duration: any = null) {
+    static playSound(name: string, volume: number = 1.0, duration: number | null = null) {
         const sound = this.sounds.get(name);
         if (sound) {
-            const source = this.audioContext.createBufferSource();
-            const gainNode = this.audioContext.createGain();
+            const source = this.audioContext!.createBufferSource();
+            const gainNode = this.audioContext!.createGain();
 
             source.buffer = sound;
             gainNode.gain.value = volume;
 
             source.connect(gainNode);
-            gainNode.connect(this.audioContext.destination);
+            gainNode.connect(this.audioContext!.destination);
 
             source.start(0);
 
@@ -94,7 +101,7 @@ class AudioSystem {
         }
     }
 
-    static playMusic(loop = true) {
+    static playMusic(loop: boolean = true) {
         if (this.music && !this.music.isPlaying) {
             this.music.source.loop = loop;
             this.music.source.start(0);
@@ -109,29 +116,29 @@ class AudioSystem {
         }
     }
 
-    static setMusicVolume(volume) {
+    static setMusicVolume(volume: number) {
         if (this.music) {
             this.music.gainNode.gain.value = volume;
         }
     }
 
-    static playEngineSound(unit) {
+    static playEngineSound(unit: GameUnit) {
         // Stop any existing engine sound for this unit
         if (unit.engineSound) {
             this.stopEngineSound(unit);
         }
 
         // Get the unit type's movement sound configuration
-        const unitType = UnitSystem.unitTypes[unit.type];
+        const unitType = (UnitSystem.unitTypes as any)[unit.type];
         if (!unitType || !unitType.sounds || !unitType.sounds.movement) {
             return; // No movement sound configured for this unit type
         }
 
         // Create a new source for this unit's movement sound
-        const source = this.audioContext.createBufferSource();
-        const gainNode = this.audioContext.createGain();
+        const source = this.audioContext!.createBufferSource();
+        const gainNode = this.audioContext!.createGain();
 
-        source.buffer = this.sounds.get(unitType.sounds.movement);
+        source.buffer = this.sounds.get(unitType.sounds.movement) ?? null;
         if (!source.buffer) {
             console.warn(`Movement sound ${unitType.sounds.movement} not found for unit type ${unit.type}`);
             return;
@@ -141,7 +148,7 @@ class AudioSystem {
         gainNode.gain.value = 0; // Start at 0 volume
 
         source.connect(gainNode);
-        gainNode.connect(this.audioContext.destination);
+        gainNode.connect(this.audioContext!.destination);
 
         // Store the source and gain node in the unit for later cleanup
         unit.engineSound = {
@@ -153,15 +160,15 @@ class AudioSystem {
         source.start(0);
 
         // Fade in
-        gainNode.gain.setTargetAtTime(0.3, this.audioContext.currentTime, this.FADE_DURATION);
+        gainNode.gain.setTargetAtTime(0.3, this.audioContext!.currentTime, this.FADE_DURATION);
     }
 
-    static stopEngineSound(unit) {
+    static stopEngineSound(unit: GameUnit) {
         if (unit.engineSound) {
             const { source, gainNode } = unit.engineSound;
 
             // Fade out
-            gainNode.gain.setTargetAtTime(0, this.audioContext.currentTime, this.FADE_DURATION);
+            gainNode.gain.setTargetAtTime(0, this.audioContext!.currentTime, this.FADE_DURATION);
 
             // Stop the source after the fade out
             setTimeout(() => {
@@ -171,8 +178,8 @@ class AudioSystem {
         }
     }
 
-    static playAttackSound(unit) {
-        const unitType = UnitSystem.unitTypes[unit.type];
+    static playAttackSound(unit: GameUnit) {
+        const unitType = (UnitSystem.unitTypes as any)[unit.type];
         if (!unitType || !unitType.sounds || !unitType.sounds.attack) {
             return; // No attack sound configured for this unit type
         }

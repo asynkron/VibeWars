@@ -24,9 +24,12 @@ Even though both scenarios have same total HP (30), the first is scored higher
 because it's more likely to maintain combat effectiveness in future turns.
 */
 
+import type { GameState } from '../../systems/GameState';
+import type { GameUnit, GamePlayer } from '../../types';
+
 class ScoringSystem {
-    static calculateScore(gameState, playerIndex) {
-        const playerUnits = gameState.getPlayerUnits(playerIndex);
+    static calculateScore(gameState: GameState, playerIndex: number): number {
+        const playerUnits: GameUnit[] = gameState.getPlayerUnits(playerIndex);
 
         // Sum up HP * Attack for each unit
         const score = playerUnits.reduce((total, unit) => {
@@ -37,14 +40,14 @@ class ScoringSystem {
         return score;
     }
 
-    static getScoreDifference(gameState, playerIndex) {
+    static getScoreDifference(gameState: GameState, playerIndex: number): number {
         // Get score for the specified player
         const playerScore = this.calculateScore(gameState, playerIndex);
 
         // Get score for all other players combined
         const otherPlayersScore = gameState.players
-            .filter(player => player.id !== playerIndex)
-            .reduce((total, player) => {
+            .filter((player: GamePlayer) => player.id !== playerIndex)
+            .reduce((total: number, player: GamePlayer) => {
                 return total + this.calculateScore(gameState, player.id);
             }, 0);
 
@@ -52,7 +55,7 @@ class ScoringSystem {
         return playerScore - otherPlayersScore;
     }
 
-    static evaluateMove(gameState, playerIndex) {
+    static evaluateMove(gameState: GameState, playerIndex: number): number {
         // Clone the game state to simulate the move
         const clonedState = gameState.clone();
 
