@@ -8,11 +8,6 @@
 declare const THREE: any;
 
 // shared/hexengine/utils.js + perlinNoise.js
-declare const addColorVariation: any;
-declare const getVertexOffset: any;
-declare const getVertexOffsets: any;
-declare const getHexIntersects: any;
-declare const clamp: any;
 declare const perlinNoise: any;
 
 // getMinimapWorldPosition is referenced by game.js's minimap drag/click

@@ -2,6 +2,7 @@
 import { scene } from '../../render';
 import { UnitSystem } from './UnitSystem';
 import { HexCoord } from './HexCoord';
+import { addColorVariation } from './utils';
 
 class TerrainSystem {
     static decoratorModels: any; // never assigned anywhere -- addDecorator() is dead code

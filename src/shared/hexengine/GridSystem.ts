@@ -6,6 +6,7 @@ import { ModelSystem } from './ModelSystem';
 import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
+import { addColorVariation, getVertexOffsets } from './utils';
 
 class GridSystem {
     static hexGrid: any[] = [];

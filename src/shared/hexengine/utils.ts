@@ -1,4 +1,6 @@
 // Shared helper utilities for the hex engine.
+import { GridSystem } from './GridSystem';
+
 function addColorVariation(color, variation = 0.05) {
   const baseColor = new THREE.Color(color);
   baseColor.r += (Math.random() - 0.5) * variation;
@@ -45,3 +47,5 @@ if (typeof window !== 'undefined') {
   window.getHexIntersects = getHexIntersects;
   window.clamp = clamp;
 }
+
+export { addColorVariation, hash, getVertexOffset, getVertexOffsets, getHexIntersects, clamp };
