@@ -1,4 +1,8 @@
+import { Command } from './Command';
+
 class MoveRandomCommand extends Command {
+    unitIndex: any;
+
     constructor(unitIndex) {
         super();
         this.unitIndex = unitIndex;
@@ -38,4 +42,6 @@ class MoveRandomCommand extends Command {
     }
 }
 
-window.MoveRandomCommand = MoveRandomCommand; 
+window.MoveRandomCommand = MoveRandomCommand;
+
+export { MoveRandomCommand };

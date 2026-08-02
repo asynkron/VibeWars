@@ -1,3 +1,9 @@
+import { MoveRandomCommand } from '../../../systems/ai/commands/MoveRandomCommand';
+import { AttackRandomCommand } from '../../../systems/ai/commands/AttackRandomCommand';
+import { MoveTowardsEnemyCommand } from '../../../systems/ai/commands/MoveTowardsEnemyCommand';
+import { MoveAwayFromEnemyCommand } from '../../../systems/ai/commands/MoveAwayFromEnemyCommand';
+import { DoNothingCommand } from '../../../systems/ai/commands/DoNothingCommand';
+
 class AISystem {
     static commandClasses = [
         MoveRandomCommand,
@@ -8,7 +14,7 @@ class AISystem {
     ];
 
     static generateCommandSeries(unit, gameStateCopy, seriesLength = 3) {
-        const series = [];
+        const series: any[] = [];
         for (let i = 0; i < seriesLength; i++) {
             const command = this.generateCommand(unit, gameStateCopy);
             if (command) {
@@ -19,7 +25,7 @@ class AISystem {
     }
 
     static generateCommand(unit, gameStateCopy) {
-        const possibleCommands = [];
+        const possibleCommands: any[] = [];
 
         // Generate all possible commands for this unit
         this.commandClasses.forEach(CommandClass => {
@@ -69,7 +75,7 @@ class AISystem {
 
     static async findBestCommandSeries(unit, gameStateCopy, numSeries = 5, seriesLength = 3) {
         let bestScore = -Infinity;
-        let bestSeries = null;
+        let bestSeries: any = null;
 
         for (let i = 0; i < numSeries; i++) {
             const series = this.generateCommandSeries(unit, gameStateCopy, seriesLength);
@@ -118,4 +124,6 @@ class AISystem {
     }
 }
 
-window.AISystem = AISystem; 
+window.AISystem = AISystem;
+
+export { AISystem };

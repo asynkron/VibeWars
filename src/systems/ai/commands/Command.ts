@@ -24,8 +24,8 @@ class Command {
     }
 
     // Create a command from a serialized format
-    static deserialize(data) {
-        const CommandClass = window[data.type];
+    static deserialize(data: any) {
+        const CommandClass: any = (window as any)[data.type];
         if (!CommandClass) {
             throw new Error(`Unknown command type: ${data.type}`);
         }
@@ -33,4 +33,6 @@ class Command {
     }
 }
 
-window.Command = Command; 
+window.Command = Command;
+
+export { Command };

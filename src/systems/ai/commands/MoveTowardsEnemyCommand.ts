@@ -1,4 +1,9 @@
+import { Command } from './Command';
+
 class MoveTowardsEnemyCommand extends Command {
+    unitIndex: any;
+    targetIndex: any;
+
     constructor(unitIndex, targetIndex) {
         super();
         this.unitIndex = unitIndex;
@@ -46,4 +51,6 @@ class MoveTowardsEnemyCommand extends Command {
     }
 }
 
-window.MoveTowardsEnemyCommand = MoveTowardsEnemyCommand; 
+window.MoveTowardsEnemyCommand = MoveTowardsEnemyCommand;
+
+export { MoveTowardsEnemyCommand };

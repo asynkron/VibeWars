@@ -51,17 +51,10 @@ declare const PathIndicatorSystem: any;
 declare const VisualizationSystem: any;
 declare const RoadSystem: any;
 declare const ScoringSystem: any;
-declare const AISystem: any;
 declare const hexGrid: any;
 
 // systems/*.js
 declare const GameState: any;
-declare const Command: any;
-declare const MoveRandomCommand: any;
-declare const AttackRandomCommand: any;
-declare const MoveTowardsEnemyCommand: any;
-declare const MoveAwayFromEnemyCommand: any;
-declare const DoNothingCommand: any;
 
 // window extension for values assigned ad hoc across classic scripts
 interface Window {

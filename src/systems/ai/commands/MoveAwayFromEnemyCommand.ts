@@ -1,4 +1,9 @@
+import { Command } from './Command';
+
 class MoveAwayFromEnemyCommand extends Command {
+    unitIndex: any;
+    targetIndex: any;
+
     constructor(unitIndex, targetIndex) {
         super();
         this.unitIndex = unitIndex;
@@ -14,7 +19,7 @@ class MoveAwayFromEnemyCommand extends Command {
         const unitCoord = new HexCoord(unit.q, unit.r);
         const { reachable } = PathfindingSystem.dijkstra(unitCoord.q, unitCoord.r, unit.move, unit);
 
-        let bestHex = null;
+        let bestHex: any = null;
         let maxDistance = 0;
 
         reachable.forEach(key => {
@@ -70,4 +75,6 @@ class MoveAwayFromEnemyCommand extends Command {
     }
 }
 
-window.MoveAwayFromEnemyCommand = MoveAwayFromEnemyCommand; 
+window.MoveAwayFromEnemyCommand = MoveAwayFromEnemyCommand;
+
+export { MoveAwayFromEnemyCommand };

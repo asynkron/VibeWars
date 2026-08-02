@@ -1,4 +1,9 @@
+import { Command } from './Command';
+
 class AttackRandomCommand extends Command {
+    unitIndex: any;
+    targetIndex: any;
+
     constructor(unitIndex, targetIndex) {
         super();
         this.unitIndex = unitIndex;
@@ -42,4 +47,6 @@ class AttackRandomCommand extends Command {
     }
 }
 
-window.AttackRandomCommand = AttackRandomCommand; 
+window.AttackRandomCommand = AttackRandomCommand;
+
+export { AttackRandomCommand };

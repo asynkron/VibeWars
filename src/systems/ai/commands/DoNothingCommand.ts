@@ -1,4 +1,8 @@
+import { Command } from './Command';
+
 class DoNothingCommand extends Command {
+    unitIndex: any;
+
     constructor(unitIndex) {
         super();
         this.unitIndex = unitIndex;
@@ -17,4 +21,6 @@ class DoNothingCommand extends Command {
     }
 }
 
-window.DoNothingCommand = DoNothingCommand; 
+window.DoNothingCommand = DoNothingCommand;
+
+export { DoNothingCommand };
