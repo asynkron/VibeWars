@@ -1,0 +1,18 @@
+{
+  "name": "vibewars",
+  "version": "1.0.0",
+  "description": "Hexagon-based Three.js strategy game",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "vite": "^8.2.0"
+  }
+}
