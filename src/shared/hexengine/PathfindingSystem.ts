@@ -79,15 +79,16 @@ class PriorityQueue<T> {
 }
 
 class PathfindingSystem {
-    // Heuristic function: calculates hex distance between two HexCoord objects.
-    // For axial coordinates, the distance formula is:
-    // distance = (|q1 - q2| + |r1 - r2| + |(q1+r1) - (q2+r2)|) / 2.
+    // Heuristic function: estimates hex distance between two grid coordinates
+    // for A*'s priority ordering. Delegates to HexCoord.getDistance, which
+    // converts q/r (odd-q offset coordinates, not axial) to cube coordinates
+    // before computing distance -- applying an axial distance formula
+    // directly to offset coordinates, as this used to do, undercounts
+    // distance across a column-shift boundary and produces an inadmissible
+    // heuristic in that direction.
     static heuristic(a: { q: number; r: number }, b: { q: number; r: number } | null): number {
         if (!b) return 0;
-        const dq = Math.abs(a.q - b.q);
-        const dr = Math.abs(a.r - b.r);
-        const ds = Math.abs((a.q + a.r) - (b.q + b.r));
-        return (dq + dr + ds) / 2;
+        return HexCoord.getDistance(a.q, a.r, b.q, b.r);
     }
 
     // Note: Function signature remains the same.

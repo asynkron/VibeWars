@@ -43,8 +43,24 @@ class HexCoord {
     ];
   }
 
+  // q/r are "odd-q" offset coordinates (odd columns shifted down half a
+  // row -- see getNeighbors' isOddColumn branching and getHexPosition's
+  // `r + (q % 2) / 2`). Cube/axial distance formulas only apply after
+  // converting to cube coordinates first; applying them directly to offset
+  // (q, r) undercounts distance across a column-shift boundary. See
+  // https://www.redblobgames.com/grids/hexagons/#conversions-offset for the
+  // conversion this mirrors.
+  private static toCube(q: number, r: number): { x: number; y: number; z: number } {
+    const x = q;
+    const z = r - (q - (q & 1)) / 2;
+    const y = -x - z;
+    return { x, y, z };
+  }
+
   static getDistance(q1: number, r1: number, q2: number, r2: number): number {
-    return Math.max(Math.abs(q1 - q2), Math.abs(r1 - r2), Math.abs(q1 + r1 - (q2 + r2)));
+    const a = HexCoord.toCube(q1, r1);
+    const b = HexCoord.toCube(q2, r2);
+    return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.z - b.z));
   }
 
   static getWorldPositionFromCoords(q: number, r: number, height: number = 0) {

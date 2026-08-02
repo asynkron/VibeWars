@@ -23,13 +23,7 @@ describe('HexCoord', () => {
     it('getDistance returns 0 for the same hex and is symmetric', () => {
         expect(HexCoord.getDistance(4, 4, 4, 4)).toBe(0);
         expect(HexCoord.getDistance(0, 0, 3, 0)).toBe(HexCoord.getDistance(3, 0, 0, 0));
-    });
-
-    it('getDistance matches axial hex-distance formula', () => {
-        // distance = (|dq| + |dr| + |dq+dr|) / 2
-        expect(HexCoord.getDistance(0, 0, 2, -1)).toBe(2);
-        expect(HexCoord.getDistance(0, 0, 0, 3)).toBe(3);
-        expect(HexCoord.getDistance(1, 1, -2, -2)).toBe(6);
+        expect(HexCoord.getDistance(2, 5, 8, 1)).toBe(HexCoord.getDistance(8, 1, 2, 5));
     });
 
     it('getNeighbors returns 6 distinct coordinates', () => {
@@ -40,25 +34,6 @@ describe('HexCoord', () => {
         expect(keys.size).toBe(6);
     });
 
-    it('getDistance disagrees with getNeighbors for one of the six directions (pre-existing quirk)', () => {
-        // getNeighbors works in offset coordinates (odd/even column shift);
-        // getDistance applies a pure axial/cube-distance formula directly to
-        // those same (q, r) pairs without converting to axial first. For 5
-        // of 6 directions this coincidentally still reports distance 1, but
-        // the "column-shift" diagonal (index 0 for even columns, index 3 for
-        // odd columns) reports distance 2 for an actual grid neighbor.
-        // Documented here rather than fixed -- PathfindingSystem's A*
-        // heuristic uses getDistance, so this affects estimated (not
-        // necessarily final) path costs in that one direction.
-        const evenColumnNeighbors = HexCoord.getNeighbors(2, 2);
-        const evenDistances = evenColumnNeighbors.map((n) => HexCoord.getDistance(2, 2, n.q, n.r));
-        expect(evenDistances).toEqual([2, 1, 1, 1, 1, 1]);
-
-        const oddColumnNeighbors = HexCoord.getNeighbors(3, 2);
-        const oddDistances = oddColumnNeighbors.map((n) => HexCoord.getDistance(3, 2, n.q, n.r));
-        expect(oddDistances).toEqual([1, 1, 1, 2, 1, 1]);
-    });
-
     it('getNeighbors accounts for odd/even column offset (axial-to-offset conversion)', () => {
         // Odd and even columns shift their neighbor rows in opposite
         // directions -- this is what makes the "brick wall" of hexes line up.
@@ -67,10 +42,63 @@ describe('HexCoord', () => {
         expect(evenColumnNeighbors).not.toEqual(oddColumnNeighbors);
     });
 
+    it('every neighbor returned by getNeighbors is at getDistance 1, for both even and odd columns', () => {
+        // Regression test: getDistance used to apply a pure axial/cube
+        // distance formula directly to offset (q, r) coordinates, which
+        // undercounted distance across the column-shift boundary and
+        // reported 2 for one of the six actual grid neighbors. getDistance
+        // now converts to cube coordinates first (see HexCoord.toCube).
+        //
+        // Coordinates are kept within the map's valid, non-negative domain
+        // (MAP_CONFIG bounds; see isWithinMapBounds) -- getNeighbors' column
+        // parity check (`q % 2 === 1`) misclassifies negative columns in JS
+        // (`-5 % 2` is -1, never 1), but that never comes up in practice:
+        // any neighbor landing outside the map is always discarded via
+        // isValid()/getValidNeighbors() before it's used for anything.
+        for (const [q, r] of [[2, 2], [3, 2], [10, 10], [20, 3], [3, 20], [48, 48]]) {
+            HexCoord.getNeighbors(q, r).forEach((n) => {
+                expect(HexCoord.getDistance(q, r, n.q, n.r)).toBe(1);
+            });
+        }
+    });
+
+    it('getDistance matches BFS shortest-path length over the real neighbor graph', () => {
+        // Ground-truth check: build a small region by BFS-ing outward from
+        // an interior hex through getNeighbors (i.e. actual grid adjacency),
+        // and confirm getDistance agrees with each cell's BFS depth. This is
+        // independent of any particular distance formula. Origin is kept
+        // well within the map's valid domain -- see the note above.
+        const RADIUS = 4;
+        const origin = { q: 20, r: 20 };
+        const bfsDistance = new Map<string, number>();
+        bfsDistance.set('20,20', 0);
+        let frontier = [origin];
+
+        for (let depth = 1; depth <= RADIUS; depth++) {
+            const next: { q: number; r: number }[] = [];
+            for (const hex of frontier) {
+                for (const n of HexCoord.getNeighbors(hex.q, hex.r)) {
+                    const key = `${n.q},${n.r}`;
+                    if (!bfsDistance.has(key)) {
+                        bfsDistance.set(key, depth);
+                        next.push(n);
+                    }
+                }
+            }
+            frontier = next;
+        }
+
+        expect(bfsDistance.size).toBeGreaterThan(1);
+        for (const [key, depth] of bfsDistance) {
+            const [q, r] = key.split(',').map(Number);
+            expect(HexCoord.getDistance(20, 20, q, r)).toBe(depth);
+        }
+    });
+
     it('distanceTo is the instance-method equivalent of getDistance', () => {
         const a = new HexCoord(1, 1);
-        const b = new HexCoord(4, -2);
-        expect(a.distanceTo(b)).toBe(HexCoord.getDistance(1, 1, 4, -2));
+        const b = new HexCoord(4, 8);
+        expect(a.distanceTo(b)).toBe(HexCoord.getDistance(1, 1, 4, 8));
     });
 
     it('isValid delegates to isWithinMapBounds', () => {
