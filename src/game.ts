@@ -10,6 +10,7 @@ import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
 import { GameState } from './systems/GameState';
 import { RoadSystem } from './shared/hexengine/RoadSystem';
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
+import { PathIndicatorSystem } from './shared/hexengine/PathIndicatorSystem';
 
 // Game Data
 let selectedUnit: any = null;

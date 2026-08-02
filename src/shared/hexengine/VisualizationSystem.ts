@@ -1,5 +1,6 @@
 // VisualizationSystem.js
 import { scene, group } from '../../render';
+import { PathIndicatorSystem } from './PathIndicatorSystem';
 
 /*
 Render Order Hierarchy (from top to bottom):

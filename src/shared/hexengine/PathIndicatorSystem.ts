@@ -1,10 +1,12 @@
 // PathIndicatorSystem.js
+import { group } from '../../render';
+import { VisualizationSystem } from './VisualizationSystem';
 
 class PathIndicatorSystem {
-    static pathIndicators = [];
-    static pathTexture = null;
-    static pathTexturePromise = null;
-    static animationFrameId = null;
+    static pathIndicators: any[] = [];
+    static pathTexture: any = null;
+    static pathTexturePromise: any = null;
+    static animationFrameId: any = null;
     static animationStartTime = 0;
     static animationSpeed = 3; // Increased from 2 to 3 for faster pulsation
     static animationScale = 0.2; // How much to scale (0.2 = 20% larger/smaller)
@@ -163,4 +165,6 @@ class PathIndicatorSystem {
 }
 
 // Export for use in other files
-window.PathIndicatorSystem = PathIndicatorSystem; 
+window.PathIndicatorSystem = PathIndicatorSystem;
+
+export { PathIndicatorSystem };
