@@ -49,6 +49,4 @@ class AttackRandomCommand extends Command {
     }
 }
 
-window.AttackRandomCommand = AttackRandomCommand;
-
 export { AttackRandomCommand };

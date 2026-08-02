@@ -35,6 +35,4 @@ class Command {
     }
 }
 
-window.Command = Command;
-
 export { Command };

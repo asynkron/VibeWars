@@ -216,7 +216,4 @@ class ModelSystem {
     }
 }
 
-window.ModelSystem = ModelSystem;
-console.log('ModelSystem.js loaded');
-
 export { ModelSystem };

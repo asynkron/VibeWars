@@ -188,7 +188,4 @@ class AudioSystem {
     }
 }
 
-window.AudioSystem = AudioSystem;
-console.log('AudioSystem.js loaded');
-
 export { AudioSystem };

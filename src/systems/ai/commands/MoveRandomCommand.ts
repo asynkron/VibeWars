@@ -47,6 +47,4 @@ class MoveRandomCommand extends Command {
     }
 }
 
-window.MoveRandomCommand = MoveRandomCommand;
-
 export { MoveRandomCommand };

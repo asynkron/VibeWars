@@ -10,6 +10,7 @@ import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 import { players, HIGHLIGHT_COLORS } from '../../constants';
+import { getGameState } from '../../systems/gameStateStore';
 import type { UnitTypeConfig, GameUnit } from '../../types';
 
 class UnitSystem {
@@ -583,7 +584,7 @@ class UnitSystem {
     }
 
     static isHexOccupied(q: number, r: number, excludeUnit: any = null): boolean {
-        return gameState.units.some((u: any) => u.q === q && u.r === r && u !== excludeUnit);
+        return getGameState().units.some((u: any) => u.q === q && u.r === r && u !== excludeUnit);
     }
 
     static getRotation(oldQ: number, oldR: number, newQ: number, newR: number): number {
@@ -785,7 +786,7 @@ class UnitSystem {
 
     static highlightAttackRange(unit: GameUnit) {
         // Loop through all units and check enemy units
-        gameState.units.forEach((targetUnit: GameUnit) => {
+        getGameState().units.forEach((targetUnit: GameUnit) => {
             // Skip if it's our own unit
             if (targetUnit.playerIndex === unit.playerIndex) return;
 
@@ -986,7 +987,7 @@ class UnitSystem {
     }
 
     static resetTurnFlags(): void {
-        gameState.units.forEach((unit: GameUnit) => {
+        getGameState().units.forEach((unit: GameUnit) => {
             this.setHasAttacked(unit, false);
         });
     }
@@ -1005,9 +1006,9 @@ class UnitSystem {
         const hex = HexCoord.findHex(unit.q, unit.r);
 
         // Remove the unit from the game state
-        const index = gameState.units.indexOf(unit);
+        const index = getGameState().units.indexOf(unit);
         if (index > -1) {
-            gameState.units.splice(index, 1);
+            getGameState().units.splice(index, 1);
         }
 
         // Remove the sprite if it exists
@@ -1034,8 +1035,5 @@ class UnitSystem {
         VisualizationSystem.showDeathEffect(unit.visualUnit.position);
     }
 }
-
-window.UnitSystem = UnitSystem;
-console.log('UnitSystem.js loaded');
 
 export { UnitSystem };

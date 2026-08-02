@@ -20,6 +20,7 @@ import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
 import { MAP_CONFIG } from './constants';
+import { setGameState, getGameState } from './systems/gameStateStore';
 import type { CameraMatrices, GameUnit } from './types';
 
 // Game Data
@@ -219,7 +220,7 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     // Function to handle unit selection
     function selectUnit(unit: GameUnit | null): boolean {
-        if (unit && gameState.isPlayerTurn(0) && unit.playerIndex === 0) {
+        if (unit && getGameState().isPlayerTurn(0) && unit.playerIndex === 0) {
             // Clear previous selection first, exactly as in the click handler
             if (selectedUnit) {
                 selectedUnit = null;
@@ -242,7 +243,7 @@ function setupEventListeners(matrices: CameraMatrices) {
         const intersects = getHexIntersects(raycaster);
         if (intersects.length > 0) {
             const hexGroup = intersects[0].object.parent;
-            const unitOnHex = gameState.getUnitAt(hexGroup.userData.q, hexGroup.userData.r);
+            const unitOnHex = getGameState().getUnitAt(hexGroup.userData.q, hexGroup.userData.r);
 
             // Check if we're attacking a highlighted enemy unit
             if (selectedUnit && unitOnHex && unitOnHex.playerIndex !== selectedUnit.playerIndex) {
@@ -302,18 +303,18 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     // Add end turn button handler
     endTurnButton.addEventListener('click', () => {
-        if (gameState.isPlayerTurn(0)) {  // Only allow player to end their turn
+        if (getGameState().isPlayerTurn(0)) {  // Only allow player to end their turn
             selectedUnit = null;
             VisualizationSystem.clearPathLine();
             VisualizationSystem.clearHighlights();
-            gameState.nextTurn();
+            getGameState().nextTurn();
             FootprintSystem.update();  // Update footprints when turn ends
         }
     });
 
     // Update end turn button state when turn changes
     const updateEndTurnButton = () => {
-        if (gameState.isPlayerTurn(0)) {
+        if (getGameState().isPlayerTurn(0)) {
             endTurnButton.disabled = false;
             endTurnButton.textContent = "End Turn";
         } else {
@@ -326,8 +327,9 @@ function setupEventListeners(matrices: CameraMatrices) {
     updateEndTurnButton();
 
     // Add turn change observer
-    const originalNextTurn = gameState.nextTurn;
-    gameState.nextTurn = function () {
+    const observedGameState = getGameState();
+    const originalNextTurn = observedGameState.nextTurn;
+    observedGameState.nextTurn = function () {
         originalNextTurn.call(this);
         updateEndTurnButton();
         updateNextUnitButton();  // Update next unit button state
@@ -336,9 +338,9 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     // Next Unit button handler
     nextUnitButton.addEventListener('click', () => {
-        if (!gameState.isPlayerTurn(0)) return; // Only work during player's turn
+        if (!getGameState().isPlayerTurn(0)) return; // Only work during player's turn
 
-        const playerUnits = gameState.units.filter((unit: GameUnit) => unit.playerIndex === 0);
+        const playerUnits = getGameState().units.filter((unit: GameUnit) => unit.playerIndex === 0);
         if (playerUnits.length === 0) return;
 
         // Get next unit
@@ -373,7 +375,7 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     // Update next unit button state when turn changes
     const updateNextUnitButton = () => {
-        if (gameState.isPlayerTurn(0)) {
+        if (getGameState().isPlayerTurn(0)) {
             nextUnitButton.disabled = false;
             nextUnitButton.style.opacity = '1';
         } else {
@@ -409,7 +411,7 @@ async function initGame() {
 
     // Initialize game state
     const gameState = new GameState();
-    window.gameState = gameState;  // Make it globally available as before
+    setGameState(gameState);
 
     // Initialize systems in parallel
     await Promise.all([
@@ -468,14 +470,6 @@ window.onload = () => {
         console.error("Error initializing game:", error);
     });
 };
-
-console.log('game.js loaded, initGame defined');
-
-// Remove the import and use the global THREE object
-const OBJLoader = THREE.OBJLoader;
-
-// Make OBJLoader available globally
-window.OBJLoader = OBJLoader;
 
 function createRoads(gameState: GameState) {
     for (let i = 0; i < 10; i++) {

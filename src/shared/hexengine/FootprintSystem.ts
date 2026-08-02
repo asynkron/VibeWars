@@ -3,6 +3,7 @@ import { VisualizationSystem } from './VisualizationSystem';
 import { UnitSystem } from './UnitSystem';
 import { GridSystem } from './GridSystem';
 import { VISUAL_OFFSETS } from '../../constants';
+import { getGameState } from '../../systems/gameStateStore';
 
 class FootprintSystem {
     static footprints: any[] = [];
@@ -48,7 +49,7 @@ class FootprintSystem {
         console.log('Creating footprint for hex:', hex.userData);
 
         // Early exit if the tile has a road
-        const tile = gameState.map.getTile(hex.userData.q, hex.userData.r);
+        const tile = getGameState().map.getTile(hex.userData.q, hex.userData.r);
         if (tile?.hasRoad) {
             return null;
         }
@@ -155,8 +156,5 @@ class FootprintSystem {
         }
     }
 }
-
-// Export for use in other files
-window.FootprintSystem = FootprintSystem;
 
 export { FootprintSystem };

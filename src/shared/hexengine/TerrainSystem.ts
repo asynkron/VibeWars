@@ -3,6 +3,7 @@ import { scene } from '../../render';
 import { UnitSystem } from './UnitSystem';
 import { HexCoord } from './HexCoord';
 import { addColorVariation } from './utils';
+import { getGameState } from '../../systems/gameStateStore';
 import type { TerrainTypeConfig, TerrainDecoration } from '../../types';
 
 class TerrainSystem {
@@ -203,7 +204,7 @@ static terrainTypes = {
 
     static getMoveCost(hex: any, unit: any): number {
         // Check if the tile has a road first
-        const tile = gameState.map.getTile(hex.userData.q, hex.userData.r);
+        const tile = getGameState().map.getTile(hex.userData.q, hex.userData.r);
         if (tile && tile.hasRoad) {
             return 0.5;
         }
@@ -334,11 +335,5 @@ static terrainTypes = {
         return addColorVariation(resultColor).getHex();
     }
 }
-
-if (typeof window !== 'undefined') {
-    window.TerrainSystem = TerrainSystem;
-}
-
-console.log('TerrainSystem.js loaded');
 
 export { TerrainSystem };

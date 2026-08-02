@@ -168,7 +168,4 @@ class PathIndicatorSystem {
     }
 }
 
-// Export for use in other files
-window.PathIndicatorSystem = PathIndicatorSystem;
-
 export { PathIndicatorSystem };

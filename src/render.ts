@@ -53,17 +53,6 @@ function initRenderer() {
     isRendererInitialized = true;
 }
 
-// Make renderer internals available globally (needed by game.js and other classic scripts)
-window.initRenderer = initRenderer;
-window.scene = scene;
-window.camera = camera;
-window.renderer = renderer;
-window.group = group;
-window.miniMapScene = miniMapScene;
-window.mapWidth = mapWidth;
-window.mapHeight = mapHeight;
-window.cameraTarget = cameraTarget;
-
 // Call initRenderer when the page loads
 window.addEventListener('load', initRenderer);
 
@@ -228,7 +217,7 @@ function updateMiniMapHighlights(highlightGroup: any, matrices: CameraMatrices) 
         new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     );
 
-    const visibleHexes = hexGrid.filter((hex: any) => {
+    const visibleHexes = GridSystem.hexGrid.filter((hex: any) => {
         const localPos = new THREE.Vector3(hex.userData.x, 0, hex.userData.z);
         const worldPos = localPos.clone().applyMatrix4(matrices.localToWorldMatrix);
         return frustum.containsPoint(worldPos);
@@ -251,17 +240,6 @@ function updateMiniMapHighlights(highlightGroup: any, matrices: CameraMatrices) 
 
     console.log("Visible hexes in minimap:", visibleHexes.length);
 }
-
-window.setupCamera = setupCamera;
-window.getLookDirection = getLookDirection;
-window.setCameraPosition = setCameraPosition;
-window.updateCameraPosition = updateCameraPosition;
-window.updateCameraZoom = updateCameraZoom;
-window.setupMinimap = setupMinimap;
-window.animate = animate;
-window.updateMiniMapHighlights = updateMiniMapHighlights;
-window.getCameraHeight = getCameraHeight;
-window.setCameraHeight = setCameraHeight;
 
 export {
     scene, camera, renderer, group, miniMapScene, mapWidth, mapHeight, cameraTarget,

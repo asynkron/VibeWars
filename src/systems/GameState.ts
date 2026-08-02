@@ -137,10 +137,4 @@ class GameState {
     }
 }
 
-if (typeof window !== 'undefined') {
-    window.GameState = GameState;
-}
-
-console.log('GameState.js loaded');
-
 export { GameState };

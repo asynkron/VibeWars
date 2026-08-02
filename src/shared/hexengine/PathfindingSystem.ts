@@ -1,5 +1,6 @@
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
+import { GridSystem } from './GridSystem';
 
 interface HeapEntry<T> {
     item: T;
@@ -97,7 +98,7 @@ class PathfindingSystem {
         const closedSet = new Set<string>(); // New closed set to track visited nodes
 
         // Initialize distances for every hex in hexGrid
-        hexGrid.forEach((hex: any) => {
+        GridSystem.hexGrid.forEach((hex: any) => {
             const coord = new HexCoord(hex.userData.q, hex.userData.r);
             const key = coord.getKey();
             distances.set(key, Infinity);
@@ -198,11 +199,5 @@ class PathfindingSystem {
     }
 
 }
-
-if (typeof window !== 'undefined') {
-    window.PathfindingSystem = PathfindingSystem;
-}
-
-console.log('PathfindingSystem.js loaded');
 
 export { PathfindingSystem };

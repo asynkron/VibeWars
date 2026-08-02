@@ -22,6 +22,4 @@ class DoNothingCommand extends Command {
     }
 }
 
-window.DoNothingCommand = DoNothingCommand;
-
 export { DoNothingCommand };

@@ -5,6 +5,7 @@ import { PathfindingSystem } from './PathfindingSystem';
 import { UnitSystem } from './UnitSystem';
 import { GridSystem } from './GridSystem';
 import { VISUAL_OFFSETS } from '../../constants';
+import { getGameState } from '../../systems/gameStateStore';
 
 class RoadSystem {
     static roads: any[] = [];
@@ -65,7 +66,7 @@ class RoadSystem {
 
         // Mark each tile in the path as having a road
         path.forEach((hex: any) => {
-            const tile = gameState.map.getTile(hex.userData.q, hex.userData.r);
+            const tile = getGameState().map.getTile(hex.userData.q, hex.userData.r);
             if (tile) {
                 tile.hasRoad = true;
 
@@ -99,7 +100,7 @@ class RoadSystem {
         for (let i = 0; i < 6; i++) {
             const [nq, nr] = neighborCoords[i];
             // Get the tile data for this neighbor
-            const tile = gameState.map.getTile(nq, nr);
+            const tile = getGameState().map.getTile(nq, nr);
             if (tile?.hasRoad) {
                 // Get rotation using UnitSystem helper
                 const rotation = UnitSystem.getRotation(hex.userData.q, hex.userData.r, nq, nr);
@@ -174,10 +175,5 @@ class RoadSystem {
         roadsToRemove.forEach((road: any) => this.removeRoad(road));
     }
 }
-
-// Export for use in other files
-window.RoadSystem = RoadSystem;
-
-console.log('RoadSystem.js loaded');
 
 export { RoadSystem };

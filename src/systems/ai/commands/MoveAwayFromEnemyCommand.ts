@@ -80,6 +80,4 @@ class MoveAwayFromEnemyCommand extends Command {
     }
 }
 
-window.MoveAwayFromEnemyCommand = MoveAwayFromEnemyCommand;
-
 export { MoveAwayFromEnemyCommand };

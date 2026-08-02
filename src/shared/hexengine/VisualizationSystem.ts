@@ -1461,9 +1461,4 @@ class VisualizationSystem {
     }
 }
 
-console.log('VisualizationSystem.js loaded');
-
-// Export for use in other files
-window.VisualizationSystem = VisualizationSystem;
-
 export { VisualizationSystem };

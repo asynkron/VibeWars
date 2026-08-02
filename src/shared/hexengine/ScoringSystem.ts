@@ -64,10 +64,4 @@ class ScoringSystem {
     }
 }
 
-if (typeof window !== 'undefined') {
-    window.ScoringSystem = ScoringSystem;
-}
-
-console.log('ScoringSystem.js loaded');
-
 export { ScoringSystem };

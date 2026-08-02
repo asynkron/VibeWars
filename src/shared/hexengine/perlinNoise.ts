@@ -67,8 +67,4 @@ function perlinNoise(x: number, y: number, z: number = 0): number {
   return lerp(w, y1, y2);
 }
 
-if (typeof window !== 'undefined') {
-  window.perlinNoise = perlinNoise;
-}
-
 export { perlinNoise };

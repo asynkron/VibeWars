@@ -41,11 +41,4 @@ function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-if (typeof window !== 'undefined') {
-  window.addColorVariation = addColorVariation;
-  window.getVertexOffsets = getVertexOffsets;
-  window.getHexIntersects = getHexIntersects;
-  window.clamp = clamp;
-}
-
 export { addColorVariation, hash, getVertexOffset, getVertexOffsets, getHexIntersects, clamp };

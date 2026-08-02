@@ -93,8 +93,4 @@ class HexCoord {
   }
 }
 
-if (typeof window !== 'undefined') {
-  window.HexCoord = HexCoord;
-}
-
 export { HexCoord };

@@ -55,6 +55,4 @@ class MoveTowardsEnemyCommand extends Command {
     }
 }
 
-window.MoveTowardsEnemyCommand = MoveTowardsEnemyCommand;
-
 export { MoveTowardsEnemyCommand };

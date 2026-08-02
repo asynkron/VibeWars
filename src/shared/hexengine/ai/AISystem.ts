@@ -3,6 +3,7 @@ import { AttackRandomCommand } from '../../../systems/ai/commands/AttackRandomCo
 import { MoveTowardsEnemyCommand } from '../../../systems/ai/commands/MoveTowardsEnemyCommand';
 import { MoveAwayFromEnemyCommand } from '../../../systems/ai/commands/MoveAwayFromEnemyCommand';
 import { DoNothingCommand } from '../../../systems/ai/commands/DoNothingCommand';
+import { getGameState } from '../../../systems/gameStateStore';
 import type { GameUnit } from '../../../types';
 
 // A deep-copied plain object shaped like GameState.units, but not a real
@@ -117,6 +118,7 @@ class AISystem {
     }
 
     static async executeAITurn() {
+        const gameState = getGameState();
         const aiUnits = gameState.units.filter((unit: GameUnit) => unit.playerIndex === 1); // Assuming AI is player 1
 
         for (const unit of aiUnits) {
@@ -130,7 +132,5 @@ class AISystem {
         }
     }
 }
-
-window.AISystem = AISystem;
 
 export { AISystem };

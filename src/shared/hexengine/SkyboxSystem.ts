@@ -46,8 +46,4 @@ class SkyboxSystem {
     }
 }
 
-if (typeof window !== 'undefined') {
-    window.SkyboxSystem = SkyboxSystem;
-}
-
 export { SkyboxSystem };

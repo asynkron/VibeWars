@@ -64,19 +64,6 @@ const DEBUG_SETTINGS = {
 const WATER_FOAM_COLOR = 0x236DA6; // Hex color for water foam
 const CRATER_COLOR = '#3A2B1B';
 
-if (typeof window !== 'undefined') {
-    window.MAP_CONFIG = MAP_CONFIG;
-    window.TERRAIN_CONFIG = TERRAIN_CONFIG;
-    window.players = players;
-    window.HIGHLIGHT_COLORS = HIGHLIGHT_COLORS;
-    window.VISUAL_COLORS = VISUAL_COLORS;
-    window.VISUAL_OFFSETS = VISUAL_OFFSETS;
-    window.DEBUG_SETTINGS = DEBUG_SETTINGS;
-    window.WATER_FOAM_COLOR = WATER_FOAM_COLOR;
-    window.CRATER_COLOR = CRATER_COLOR;
-}
-
-console.log('constants.js loaded');
 
 export {
     MAP_CONFIG, TERRAIN_CONFIG, players, HIGHLIGHT_COLORS, VISUAL_COLORS,

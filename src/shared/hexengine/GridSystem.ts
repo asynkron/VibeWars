@@ -8,6 +8,7 @@ import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
 import { addColorVariation, getVertexOffsets } from './utils';
 import { MAP_CONFIG, WATER_FOAM_COLOR, CRATER_COLOR } from '../../constants';
+import { getGameState, getGameStateOrNull } from '../../systems/gameStateStore';
 import type { GameUnit } from '../../types';
 
 class GridSystem {
@@ -544,7 +545,7 @@ class GridSystem {
         position.needsUpdate = true;
 
         // Check if tile has road and create it if needed
-        const tile = gameState.map.getTile(q, r);
+        const tile = getGameState().map.getTile(q, r);
         if (tile?.hasRoad) {
             RoadSystem.createRoad(hexGroup);
         }
@@ -592,7 +593,7 @@ class GridSystem {
 
     static updateDecoratorTransparency(hex: any) {
         if (!hex || !hex.userData || !hex.userData.decorator) return;
-        const unit = gameState.getUnitAt(hex.userData.q, hex.userData.r);
+        const unit = getGameState().getUnitAt(hex.userData.q, hex.userData.r);
         const decorator = hex.userData.decorator;
         decorator.traverse((child: any) => {
             if (child.isMesh) {
@@ -692,11 +693,12 @@ class GridSystem {
     }
 
     static modifyHexHeight(coord: { q: number; r: number }, heightFactor: number): boolean {
-        if (typeof gameState === 'undefined' || !gameState?.map) {
+        const currentState = getGameStateOrNull();
+        if (!currentState?.map) {
             return false;
         }
         const hex = this.findHex(coord.q, coord.r);
-        const tile = gameState.map.getTile(coord.q, coord.r);
+        const tile = currentState.map.getTile(coord.q, coord.r);
         if (!hex || !tile || hex.userData.type === 'water') return false;
 
         const newHeight = Math.max(0, tile.height + heightFactor);
@@ -726,10 +728,11 @@ class GridSystem {
 
     static getUnitAtHex(hex: any) {
         if (!hex) return null;
-        if (typeof gameState === 'undefined' || !gameState?.units) {
+        const currentState = getGameStateOrNull();
+        if (!currentState?.units) {
             return null;
         }
-        return gameState.units.find(
+        return currentState.units.find(
             (unit: GameUnit) => unit.q === hex.userData.q && unit.r === hex.userData.r
         );
     }
@@ -768,6 +771,5 @@ class GridSystem {
 // Expose hexGrid for external scripting integrations
 window.hexGrid = GridSystem.hexGrid;
 window.GridSystem = GridSystem;
-console.log('GridSystem.js loaded');
 
 export { GridSystem };

@@ -70,9 +70,4 @@ class GameMap {
   }
 }
 
-if (typeof window !== 'undefined') {
-  window.Tile = Tile;
-  window.GameMap = GameMap;
-}
-
 export { Tile, GameMap };

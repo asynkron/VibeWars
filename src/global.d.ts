@@ -12,17 +12,9 @@ declare const THREE: any;
 // found it).
 declare const getMinimapWorldPosition: any;
 
-// window.gameState is set by game.ts's initGame() (a local variable in that
-// function) and read bare by the sibling setupEventListeners() function,
-// which has no closure access to it -- relies on the window fallback by
-// design, not a migration artifact.
-declare const gameState: any;
-
-// window.hexGrid is intentionally exposed by GridSystem.ts as a public API
-// for external scripting integrations (see GridSystem.ts's trailing comment).
-declare const hexGrid: any;
-
 // window extension for values assigned ad hoc across the codebase
+// (window.HEX_ENGINE/.HEX_ENGINE_OPTIONS from options.ts, window.hexGrid/
+// .GridSystem exposed by GridSystem.ts for external scripting integrations).
 interface Window {
   [key: string]: any;
 }
