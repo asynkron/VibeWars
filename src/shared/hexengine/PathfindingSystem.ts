@@ -1,5 +1,7 @@
 // PriorityQueue implementation using a binary heap
 class PriorityQueue {
+    heap: any[];
+
     constructor() {
         this.heap = [];
     }
@@ -42,7 +44,7 @@ class PriorityQueue {
         while (true) {
             let leftN = 2 * n + 1;
             let rightN = 2 * n + 2;
-            let swap = null;
+            let swap: any = null;
 
             if (leftN < length) {
                 const left = this.heap[leftN];
@@ -99,7 +101,7 @@ class PathfindingSystem {
         reachable.add(startKey);
 
         // Determine if a target is specified and compute its key
-        let endCoord = null;
+        let endCoord: any = null;
         const endKey = (endQ !== null && endR !== null)
             ? (endCoord = new HexCoord(endQ, endR)).getKey()
             : null;
@@ -163,7 +165,7 @@ class PathfindingSystem {
         const endCoord = new HexCoord(q2, r2);
 
         const { previous, reachable } = this.dijkstra(startCoord.q, startCoord.r, move, unit, q2, r2);
-        const path = [];
+        const path: any[] = [];
         let currentKey = endCoord.getKey();
 
         if (!reachable.has(currentKey)) {
@@ -194,3 +196,5 @@ if (typeof window !== 'undefined') {
 }
 
 console.log('PathfindingSystem.js loaded');
+
+export { PathfindingSystem };

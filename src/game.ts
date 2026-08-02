@@ -12,6 +12,7 @@ import { RoadSystem } from './shared/hexengine/RoadSystem';
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { PathIndicatorSystem } from './shared/hexengine/PathIndicatorSystem';
 import { FootprintSystem } from './shared/hexengine/FootprintSystem';
+import { PathfindingSystem } from './shared/hexengine/PathfindingSystem';
 
 // Game Data
 let selectedUnit: any = null;
