@@ -53,9 +53,6 @@ declare const RoadSystem: any;
 declare const ScoringSystem: any;
 declare const hexGrid: any;
 
-// systems/*.js
-declare const GameState: any;
-
 // window extension for values assigned ad hoc across classic scripts
 interface Window {
   [key: string]: any;

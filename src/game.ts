@@ -7,6 +7,7 @@ import {
     updateCameraZoom, setupMinimap, animate, getCameraHeight, setCameraHeight,
 } from './render';
 import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
+import { GameState } from './systems/GameState';
 
 // Game Data
 let selectedUnit: any = null;

@@ -1,6 +1,11 @@
 // GameState.js - Manages the overall game state
 
 class GameState {
+    map: any;
+    players: any[];
+    units: any[];
+    currentTurn: number;
+
     constructor() {
         this.map = new GameMap();
         this.players = [];  // Array of player objects
@@ -134,3 +139,5 @@ if (typeof window !== 'undefined') {
 }
 
 console.log('GameState.js loaded');
+
+export { GameState };
