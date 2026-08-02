@@ -1,0 +1,37 @@
+# Exported by three-d-stage
+newmtl tread
+Kd 1.0000 1.0000 1.0000
+Ks 0.2000 0.2000 0.2000
+Ns 10
+d 1.0000
+
+newmtl armor
+Kd 1.0000 1.0000 1.0000
+Ks 0.2000 0.2000 0.2000
+Ns 0
+d 1.0000
+
+newmtl armorDark
+Kd 1.0000 1.0000 1.0000
+Ks 0.2000 0.2000 0.2000
+Ns 0
+d 1.0000
+
+newmtl trim
+Kd 1.0000 1.0000 1.0000
+Ks 0.2000 0.2000 0.2000
+Ns 116
+d 1.0000
+
+newmtl teamCamo
+Kd 1.0000 1.0000 1.0000
+Ks 0.2000 0.2000 0.2000
+Ns 0
+d 1.0000
+
+newmtl energy
+Kd 0.0782 0.6445 1.0000
+Ks 0.2000 0.2000 0.2000
+Ns 140
+d 1.0000
+

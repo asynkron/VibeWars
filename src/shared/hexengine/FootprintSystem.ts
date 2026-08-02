@@ -1,12 +1,15 @@
+import { group } from '../../render';
+import { VisualizationSystem } from './VisualizationSystem';
+
 class FootprintSystem {
-    static footprints = [];
-    static trackTextures = {};
-    static trackTexturePromises = {};
+    static footprints: any[] = [];
+    static trackTextures: Record<string, any> = {};
+    static trackTexturePromises: Record<string, any> = {};
 
     static async initialize() {
         // Get all unique footprint textures from unit types
-        const texturePaths = new Set();
-        Object.values(UnitSystem.unitTypes).forEach(unitType => {
+        const texturePaths = new Set<any>();
+        Object.values(UnitSystem.unitTypes).forEach((unitType: any) => {
             if (unitType.footprintTexture) {
                 texturePaths.add(unitType.footprintTexture);
             }
@@ -152,3 +155,5 @@ class FootprintSystem {
 
 // Export for use in other files
 window.FootprintSystem = FootprintSystem;
+
+export { FootprintSystem };

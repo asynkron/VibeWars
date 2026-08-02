@@ -46,7 +46,6 @@ declare const ModelSystem: any;
 declare const AudioSystem: any;
 declare const UnitSystem: any;
 declare const PathfindingSystem: any;
-declare const FootprintSystem: any;
 declare const hexGrid: any;
 
 // window extension for values assigned ad hoc across classic scripts
