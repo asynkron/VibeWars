@@ -491,58 +491,12 @@ class UnitSystem {
         unit.userData.q = coord.q;
         unit.userData.r = coord.r;
 
-        // Get the hex mesh to access its geometry
-        const hexMesh = hex.children.find((child: any) =>
-            child instanceof THREE.Mesh && !child.userData.isBoundingMesh
-        );
-
-        // TODO: The following tilt code causes bad rotation logic when units move.
-        // The issue is that it's trying to align the unit's up vector with the terrain normal,
-        // but this conflicts with the movement rotation system. We need to find a better way
-        // to handle terrain alignment that doesn't interfere with movement rotations.
-        /*
-        if (hexMesh) {
-            // Get the center vertex normal (index 13)
-            const normals = hexMesh.geometry.attributes.normal;
-            const centerNormal = new THREE.Vector3(
-                normals.getX(13),
-                normals.getY(13),
-                normals.getZ(13)
-            );
-
-            // For land tiles, negate the normal to point upward
-            if (hex.userData.type !== 'water') {
-                centerNormal.multiplyScalar(-1);
-            }
-
-            // Create a quaternion that aligns the unit's up vector with the terrain normal
-            const up = new THREE.Vector3(0, 1, 0);
-            const quaternion = new THREE.Quaternion();
-
-            // Calculate the rotation to align with terrain normal
-            const rotationAxis = new THREE.Vector3().crossVectors(up, centerNormal);
-            const rotationAngle = Math.acos(up.dot(centerNormal));
-
-            if (rotationAngle > 0) {
-                quaternion.setFromAxisAngle(rotationAxis.normalize(), rotationAngle);
-            }
-
-            // Apply the terrain normal rotation
-            unit.setRotationFromQuaternion(quaternion);
-
-            // Apply any additional rotation if provided
-            if (rotation !== undefined) {
-                unit.rotateY(rotation);
-            }
-        } else {
-            // Apply simple rotation if no hex mesh found
-            if (rotation !== undefined) {
-                unit.rotation.y = rotation;
-            }
-        }
-        */
-
-        // Apply provided rotation when available
+        // Terrain-normal alignment (tilting the unit to match the hex's
+        // surface normal) was attempted here and abandoned: it fought with
+        // the movement-rotation system below, producing bad rotations while
+        // units were moving. Units are kept upright with a plain Y rotation
+        // instead -- see git history (UnitSystem.ts, this function) for the
+        // removed quaternion-based attempt if terrain alignment is revisited.
         if (rotation !== undefined) {
             unit.rotation.y = rotation;
         }
