@@ -29,12 +29,12 @@ class VisualizationSystem {
     static rocketModelPromise: any = null;  // Promise for loading the rocket model
     static dashOffset: any;  // pre-existing: never initialized before use in updatePathAnimation
 
-    static disposeObject(object) {
+    static disposeObject(object: any) {
         if (!object) return;
 
         if (object instanceof THREE.Group) {
             // Dispose all children first
-            object.children.forEach(child => this.disposeObject(child));
+            object.children.forEach((child: any) => this.disposeObject(child));
             // Remove from parent if it has one
             if (object.parent) {
                 object.parent.remove(object);
@@ -51,7 +51,7 @@ class VisualizationSystem {
             // Dispose material
             if (object.material) {
                 if (Array.isArray(object.material)) {
-                    object.material.forEach(material => this.disposeMaterial(material));
+                    object.material.forEach((material: any) => this.disposeMaterial(material));
                 } else {
                     this.disposeMaterial(object.material);
                 }
@@ -73,7 +73,7 @@ class VisualizationSystem {
         }
     }
 
-    static disposeMaterial(material) {
+    static disposeMaterial(material: any) {
         if (!material) return;
 
         // Dispose all textures
@@ -118,14 +118,14 @@ class VisualizationSystem {
             const fbxLoader = new THREE.FBXLoader();
             fbxLoader.load(
                 'assets/bullet_1_bw.fbx',
-                (object) => {
+                (object: any) => {
                     this.cachedRocketModel = object;
                     resolve(object);
                 },
-                (xhr) => {
+                (xhr: any) => {
                     console.log((xhr.loaded / xhr.total * 100) + '% loaded');
                 },
-                (error) => {
+                (error: any) => {
                     console.error('Error loading rocket model:', error);
                     reject(error);
                 }
@@ -146,7 +146,7 @@ class VisualizationSystem {
         PathIndicatorSystem.clearPathIndicators();
     }
 
-    static async drawPath(unit, path) {
+    static async drawPath(unit: any, path: any[]) {
 
         await this.ensureInitialized();
         PathIndicatorSystem.showPath(path, unit);
@@ -159,7 +159,7 @@ class VisualizationSystem {
         }
     }
 
-    static highlightHex(hex, color = HIGHLIGHT_COLORS.MOVE_RANGE, showOutline = false) {
+    static highlightHex(hex: any, color: number = HIGHLIGHT_COLORS.MOVE_RANGE, showOutline: boolean = false) {
         const highlights = group.getObjectByName("highlights") || new THREE.Group();
         highlights.name = "highlights";
 
@@ -304,7 +304,7 @@ class VisualizationSystem {
         });
     }
 
-    static createHexMesh(geometry, material) {
+    static createHexMesh(geometry: any, material: any) {
         return new THREE.Mesh(geometry, material);
     }
 
@@ -347,7 +347,7 @@ class VisualizationSystem {
         return new THREE.LineSegments(geometry, material);
     }
 
-    static showDamageNumber(position, damage) {
+    static showDamageNumber(position: any, damage: number) {
         const canvas = document.createElement('canvas');
         canvas.width = 256;
         canvas.height = 128;
@@ -414,7 +414,7 @@ class VisualizationSystem {
         requestAnimationFrame(animate);
     }
 
-    static createExplosion(position, options: any = {}) {
+    static createExplosion(position: any, options: any = {}) {
         const {
             particleCount = 100,
             size = 3.0,
@@ -450,7 +450,7 @@ class VisualizationSystem {
         });
     }
 
-    static createParticleEffect(position, options: any = {}) {
+    static createParticleEffect(position: any, options: any = {}) {
         const {
             particleCount = 100,
             size = 3.0,
@@ -477,7 +477,7 @@ class VisualizationSystem {
         const textureIndices: any[] = [];
 
         const textureLoader = new THREE.TextureLoader();
-        const particleTextures = particleTexturePaths.map(path => textureLoader.load(path));
+        const particleTextures = particleTexturePaths.map((path: string) => textureLoader.load(path));
 
         for (let i = 0; i < particleCount; i++) {
             vertices.push(position.x, position.y, position.z);
@@ -579,7 +579,7 @@ class VisualizationSystem {
         scene.add(particleSystem);
 
         let animationStartTime = performance.now();
-        function animateParticles(timestamp) {
+        function animateParticles(timestamp: number) {
             const elapsed = timestamp - animationStartTime;
 
             particleMaterial.uniforms.time.value = timestamp;
@@ -590,13 +590,13 @@ class VisualizationSystem {
                 scene.remove(particleSystem);
                 particleGeometry.dispose();
                 particleMaterial.dispose();
-                particleTextures.forEach(texture => texture.dispose());
+                particleTextures.forEach((texture: any) => texture.dispose());
             }
         }
         requestAnimationFrame(animateParticles);
     }
 
-    static createSmokeParticles(position, options: any = {}) {
+    static createSmokeParticles(position: any, options: any = {}) {
         this.createParticleEffect(position, {
             ...options,
             particleTexturePaths: options.particleTexturePaths || [
@@ -612,7 +612,7 @@ class VisualizationSystem {
         });
     }
 
-    static createExplosionParticles(position, options: any = {}) {
+    static createExplosionParticles(position: any, options: any = {}) {
         this.createParticleEffect(position, {
             ...options,
             particleTexturePaths: options.particleTexturePaths || [
@@ -628,7 +628,7 @@ class VisualizationSystem {
         });
     }
 
-    static showDeathEffect(position) {
+    static showDeathEffect(position: any) {
         // Create both the explosion and debris effects
         this.createExplosion(position, {
             particleCount: 300,  // Reduced from 500
@@ -644,7 +644,7 @@ class VisualizationSystem {
         this.createDebrisEffect(position);
     }
 
-    static createDebrisEffect(position) {
+    static createDebrisEffect(position: any) {
         const debrisCount = 24;
         const duration = 2000;
         const gravity = 0.01;
@@ -652,7 +652,7 @@ class VisualizationSystem {
 
         // Create debris pieces
         for (let i = 0; i < debrisCount; i++) {
-            let geometry;
+            let geometry: any;
             let scale = 1.0;
 
             // Randomly choose a debris type
@@ -725,7 +725,7 @@ class VisualizationSystem {
             let startTime = performance.now();
             let velocity = initialVelocity;
 
-            function animate(timestamp) {
+            function animate(timestamp: number) {
                 const elapsed = timestamp - startTime;
                 const progress = Math.min(elapsed / duration, 1);
 
@@ -761,7 +761,7 @@ class VisualizationSystem {
         }
     }
 
-    static showAttackEffect(startHex, targetHex) {
+    static showAttackEffect(startHex: any, targetHex: any) {
         // Play random rocket launcher sound
         // Play jet sound for missile movement with duration matching flight time
         AudioSystem.playSound('jet', 0.5, 500); // 500ms matches the missile flight duration
@@ -770,7 +770,7 @@ class VisualizationSystem {
         const fbxLoader = new THREE.FBXLoader();
         fbxLoader.load(
             'assets/bullet_1_bw.fbx',
-            (object) => {
+            (object: any) => {
                 // Scale the model appropriately (5 times smaller than before)
                 object.scale.set(0.02, 0.02, 0.02);
 
@@ -807,7 +807,7 @@ class VisualizationSystem {
                 let startTime: any = null;
 
                 // Animate the projectile
-                const animate = (timestamp) => {
+                const animate = (timestamp: number) => {
                     if (!startTime) startTime = timestamp;
                     const elapsed = timestamp - startTime;
                     const rawProgress = Math.min(elapsed / duration, 1);
@@ -864,7 +864,7 @@ class VisualizationSystem {
                     // Fade out near the end
                     if (progress > 0.8) {
                         const fadeOut = 1 - ((progress - 0.8) * 5);
-                        object.traverse((child) => {
+                        object.traverse((child: any) => {
                             if (child.isMesh) {
                                 child.material.transparent = true;
                                 child.material.opacity = fadeOut;
@@ -888,10 +888,10 @@ class VisualizationSystem {
 
                 requestAnimationFrame(animate);
             },
-            (xhr) => {
+            (xhr: any) => {
                 console.log((xhr.loaded / xhr.total * 100) + '% loaded');
             },
-            (error) => {
+            (error: any) => {
                 console.error('Error loading projectile model:', error);
                 // Fallback to sphere if model fails to load
                 this.showAttackEffectFallback(startHex, targetHex);
@@ -900,7 +900,7 @@ class VisualizationSystem {
     }
 
     // Fallback method using sphere if FBX fails to load
-    static showAttackEffectFallback(startHex, targetHex) {
+    static showAttackEffectFallback(startHex: any, targetHex: any) {
         // Create a glowing sphere for the projectile
         const projectileGeometry = new THREE.SphereGeometry(0.2, 16, 16);
         const projectileMaterial = new THREE.MeshBasicMaterial({
@@ -942,7 +942,7 @@ class VisualizationSystem {
         let startTime: any = null;
 
         // Animate the projectile
-        const animate = (timestamp) => {
+        const animate = (timestamp: number) => {
             if (!startTime) startTime = timestamp;
             const elapsed = timestamp - startTime;
             const rawProgress = Math.min(elapsed / duration, 1);
@@ -1019,7 +1019,7 @@ class VisualizationSystem {
         requestAnimationFrame(animate);
     }
 
-    static showRocketBarrageEffect(startHex, targetHex, options: any = {}) {
+    static showRocketBarrageEffect(startHex: any, targetHex: any, options: any = {}) {
         const {
             projectileCount = 6,
             delayBetweenShots = 100, // milliseconds
@@ -1044,7 +1044,7 @@ class VisualizationSystem {
         let nextRocketIndex = 0;
 
         // Function to fire a single projectile
-        const fireProjectile = (index) => {
+        const fireProjectile = (index: number) => {
             if (index >= projectileCount) return;
 
             // Play jet sound for this rocket with duration matching flight time
@@ -1083,7 +1083,7 @@ class VisualizationSystem {
             let startTime: any = null;
 
             // Animate the projectile
-            const animate = (timestamp) => {
+            const animate = (timestamp: number) => {
                 if (!startTime) startTime = timestamp;
                 const elapsed = timestamp - startTime;
                 const rawProgress = Math.min(elapsed / duration, 1);
@@ -1135,7 +1135,7 @@ class VisualizationSystem {
                 // Fade out near the end
                 if (progress > 0.8) {
                     const fadeOut = 1 - ((progress - 0.8) * 5);
-                    object.traverse((child) => {
+                    object.traverse((child: any) => {
                         if (child.isMesh) {
                             child.material.transparent = true;
                             child.material.opacity = fadeOut;
@@ -1188,7 +1188,7 @@ class VisualizationSystem {
         startNextRocket();
     }
 
-    static showLaserAttackEffect(startHex, targetHex) {
+    static showLaserAttackEffect(startHex: any, targetHex: any) {
         // Calculate start and end positions
         const startCoord = new HexCoord(startHex.userData.q, startHex.userData.r);
         const endCoord = new HexCoord(targetHex.userData.q, targetHex.userData.r);
@@ -1244,7 +1244,7 @@ class VisualizationSystem {
         let startTime: any = null;
 
         // Animate the laser beam
-        function animate(timestamp) {
+        function animate(timestamp: number) {
             if (!startTime) startTime = timestamp;
             const elapsed = timestamp - startTime;
             const progress = Math.min(elapsed / duration, 1);
@@ -1281,7 +1281,7 @@ class VisualizationSystem {
         requestAnimationFrame(animate);
     }
 
-    static createTexturedHexGeometry(hex, texture, options: any = {}) {
+    static createTexturedHexGeometry(hex: any, texture: any, options: any = {}) {
         const {
             radius = MAP_CONFIG.HEX_RADIUS * 0.8,
             heightOffset = 0,
@@ -1351,9 +1351,9 @@ class VisualizationSystem {
         return mesh;
     }
 
-    static createHexTopGeometry(hex, heightOffset = 0) {
+    static createHexTopGeometry(hex: any, heightOffset = 0) {
         // Find the actual hex mesh (not the bounding mesh)
-        const hexMesh = hex.children.find(child =>
+        const hexMesh = hex.children.find((child: any) =>
             child instanceof THREE.Mesh && !child.userData.isBoundingMesh
         );
         if (!hexMesh) return null;

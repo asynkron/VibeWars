@@ -5,7 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
-    "noImplicitAny": false,
+    "noImplicitAny": true,
     "noEmit": true,
     "skipLibCheck": true,
     "allowJs": true,
@@ -14,12 +14,11 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true
   },
-  // All 27 files are now real ES modules (see git log for the increment-by-
-  // increment conversion). noImplicitAny is still off because most function
-  // params/fields are typed `any` rather than given real types -- flipping
-  // it to true surfaces ~459 implicit-any errors across the codebase. That's
-  // the scope of the next phase: tightening `any` to real types file by file,
-  // same incremental approach as the JS->TS conversion itself.
+  // All files are real ES modules with noImplicitAny enabled and zero
+  // implicit-any errors (see git log for the file-by-file conversion and
+  // type-tightening passes). Remaining `any` usage is deliberate: THREE.js
+  // callback params (CDN r128 runtime doesn't match @types/three), and a
+  // handful of documented pre-existing dead-code/bug sites.
   "include": ["**/*.ts", "**/*.js"],
   "exclude": ["node_modules", "dist"]
 }
