@@ -8,7 +8,6 @@
 declare const THREE: any;
 
 // shared/hexengine/utils.js + perlinNoise.js
-declare const perlinNoise: any;
 
 // getMinimapWorldPosition is referenced by game.js's minimap drag/click
 // handlers but is never defined anywhere in the codebase (pre-existing bug,

@@ -70,3 +70,5 @@ function perlinNoise(x, y, z = 0) {
 if (typeof window !== 'undefined') {
   window.perlinNoise = perlinNoise;
 }
+
+export { perlinNoise };
