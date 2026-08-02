@@ -1,7 +1,7 @@
 // ModelSystem.js
 
 class ModelSystem {
-    static models = {};  // Cache for loaded 3D models
+    static models: Record<string, any> = {};  // Cache for loaded 3D models
 
     static async loadModels(modelConfigs) {
         const mtlLoader = new THREE.MTLLoader();
@@ -10,8 +10,8 @@ class ModelSystem {
         const fbxLoader = new THREE.FBXLoader();
 
         // Get all unique model paths from model configs
-        const modelPaths = new Set();
-        Object.values(modelConfigs).forEach(config => {
+        const modelPaths = new Set<any>();
+        Object.values(modelConfigs).forEach((config: any) => {
             if (config.model) {
                 modelPaths.add(config.model);
             }
@@ -20,8 +20,8 @@ class ModelSystem {
         // Load each unique model
         for (const filepath of modelPaths) {
             try {
-                const config = Object.values(modelConfigs).find(cfg => cfg.model === filepath);
-                let loadedModel;
+                const config: any = Object.values(modelConfigs).find((cfg: any) => cfg.model === filepath);
+                let loadedModel: any;
 
                 // Step 1: Load the raw model based on file type
                 const extension = filepath.split('.').pop().toLowerCase();
@@ -217,4 +217,6 @@ class ModelSystem {
 }
 
 window.ModelSystem = ModelSystem;
-console.log('ModelSystem.js loaded'); 
+console.log('ModelSystem.js loaded');
+
+export { ModelSystem };

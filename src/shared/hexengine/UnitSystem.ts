@@ -5,6 +5,7 @@ import { VisualizationSystem } from './VisualizationSystem';
 import { PathfindingSystem } from './PathfindingSystem';
 import { setSelectedUnit } from '../../game';
 import { AudioSystem } from './AudioSystem';
+import { ModelSystem } from './ModelSystem';
 
 class UnitSystem {
     static unitTypes = {

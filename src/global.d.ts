@@ -42,7 +42,6 @@ declare const Tile: any;
 declare const GameMap: any;
 declare const TerrainSystem: any;
 declare const GridSystem: any;
-declare const ModelSystem: any;
 declare const hexGrid: any;
 
 // window extension for values assigned ad hoc across classic scripts
