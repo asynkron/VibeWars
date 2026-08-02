@@ -12,6 +12,18 @@ let cameraHeight = MAP_CONFIG.CAMERA.INITIAL_HEIGHT;
 let isRendererInitialized = false;
 let cameraTarget = new THREE.Vector3();
 
+// cameraHeight is mutated by game.ts's wheel handler; expose it through
+// accessors instead of a raw exported binding so both files always read
+// and write the same live value (module scope doesn't share a mutable
+// `let` across files the way classic scripts used to).
+function getCameraHeight() {
+    return cameraHeight;
+}
+
+function setCameraHeight(height) {
+    cameraHeight = height;
+}
+
 // Calculate map dimensions for shadow camera
 const mapWidth = MAP_CONFIG.COLS * MAP_CONFIG.HEX_RADIUS * 1.5;  // 75 units
 const mapHeight = MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3);  // ~86.6 units
@@ -243,3 +255,12 @@ window.updateCameraZoom = updateCameraZoom;
 window.setupMinimap = setupMinimap;
 window.animate = animate;
 window.updateMiniMapHighlights = updateMiniMapHighlights;
+window.getCameraHeight = getCameraHeight;
+window.setCameraHeight = setCameraHeight;
+
+export {
+    scene, camera, renderer, group, miniMapScene, mapWidth, mapHeight, cameraTarget,
+    initRenderer, setupCamera, getLookDirection, setCameraPosition, updateCameraPosition,
+    updateCameraZoom, setupMinimap, animate, updateMiniMapHighlights,
+    getCameraHeight, setCameraHeight,
+};

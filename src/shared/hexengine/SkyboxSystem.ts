@@ -1,5 +1,7 @@
+import { scene, camera, cameraTarget } from '../../render';
+
 class SkyboxSystem {
-    static skybox = null;
+    static skybox: any = null;
     static textureLoader = new THREE.TextureLoader();
 
     static init() {
@@ -47,3 +49,5 @@ class SkyboxSystem {
 if (typeof window !== 'undefined') {
     window.SkyboxSystem = SkyboxSystem;
 }
+
+export { SkyboxSystem };

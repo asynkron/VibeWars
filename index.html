@@ -109,15 +109,9 @@
     <script src="systems/ai/commands/MoveAwayFromEnemyCommand.js"></script>
     <script src="systems/ai/commands/DoNothingCommand.js"></script>
     <script src="shared/hexengine/ai/AISystem.js"></script>
-    <script src="render.js"></script>
-    <script src="shared/hexengine/SkyboxSystem.js"></script>
-    <script src="game.js"></script>
-    <script>
-        window.onload = function () {
-            console.log('Scripts loaded, calling initGame');
-            initGame(); // Should work now
-        };
-    </script>
+    <script type="module" src="/src/render.ts"></script>
+    <script type="module" src="/src/shared/hexengine/SkyboxSystem.ts"></script>
+    <script type="module" src="/src/game.ts"></script>
 </body>
 
 </html>

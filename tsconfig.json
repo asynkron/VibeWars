@@ -5,6 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
+    "noImplicitAny": false,
     "noEmit": true,
     "skipLibCheck": true,
     "allowJs": true,
@@ -13,6 +14,9 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true
   },
+  // noImplicitAny is intentionally off during the file-by-file JS->TS migration
+  // (see src/global.d.ts for the ambient `any` bridges to not-yet-converted
+  // classic scripts). Re-enable it once every file has real types.
   "include": ["**/*.ts", "**/*.js"],
   "exclude": ["node_modules", "dist"]
 }

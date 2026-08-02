@@ -1,26 +1,29 @@
 // game.js
 console.log('game.js starting');
 
-// Ensure `group` is defined or imported correctly
-// If using modules, import `group` from the appropriate file
-// Example: import { group } from './render';
+import {
+    scene, camera, renderer, group, mapWidth, mapHeight,
+    initRenderer, setupCamera, setCameraPosition, updateCameraPosition,
+    updateCameraZoom, setupMinimap, animate, getCameraHeight, setCameraHeight,
+} from './render';
+import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
 
 // Game Data
-let selectedUnit = null;
-let pathLine = null;
+let selectedUnit: any = null;
+let pathLine: any = null;
 let isDragging = false;
 let isDraggingMinimap = false;
 let isRotating = false;
 let previousMousePosition = { x: 0, y: 0 };
 let currentUnitIndex = -1;
-let currentHighlightedHex = null;  // Track currently highlighted hex
+let currentHighlightedHex: any = null;  // Track currently highlighted hex
 
 // Event Listeners
 function setupEventListeners(matrices) {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
-    const minimapOverlay = document.getElementById('minimap-overlay');
-    const endTurnButton = document.getElementById('end-turn-button');
+    const minimapOverlay = document.getElementById('minimap-overlay') as HTMLElement;
+    const endTurnButton = document.getElementById('end-turn-button') as HTMLButtonElement;
 
     // Add Next Unit button
     const nextUnitButton = document.createElement('button');
@@ -185,7 +188,7 @@ function setupEventListeners(matrices) {
     window.addEventListener('wheel', (event) => {
         event.preventDefault();
         const deltaHeight = event.deltaY > 0 ? -MAP_CONFIG.CAMERA.ZOOM_SPEED : MAP_CONFIG.CAMERA.ZOOM_SPEED;
-        cameraHeight = Math.max(MAP_CONFIG.CAMERA.MIN_HEIGHT, Math.min(MAP_CONFIG.CAMERA.MAX_HEIGHT, cameraHeight + deltaHeight));
+        setCameraHeight(Math.max(MAP_CONFIG.CAMERA.MIN_HEIGHT, Math.min(MAP_CONFIG.CAMERA.MAX_HEIGHT, getCameraHeight() + deltaHeight)));
         updateCameraZoom(matrices);
     }, { passive: false });
 
@@ -377,7 +380,7 @@ function setupEventListeners(matrices) {
 
 async function initGame() {
     // Initialize renderer first
-    window.initRenderer();  // This sets up the renderer and adds it to the document
+    initRenderer();  // This sets up the renderer and adds it to the document
 
     // Initialize game state
     const gameState = new GameState();
