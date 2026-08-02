@@ -62,7 +62,12 @@ class GameState {
             { type: 'Tank1', q: 4, r: 4 },
             { type: 'Tank2', q: 5, r: 4 },
             { type: 'Tank3', q: 6, r: 4 },
-            { type: 'Boat1', q: 6, r: 6 }
+            { type: 'Boat1', q: 6, r: 6 },
+            { type: 'DroverAPC', q: 7, r: 4 },
+            { type: 'HalberdAA', q: 7, r: 5 },
+            { type: 'LynxIFV', q: 4, r: 5 },
+            { type: 'NightjarHelo', q: 3, r: 5 },
+            { type: 'ShrikeJet', q: 8, r: 3 }
         ];
 
         // AI units (matching existing setup)

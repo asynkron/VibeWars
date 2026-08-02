@@ -248,6 +248,157 @@ class UnitSystem {
                 movement: null,  // No movement sound for catapults
                 attack: 'rlauncher3'
             }
+        },
+        "DroverAPC": {
+            symbol: "A",
+            name: "Drover APC",
+            maxHp: 6,
+            hp: 6,
+            move: 3,
+            minRange: 1,
+            maxRange: 2,
+            minDamage: 3,
+            maxDamage: 5,
+            attack: 4,
+            model: "assets/units/drover-apc.glb",
+            scale: 0.22,
+            rotation: 0,
+            attackEffect: 'projectile',
+            footprintTexture: 'assets/textures/tracks2.png',
+            terrainCosts: {
+                WATER: null,
+                SAND: 1,
+                GRASS: 1,
+                FOREST: 1.5,
+                MOUNTAIN: null
+            },
+            usePlayerColor: false,
+            teamColorMaterial: 'teamCamo',
+            sounds: {
+                movement: 'engine_light',
+                attack: 'rlauncher1'
+            }
+        },
+        "HalberdAA": {
+            symbol: "H",
+            name: "Halberd AA",
+            maxHp: 8,
+            hp: 8,
+            move: 2,
+            minRange: 2,
+            maxRange: 5,  // long reach, reflecting its anti-air role
+            minDamage: 4,
+            maxDamage: 6,
+            attack: 5,
+            model: "assets/units/halberd-aa-tank.glb",
+            scale: 0.2,
+            rotation: 0,
+            attackEffect: 'projectile',
+            footprintTexture: 'assets/textures/tracks2.png',
+            terrainCosts: {
+                WATER: null,
+                SAND: 1,
+                GRASS: 1,
+                FOREST: 2,
+                MOUNTAIN: null
+            },
+            usePlayerColor: false,
+            teamColorMaterial: 'teamCamo',
+            sounds: {
+                movement: 'engine_heavy',
+                attack: 'rlauncher3'
+            }
+        },
+        "LynxIFV": {
+            symbol: "L",
+            name: "Lynx IFV",
+            maxHp: 5,
+            hp: 5,
+            move: 4,  // fast scout/skirmisher
+            minRange: 1,
+            maxRange: 2,
+            minDamage: 2,
+            maxDamage: 4,
+            attack: 3,
+            model: "assets/units/lynx-light-ifv.glb",
+            scale: 0.22,
+            rotation: 0,
+            attackEffect: 'projectile',
+            footprintTexture: 'assets/textures/tracks2.png',
+            terrainCosts: {
+                WATER: null,
+                SAND: 1,
+                GRASS: 1,
+                FOREST: 1.5,
+                MOUNTAIN: null
+            },
+            usePlayerColor: false,
+            teamColorMaterial: 'teamCamo',
+            sounds: {
+                movement: 'engine_light',
+                attack: 'rlauncher1'
+            }
+        },
+        "NightjarHelo": {
+            symbol: "N",
+            name: "Nightjar Helo",
+            maxHp: 6,
+            hp: 6,
+            move: 5,  // flight
+            minRange: 1,
+            maxRange: 3,
+            minDamage: 4,
+            maxDamage: 6,
+            attack: 5,
+            model: "assets/units/nightjar-attack-helo.glb",
+            scale: 0.11,
+            rotation: 0,
+            attackEffect: 'rocketBarrage',
+            footprintTexture: null,  // Flies -- leaves no tracks
+            terrainCosts: {
+                // Flies over everything at a uniform cost, unlike ground units
+                WATER: 1,
+                SAND: 1,
+                GRASS: 1,
+                FOREST: 1,
+                MOUNTAIN: 1
+            },
+            usePlayerColor: false,
+            teamColorMaterial: 'teamCamo',
+            sounds: {
+                movement: null,  // No helicopter rotor sound available
+                attack: 'rlauncher2'
+            }
+        },
+        "ShrikeJet": {
+            symbol: "S",
+            name: "Shrike Jet",
+            maxHp: 4,  // fragile, hit-and-run
+            hp: 4,
+            move: 7,  // very fast
+            minRange: 2,
+            maxRange: 4,
+            minDamage: 6,
+            maxDamage: 9,
+            attack: 7,
+            model: "assets/units/shrike-attack-jet.glb",
+            scale: 0.12,
+            rotation: 0,
+            attackEffect: 'projectile',
+            footprintTexture: null,  // Flies -- leaves no tracks
+            terrainCosts: {
+                WATER: 1,
+                SAND: 1,
+                GRASS: 1,
+                FOREST: 1,
+                MOUNTAIN: 1
+            },
+            usePlayerColor: false,
+            teamColorMaterial: 'teamCamo',
+            sounds: {
+                movement: 'jet',
+                attack: 'rlauncher3'
+            }
         }
     };
 
