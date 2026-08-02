@@ -5,6 +5,7 @@ import { group, miniMapScene, renderer } from '../../render';
 import { ModelSystem } from './ModelSystem';
 import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
+import { TerrainSystem } from './TerrainSystem';
 
 class GridSystem {
     static hexGrid: any[] = [];

@@ -8,6 +8,7 @@ import { AudioSystem } from './AudioSystem';
 import { ModelSystem } from './ModelSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
+import { TerrainSystem } from './TerrainSystem';
 
 class UnitSystem {
     static unitTypes = {

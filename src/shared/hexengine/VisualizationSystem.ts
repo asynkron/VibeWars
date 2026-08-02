@@ -4,6 +4,7 @@ import { PathIndicatorSystem } from './PathIndicatorSystem';
 import { AudioSystem } from './AudioSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
+import { TerrainSystem } from './TerrainSystem';
 
 /*
 Render Order Hierarchy (from top to bottom):

@@ -17,6 +17,7 @@ import { UnitSystem } from './shared/hexengine/UnitSystem';
 import { AudioSystem } from './shared/hexengine/AudioSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
+import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 
 // Game Data
 let selectedUnit: any = null;

@@ -1,4 +1,5 @@
 // Shared map generator building on the Battle Isle terrain rules.
+import { TerrainSystem } from './TerrainSystem';
 class Tile {
   height: any;
   type: any;

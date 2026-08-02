@@ -1,7 +1,11 @@
 // TerrainSystem.js
+import { scene } from '../../render';
+import { UnitSystem } from './UnitSystem';
+import { HexCoord } from './HexCoord';
 
 class TerrainSystem {
-    static terrainTypes = {
+    static decoratorModels: any; // never assigned anywhere -- addDecorator() is dead code
+static terrainTypes = {
         WATER: {
             name: 'water',
             moveCost: Infinity,
@@ -270,8 +274,8 @@ class TerrainSystem {
             .sort(([, a], [, b]) => a.threshold - b.threshold);
 
         // Find the current and next terrain type based on noise value
-        let currentType = null;
-        let nextType = null;
+        let currentType: any = null;
+        let nextType: any = null;
         let currentThreshold = 0;
         let nextThreshold = 1;
 
@@ -329,3 +333,5 @@ if (typeof window !== 'undefined') {
 }
 
 console.log('TerrainSystem.js loaded');
+
+export { TerrainSystem };

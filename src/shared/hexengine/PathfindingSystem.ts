@@ -1,4 +1,5 @@
 import { HexCoord } from './HexCoord';
+import { TerrainSystem } from './TerrainSystem';
 
 // PriorityQueue implementation using a binary heap
 class PriorityQueue {
