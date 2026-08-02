@@ -60,6 +60,28 @@ describe('attack gene', () => {
         expect(applyGene(state2, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(false);
     });
 
+    it('artillery cannot fire at adjacent targets (min range 2)', () => {
+        // Kestrel needs at least one empty tile between itself and the
+        // target -- getting close to artillery neutralizes it, which is
+        // the intended counterplay.
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const adjacent = makeState([
+            makeUnit({ type: 'Kestrel', q: 2, r: 2, playerIndex: 1, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Droid', q: neighbor.q, r: neighbor.r, playerIndex: 0 }),
+        ]);
+        expect(applyGene(adjacent, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(false);
+        expect(adjacent.events).toEqual([]);
+
+        // At distance 2 (one tile in between) the same shot is legal.
+        const standoff = makeState([
+            makeUnit({ type: 'Kestrel', q: 2, r: 2, playerIndex: 1, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Droid', q: 4, r: 2, playerIndex: 0 }),
+        ]);
+        expect(HexCoord.getDistance(2, 2, 4, 2)).toBe(2);
+        expect(applyGene(standoff, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(true);
+        expect(standoff.events.some((e) => e.type === 'unitAttacked')).toBe(true);
+    });
+
     it('rocketBarrage genes record terrainModified craters', () => {
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const state = makeState([
