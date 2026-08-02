@@ -20,6 +20,7 @@ import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
 import { MAP_CONFIG } from './constants';
+import type { CameraMatrices, GameUnit } from './types';
 
 // Game Data
 let selectedUnit: any = null;
@@ -43,7 +44,7 @@ let currentUnitIndex = -1;
 let currentHighlightedHex: any = null;  // Track currently highlighted hex
 
 // Event Listeners
-function setupEventListeners(matrices) {
+function setupEventListeners(matrices: CameraMatrices) {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     const minimapOverlay = document.getElementById('minimap-overlay') as HTMLElement;
@@ -85,7 +86,7 @@ function setupEventListeners(matrices) {
     // Add the same class to end turn button for consistency
     endTurnButton.className = 'game-button';
 
-    function isMinimapPosition(x, y) {
+    function isMinimapPosition(x: number, y: number): boolean {
         const rect = minimapOverlay.getBoundingClientRect();
         return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
     }
@@ -217,7 +218,7 @@ function setupEventListeners(matrices) {
     }, { passive: false });
 
     // Function to handle unit selection
-    function selectUnit(unit) {
+    function selectUnit(unit: GameUnit | null): boolean {
         if (unit && gameState.isPlayerTurn(0) && unit.playerIndex === 0) {
             // Clear previous selection first, exactly as in the click handler
             if (selectedUnit) {
@@ -248,7 +249,7 @@ function setupEventListeners(matrices) {
                 const highlights = group.getObjectByName("highlights");
                 if (highlights) {
                     // Check if this hex is highlighted by comparing q,r coordinates
-                    const isHighlighted = highlights.children.some(highlight => {
+                    const isHighlighted = highlights.children.some((highlight: any) => {
                         const highlightCoord = new HexCoord(hexGroup.userData.q, hexGroup.userData.r);
                         const highlightPos = highlightCoord.getWorldPosition();
                         const highlightX = Math.round(highlightPos.x * 10) / 10;
@@ -337,7 +338,7 @@ function setupEventListeners(matrices) {
     nextUnitButton.addEventListener('click', () => {
         if (!gameState.isPlayerTurn(0)) return; // Only work during player's turn
 
-        const playerUnits = gameState.units.filter(unit => unit.playerIndex === 0);
+        const playerUnits = gameState.units.filter((unit: GameUnit) => unit.playerIndex === 0);
         if (playerUnits.length === 0) return;
 
         // Get next unit
@@ -476,21 +477,21 @@ const OBJLoader = THREE.OBJLoader;
 // Make OBJLoader available globally
 window.OBJLoader = OBJLoader;
 
-function createRoads(gameState) {
+function createRoads(gameState: GameState) {
     for (let i = 0; i < 10; i++) {
         // Find a random valid start point (not water)
         let startQ, startR;
         do {
             startQ = Math.floor(Math.random() * MAP_CONFIG.COLS);
             startR = Math.floor(Math.random() * MAP_CONFIG.ROWS);
-        } while (gameState.map.getTile(startQ, startR).type === 'WATER');
+        } while (gameState.map.getTile(startQ, startR)!.type === 'WATER');
 
         // Find a random valid end point (not water)
         let endQ, endR;
         do {
             endQ = Math.floor(Math.random() * MAP_CONFIG.COLS);
             endR = Math.floor(Math.random() * MAP_CONFIG.ROWS);
-        } while (gameState.map.getTile(endQ, endR).type === 'WATER');
+        } while (gameState.map.getTile(endQ, endR)!.type === 'WATER');
 
         // Generate the road between these points
         RoadSystem.generateRoad(startQ, startR, endQ, endR);

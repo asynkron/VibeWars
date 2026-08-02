@@ -1,6 +1,7 @@
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
 import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
+import type { CameraMatrices } from './types';
 
 // Scene Objects
 const scene = new THREE.Scene();
@@ -24,7 +25,7 @@ function getCameraHeight() {
     return cameraHeight;
 }
 
-function setCameraHeight(height) {
+function setCameraHeight(height: number) {
     cameraHeight = height;
 }
 
@@ -67,7 +68,7 @@ window.cameraTarget = cameraTarget;
 window.addEventListener('load', initRenderer);
 
 // Camera Setup
-function setupCamera(mapCenterX, mapCenterZ) {
+function setupCamera(mapCenterX: number, mapCenterZ: number): CameraMatrices {
     const localToWorldMatrix = new THREE.Matrix4();
     const worldToLocalMatrix = new THREE.Matrix4();
     let localCameraPos = new THREE.Vector3(mapCenterX, cameraHeight, mapCenterZ);
@@ -81,7 +82,7 @@ function setupCamera(mapCenterX, mapCenterZ) {
     return { localToWorldMatrix, worldToLocalMatrix, localCameraPos };
 }
 
-function getLookDirection(height) {
+function getLookDirection(height: number) {
     const minDownwardTilt = -1;
     const maxDownwardTilt = -3;
     const tiltFactor = (height - MAP_CONFIG.CAMERA.MIN_HEIGHT) / (MAP_CONFIG.CAMERA.MAX_HEIGHT - MAP_CONFIG.CAMERA.MIN_HEIGHT);
@@ -89,7 +90,7 @@ function getLookDirection(height) {
     return new THREE.Vector3(0, downwardTilt, -1).normalize();
 }
 
-function setCameraPosition(worldX, worldZ, matrices) {
+function setCameraPosition(worldX: number, worldZ: number, matrices: CameraMatrices) {
     // Get current look direction
     const cameraDirection = new THREE.Vector3();
     camera.getWorldDirection(cameraDirection);
@@ -103,7 +104,7 @@ function setCameraPosition(worldX, worldZ, matrices) {
     camera.lookAt(worldPos.clone().add(cameraDirection.multiplyScalar(10)));
 }
 
-function updateCameraPosition(deltaX, deltaY, matrices) {
+function updateCameraPosition(deltaX: number, deltaY: number, matrices: CameraMatrices) {
     // Get current look-at target before moving
     const cameraDirection = new THREE.Vector3();
     camera.getWorldDirection(cameraDirection);
@@ -129,7 +130,7 @@ function updateCameraPosition(deltaX, deltaY, matrices) {
     camera.lookAt(cameraTarget);
 }
 
-function updateCameraZoom(matrices) {
+function updateCameraZoom(matrices: CameraMatrices) {
     // Get current look-at target before zooming
     const cameraDirection = new THREE.Vector3();
     camera.getWorldDirection(cameraDirection);
@@ -146,7 +147,7 @@ function updateCameraZoom(matrices) {
 }
 
 // Minimap Setup
-function setupMinimap(mapCenterX, mapCenterZ) {
+function setupMinimap(mapCenterX: number, mapCenterZ: number) {
     const mapWidth = MAP_CONFIG.COLS * MAP_CONFIG.HEX_RADIUS * 1.5;  // 75
     const mapHeight = MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3);  // ~86.6
 
@@ -186,7 +187,7 @@ function setupMinimap(mapCenterX, mapCenterZ) {
 }
 
 // Animation Loop
-function animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup) {
+function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number, mapHeight: number, highlightGroup: any) {
     requestAnimationFrame(() => animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup));
 
     // Update path animation
@@ -214,7 +215,7 @@ function animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup) {
 }
 
 // Update minimap highlights
-function updateMiniMapHighlights(highlightGroup, matrices) {
+function updateMiniMapHighlights(highlightGroup: any, matrices: CameraMatrices) {
     while (highlightGroup.children.length > 0) {
         highlightGroup.remove(highlightGroup.children[0]);
     }
@@ -227,7 +228,7 @@ function updateMiniMapHighlights(highlightGroup, matrices) {
         new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
     );
 
-    const visibleHexes = hexGrid.filter(hex => {
+    const visibleHexes = hexGrid.filter((hex: any) => {
         const localPos = new THREE.Vector3(hex.userData.x, 0, hex.userData.z);
         const worldPos = localPos.clone().applyMatrix4(matrices.localToWorldMatrix);
         return frustum.containsPoint(worldPos);
@@ -241,7 +242,7 @@ function updateMiniMapHighlights(highlightGroup, matrices) {
         side: THREE.DoubleSide
     });
 
-    visibleHexes.forEach(hex => {
+    visibleHexes.forEach((hex: any) => {
         const highlight = new THREE.Mesh(highlightGeometry, highlightMaterial);
         highlight.position.set(hex.userData.x, 0.6, hex.userData.z);
         highlight.rotation.x = -Math.PI / 2;
