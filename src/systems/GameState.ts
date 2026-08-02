@@ -1,6 +1,7 @@
 // GameState.js - Manages the overall game state
 import { UnitSystem } from '../shared/hexengine/UnitSystem';
 import { GameMap } from '../shared/hexengine/MapSystem';
+import { AIController } from './ai/AIController';
 import type { GameUnit, GamePlayer } from '../types';
 
 class GameState {
@@ -26,7 +27,9 @@ class GameState {
         this.units.forEach(unit => {
             if (unit.playerIndex === this.currentTurn) {
                 unit.move = UnitSystem.unitTypesRecord[unit.type].move;
-                unit.hasAttacked = false;
+                // Via setHasAttacked so visualUnit.userData stays in sync
+                // (a bare `unit.hasAttacked = false` left it stale).
+                UnitSystem.setHasAttacked(unit, false);
             }
         });
         if (this.currentTurn !== 0) {
@@ -35,7 +38,9 @@ class GameState {
     }
 
     cpuTurn(): void {
-        setTimeout(() => this.nextTurn(), 1000);
+        AIController.runCpuTurn(this, this.currentTurn)
+            .catch((error) => console.error('AI turn failed:', error))
+            .finally(() => this.nextTurn());
     }
 
     getCurrentPlayer(): GamePlayer {
