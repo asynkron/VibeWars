@@ -11,7 +11,7 @@ import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 import { players, HIGHLIGHT_COLORS } from '../../constants';
 import { getGameState } from '../../systems/gameStateStore';
-import type { UnitTypeConfig, GameUnit } from '../../types';
+import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
 
 class UnitSystem {
     static get unitTypesRecord(): Record<string, UnitTypeConfig> {
@@ -741,7 +741,15 @@ class UnitSystem {
         return 0; // Default to South if no direction found
     }
 
-    static move(unit: GameUnit, path: any[]) {
+    // Resolves when the whole animated move (every step + the trailing
+    // highlight refresh) has completed -- the AI replay awaits this to
+    // sequence its actions. Fire-and-forget callers can ignore the promise.
+    static move(unit: GameUnit, path: any[]): Promise<void> {
+        if (path.length === 0) return Promise.resolve();
+
+        let movementDone!: () => void;
+        const donePromise = new Promise<void>((resolve) => { movementDone = resolve; });
+
         // Start engine sound when movement begins
         AudioSystem.playEngineSound(unit);
 
@@ -822,6 +830,7 @@ class UnitSystem {
                                 this.highlightAttackRange(unit);
                                 // Stop engine sound when movement is complete
                                 AudioSystem.stopEngineSound(unit);
+                                movementDone();
                             }, 50);
                         }
                     }
@@ -832,6 +841,8 @@ class UnitSystem {
             }, delay);
             delay += stepDuration;
         });
+
+        return donePromise;
     }
 
     static handleSelection(unit: GameUnit | null) {
@@ -998,7 +1009,7 @@ class UnitSystem {
         return closestAngle * Math.PI / 180;
     }
 
-    static async attack(attacker: GameUnit, defender: GameUnit): Promise<void> {
+    static async attack(attacker: GameUnit, defender: GameUnit, resolved?: ResolvedAttackOutcome): Promise<void> {
         if (this.hasUnitAttacked(attacker)) {
             return;
         }
@@ -1024,70 +1035,27 @@ class UnitSystem {
             return;
         }
 
-        // Calculate damage
-        const damage = this.calculateDamage(attackerStats, defender);
+        // Resolve-first: every random decision (damage roll, rocket landing
+        // hexes) is made up front. Player attacks resolve here and now; AI
+        // replay passes in the outcome its simulation already committed to,
+        // so the executed reality matches the searched plan exactly.
+        const outcome = resolved ?? this.resolveLiveAttack(attacker, defender, attackerStats);
 
-        // Show attack effect based on unit type
+        // Show attack effect based on unit type, then execute the outcome.
         if (attackerStats.attackEffect === 'projectile') {
             VisualizationSystem.showAttackEffect(attackerHex, defenderHex);
-            // Wait for projectile animation
             await new Promise(resolve => setTimeout(resolve, 500));
-            // Show damage number *after* effect
-            VisualizationSystem.showDamageNumber(defender.visualUnit.position.clone(), damage);
-            // Apply damage to original target
-            this.applyDamage(defender, damage);
-            // Check if defender is destroyed
-            if (defender.hp <= 0) {
-                this.removeUnit(defender);
-            }
+            this.applyResolvedOutcome(outcome);
         } else if (attackerStats.attackEffect === 'rocketBarrage') {
-            // Get all possible target hexes (original target + neighbors)
-            const targetCoord = new HexCoord(defenderHex.userData.q, defenderHex.userData.r);
-            const possibleTargets = [defenderHex];
-
-            // Add all valid neighbors
-            targetCoord.getNeighbors().forEach((neighbor: any) => {
-                const neighborHex = GridSystem.findHex(neighbor.q, neighbor.r);
-                if (neighborHex) {
-                    possibleTargets.push(neighborHex);
-                }
-            });
-
-            // Show rocket barrage effect
-            VisualizationSystem.showRocketBarrageEffect(attackerHex, defenderHex);
-
+            // Rockets fly to the exact resolved impact hexes.
+            VisualizationSystem.showRocketBarrageEffect(attackerHex, defenderHex, { impacts: outcome.impacts });
             // Wait for all rockets to finish
             await new Promise(resolve => setTimeout(resolve, 1000));
-
-            // Apply damage to each hex that was hit
-            possibleTargets.forEach((targetHex: any) => {
-                const unitAtTarget = GridSystem.getUnitAtHex(targetHex);
-                if (unitAtTarget) {
-                    // Apply full damage to the original target, reduced damage to neighbors
-                    const damageMultiplier = targetHex === defenderHex ? 1 : 0.5;
-                    const currentDamage = Math.floor(damage * damageMultiplier); // Calculate damage for this target
-                    // Show damage number *after* effect
-                    VisualizationSystem.showDamageNumber(unitAtTarget.visualUnit.position.clone(), currentDamage);
-                    // Apply damage
-                    this.applyDamage(unitAtTarget, currentDamage);
-                    // Check if unit is destroyed
-                    if (unitAtTarget.hp <= 0) {
-                        this.removeUnit(unitAtTarget);
-                    }
-                }
-            });
+            this.applyResolvedOutcome(outcome);
         } else if (attackerStats.attackEffect === 'laser') {
             VisualizationSystem.showLaserAttackEffect(attackerHex, defenderHex);
-            // Wait for laser animation
             await new Promise(resolve => setTimeout(resolve, 400));
-            // Show damage number *after* effect
-            VisualizationSystem.showDamageNumber(defender.visualUnit.position.clone(), damage);
-            // Apply damage to original target
-            this.applyDamage(defender, damage);
-            // Check if defender is destroyed
-            if (defender.hp <= 0) {
-                this.removeUnit(defender);
-            }
+            this.applyResolvedOutcome(outcome);
         }
 
         // Set the hasAttacked flag for the attacker
@@ -1095,6 +1063,62 @@ class UnitSystem {
 
         setSelectedUnit(null);
         VisualizationSystem.clearHighlights();
+    }
+
+    // Live-side resolver mirroring src/systems/sim/resolveAttack.ts, but
+    // rolling real dice (uniform damage, Math.random scatter) since player
+    // attacks don't need cross-candidate determinism -- only resolve-before-
+    // execute. Splash and crater rules are identical to the sim version.
+    static resolveLiveAttack(attacker: GameUnit, defender: GameUnit, attackerStats: UnitTypeConfig): ResolvedAttackOutcome {
+        const damage = this.calculateDamage(attackerStats, defender);
+        const damages: ResolvedAttackOutcome['damages'] = [];
+        const impacts: ResolvedAttackOutcome['impacts'] = [];
+
+        if (attackerStats.attackEffect === 'rocketBarrage') {
+            // Splash hexes: the defender's hex + all in-bounds neighbors.
+            const splashHexes = [{ q: defender.q, r: defender.r }];
+            HexCoord.getNeighbors(defender.q, defender.r).forEach((n) => {
+                if (HexCoord.isWithinMapBounds(n.q, n.r)) splashHexes.push({ q: n.q, r: n.r });
+            });
+
+            for (const hex of splashHexes) {
+                const unitAtHex = getGameState().getUnitAt(hex.q, hex.r);
+                if (!unitAtHex) continue;
+                const isPrimary = hex.q === defender.q && hex.r === defender.r;
+                damages.push({ unit: unitAtHex, damage: isPrimary ? damage : Math.floor(damage * 0.5) });
+            }
+
+            const rocketCount = 6;
+            const craterDelta = -0.5;
+            for (let i = 0; i < rocketCount; i++) {
+                const target = splashHexes[Math.floor(Math.random() * splashHexes.length)];
+                impacts.push({ q: target.q, r: target.r, craterDelta });
+            }
+        } else {
+            // projectile/laser (and any future single-target effect)
+            damages.push({ unit: defender, damage });
+        }
+
+        return { damages, impacts };
+    }
+
+    // Execute an already-resolved outcome: damage numbers, hp, deaths, and
+    // craters. Order matches the old inline logic (damage first, then
+    // terrain).
+    static applyResolvedOutcome(outcome: ResolvedAttackOutcome): void {
+        for (const { unit, damage } of outcome.damages) {
+            // Skip units that already died earlier in this outcome (or
+            // otherwise left the game before execution).
+            if (!getGameState().units.includes(unit)) continue;
+            VisualizationSystem.showDamageNumber(unit.visualUnit.position.clone(), damage);
+            this.applyDamage(unit, damage);
+            if (unit.hp <= 0) {
+                this.removeUnit(unit);
+            }
+        }
+        for (const impact of outcome.impacts) {
+            GridSystem.modifyHexHeight(new HexCoord(impact.q, impact.r), impact.craterDelta);
+        }
     }
 
     static resetTurnFlags(): void {

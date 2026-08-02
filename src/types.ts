@@ -116,6 +116,15 @@ export interface GameUnit {
   engineSound?: { source: any; gainNode: any } | null;
 }
 
+// A fully-resolved attack outcome for the live execution path: every
+// random decision (damage rolls, rocket landing hexes) already made.
+// UnitSystem.attack builds one itself for player attacks and accepts one
+// from the AI replay, so simulation facts and executed reality match.
+export interface ResolvedAttackOutcome {
+  damages: Array<{ unit: GameUnit; damage: number }>;
+  impacts: Array<{ q: number; r: number; craterDelta: number }>;
+}
+
 // A GameMap tile, see MapSystem's Tile class.
 export interface TileLike {
   height: number;

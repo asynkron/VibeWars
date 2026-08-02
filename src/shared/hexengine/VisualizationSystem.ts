@@ -1040,13 +1040,20 @@ class VisualizationSystem {
         requestAnimationFrame(animate);
     }
 
+    // `options.impacts` ({q, r}[]) predetermines each rocket's landing hex --
+    // the resolve-first attack flow passes the already-decided impact list so
+    // the visuals land exactly where the game rules said they would. Without
+    // it (legacy fallback) each rocket scatters randomly like before. This
+    // effect no longer applies craters; that's game logic, executed by
+    // UnitSystem.attack from the same resolved impacts.
     static showRocketBarrageEffect(startHex: any, targetHex: any, options: any = {}) {
         const {
-            projectileCount = 6,
+            impacts = null,
             delayBetweenShots = 100, // milliseconds
             projectileScale = 0.4, // Smaller than regular projectile
             maxInFlight = 3 // Maximum number of rockets in flight at once
         } = options;
+        const projectileCount = impacts ? impacts.length : (options.projectileCount ?? 6);
 
         // Get all possible target hexes (original target + neighbors)
         const targetCoord = new HexCoord(targetHex.userData.q, targetHex.userData.r);
@@ -1071,8 +1078,11 @@ class VisualizationSystem {
             // Play jet sound for this rocket with duration matching flight time
             AudioSystem.playSound('jet', 0.4, 500); // 500ms matches the rocket flight duration
 
-            // Randomly select a target from possible targets
-            const randomTarget = possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
+            // Fly to the predetermined impact hex when one is given,
+            // otherwise scatter randomly (legacy behavior).
+            const randomTarget = impacts
+                ? (GridSystem.findHex(impacts[index % impacts.length].q, impacts[index % impacts.length].r) ?? targetHex)
+                : possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
 
             // Clone the cached model
             const object = this.cachedRocketModel.clone();
@@ -1173,10 +1183,6 @@ class VisualizationSystem {
                     this.createExplosion(endPos, {
                         size: 1.5,
                     });
-
-                    // Create crater effect by modifying the hex height
-                    const craterDepth = -0.5; // Depth of the crater
-                    GridSystem.modifyHexHeight(new HexCoord(randomTarget.userData.q, randomTarget.userData.r), craterDepth);
 
                     // Clean up projectile
                     this.disposeObject(projectile);
