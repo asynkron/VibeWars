@@ -103,7 +103,6 @@ class VisualizationSystem {
             // Preload the rocket model
             await this.loadRocketModel();
             this.initialized = true;
-            console.log('VisualizationSystem initialized');
         })();
 
         return this.initializationPromise;
@@ -122,9 +121,7 @@ class VisualizationSystem {
                     this.cachedRocketModel = object;
                     resolve(object);
                 },
-                (xhr: any) => {
-                    console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-                },
+                undefined,
                 (error: any) => {
                     console.error('Error loading rocket model:', error);
                     reject(error);
@@ -888,9 +885,7 @@ class VisualizationSystem {
 
                 requestAnimationFrame(animate);
             },
-            (xhr: any) => {
-                console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-            },
+            undefined,
             (error: any) => {
                 console.error('Error loading projectile model:', error);
                 // Fallback to sphere if model fails to load

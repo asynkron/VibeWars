@@ -749,8 +749,6 @@ class UnitSystem {
     }
 
     static highlightMoveRange(unit: GameUnit) {
-        console.log("highlightMoveRange!!!!!!!!!!!");
-        console.log(unit);
         const unitCoord = new HexCoord(unit.q, unit.r);
         const { reachable } = PathfindingSystem.dijkstra(unitCoord.q, unitCoord.r, unit.move, unit);
 
@@ -808,7 +806,6 @@ class UnitSystem {
 
     static isValidMove(unit: GameUnit, targetHex: any): boolean {
         if (!targetHex) return false;
-        console.log("is Valid move!!!!");
 
         const unitCoord = new HexCoord(unit.q, unit.r);
         const targetCoord = new HexCoord(targetHex.userData.q, targetHex.userData.r);
@@ -830,10 +827,6 @@ class UnitSystem {
         // Calculate base damage using attacker's min and max damage
         const baseDamage = Math.floor(Math.random() * (attackerStats.maxDamage - attackerStats.minDamage + 1)) + attackerStats.minDamage;
 
-        // Log the damage calculation
-        console.log(`${attackerStats.name} attacks ${this.unitTypesRecord[defender.type].name}!`);
-        console.log(`Damage roll: ${baseDamage}`);
-
         return baseDamage;
     }
 
@@ -841,7 +834,6 @@ class UnitSystem {
         // Update HP in both the game state unit and the visual unit
         unit.hp -= damage;
         unit.visualUnit.userData.hp = unit.hp;  // Sync the HP values
-        console.log(`${this.unitTypesRecord[unit.type].name} takes ${damage} damage! HP: ${unit.hp}/${unit.maxHp}`);
 
         // Update the sprite to show new HP
         if (unit.visualUnit.userData.sprite) {
@@ -887,14 +879,12 @@ class UnitSystem {
 
     static async attack(attacker: GameUnit, defender: GameUnit): Promise<void> {
         if (this.hasUnitAttacked(attacker)) {
-            console.log(`${this.unitTypesRecord[attacker.type].name} has already attacked this turn!`);
             return;
         }
 
         // Check if target is within attack range
         const distance = this.getHexDistance(attacker.q, attacker.r, defender.q, defender.r);
         if (distance < attacker.minRange || distance > attacker.maxRange) {
-            console.log(`${this.unitTypesRecord[attacker.type].name} cannot attack target at this range!`);
             return;
         }
 

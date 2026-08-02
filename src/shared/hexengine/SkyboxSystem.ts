@@ -1,11 +1,10 @@
-import { scene, camera, cameraTarget } from '../../render';
+import { scene } from '../../render';
 
 class SkyboxSystem {
     static skybox: any = null;
     static textureLoader = new THREE.TextureLoader();
 
     static init() {
-        console.log('Initializing skybox...');
         // Create skybox geometry with a smaller size
         const geometry = new THREE.BoxGeometry(5000, 5000, 5000);
 
@@ -19,10 +18,9 @@ class SkyboxSystem {
             'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/cube/MilkyWay/dark-s_nz.jpg'  // back
         ];
 
-        console.log('Loading skybox textures...');
         const materials = textureFiles.map(file => {
             const texture = this.textureLoader.load(file,
-                () => console.log(`Loaded texture: ${file}`),
+                undefined,
                 undefined,
                 (error: any) => console.error(`Error loading texture ${file}:`, error)
             );
@@ -37,12 +35,6 @@ class SkyboxSystem {
         this.skybox = new THREE.Mesh(geometry, materials);
         this.skybox.renderOrder = -1; // Ensure skybox renders first
         scene.add(this.skybox);
-        console.log('Skybox added to scene');
-
-        // Debug: Log scene contents
-        console.log('Scene children:', scene.children);
-        console.log('Camera position:', camera.position);
-        console.log('Camera target:', cameraTarget);
     }
 }
 

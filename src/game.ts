@@ -1,5 +1,4 @@
 // game.js
-console.log('game.js starting');
 
 // Side-effect only: sets window.HEX_ENGINE from window.HEX_ENGINE_OPTIONS
 // (see index.html's inline script). GridSystem.getOption()/HexCoord read it
@@ -174,9 +173,6 @@ function setupEventListeners(matrices: CameraMatrices) {
                 highlightGroup.name = "cursorHighlight";
             }
 
-            // Show grid coordinates
-            console.log(`Tile: (${hexGroup.userData.q}, ${hexGroup.userData.r})`);
-
             // Handle path visualization if we have a selected unit
             if (selectedUnit) {
                 await VisualizationSystem.clearPathLine();
@@ -266,7 +262,6 @@ function setupEventListeners(matrices: CameraMatrices) {
                     });
 
                     if (isHighlighted) {
-                        console.log("Attempting attack...");
                         UnitSystem.attack(selectedUnit, unitOnHex);
                         return;
                     }
@@ -447,7 +442,6 @@ async function initGame() {
 
     // Load unit models before initializing units
     await UnitSystem.loadUnitModels();
-    console.log("Unit models loaded");
 
     // Initialize units using gameState
     gameState.initializeUnits();

@@ -37,7 +37,6 @@ class FootprintSystem {
 
         // Wait for all textures to load
         await Promise.all(loadPromises);
-        console.log('All footprint textures loaded:', Object.keys(this.trackTextures));
     }
 
     static getFootprintTexture(unitType: string) {
@@ -46,8 +45,6 @@ class FootprintSystem {
     }
 
     static createFootprint(hex: any, direction: number = 0, unitType: string | null = null) {
-        console.log('Creating footprint for hex:', hex.userData);
-
         // Early exit if the tile has a road
         const tile = getGameState().map.getTile(hex.userData.q, hex.userData.r);
         if (tile?.hasRoad) {
@@ -96,7 +93,6 @@ class FootprintSystem {
 
         // Add footprints group to main group if not already added
         if (!group.getObjectByName("footprints")) {
-            console.log('Adding footprints group to main group');
             group.add(footprints);
         }
 

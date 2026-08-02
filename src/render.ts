@@ -36,19 +36,14 @@ const mapHeight = MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3);  // ~8
 // Renderer Initialization
 function initRenderer() {
     if (isRendererInitialized) {
-        console.log('Renderer already initialized, skipping...');
         return;
     }
 
-    console.log('Initializing renderer...');
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;  // Enable shadow mapping
     renderer.shadowMap.type = THREE.VSMShadowMap;
     document.body.appendChild(renderer.domElement);
     scene.add(group);
-
-    // Debug logging
-    console.log('Scene children after initialization:', scene.children);
 
     isRendererInitialized = true;
 }
@@ -145,7 +140,6 @@ function setupMinimap(mapCenterX: number, mapCenterZ: number) {
     miniMapCamera.position.set(mapCenterX, 100, mapCenterZ);
     miniMapCamera.rotation.x = -Math.PI / 2;
     miniMapCamera.updateProjectionMatrix();
-    console.log("miniMapCamera frustum:", -mapWidth / 2, mapWidth / 2, mapHeight / 2, -mapHeight / 2);
 
     // Centered border
     const borderMaterial = new THREE.LineBasicMaterial({ color: 0x000000 });
@@ -160,14 +154,11 @@ function setupMinimap(mapCenterX: number, mapCenterZ: number) {
     const border = new THREE.Line(borderGeometry, borderMaterial);
     border.position.set(mapCenterX, 0, mapCenterZ);
     miniMapScene.add(border);
-    console.log("Border added with extents:", -mapWidth / 2, mapWidth / 2, -mapHeight / 2, mapHeight / 2);
 
     // Group for highlight hexes
     const highlightGroup = new THREE.Group();
     highlightGroup.name = "miniMapHighlights";
     miniMapScene.add(highlightGroup);
-
-    console.log("miniMapScene children after setup:", miniMapScene.children.length);
 
     return { miniMapCamera, mapWidth, mapHeight, highlightGroup };
 }
@@ -234,8 +225,6 @@ function updateMiniMapHighlights(highlightGroup: any, matrices: CameraMatrices) 
         highlight.rotation.x = -Math.PI / 2;
         highlightGroup.add(highlight);
     });
-
-    console.log("Visible hexes in minimap:", visibleHexes.length);
 }
 
 export {

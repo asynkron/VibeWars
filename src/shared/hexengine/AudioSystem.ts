@@ -32,7 +32,6 @@ class AudioSystem {
         await this.loadSound('jet', 'assets/sounds/jet.wav');
 
         this.initialized = true;
-        console.log('AudioSystem initialized');
     }
 
     static async loadSound(name: string, url: string) {
@@ -41,7 +40,6 @@ class AudioSystem {
             const arrayBuffer = await response.arrayBuffer();
             const audioBuffer = await this.audioContext!.decodeAudioData(arrayBuffer);
             this.sounds.set(name, audioBuffer);
-            console.log(`Loaded sound: ${name}`);
         } catch (error) {
             console.error(`Error loading sound ${name}:`, error);
         }
@@ -72,7 +70,6 @@ class AudioSystem {
                 isPlaying: false
             };
 
-            console.log('Loaded music');
         } catch (error) {
             console.error('Error loading music:', error);
         }

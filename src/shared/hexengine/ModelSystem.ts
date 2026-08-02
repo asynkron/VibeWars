@@ -31,7 +31,7 @@ class ModelSystem {
                             fbxLoader.load(
                                 filepath,
                                 (object: any) => resolve(object),
-                                (xhr: any) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
+                                undefined,
                                 reject
                             );
                         });
@@ -42,7 +42,7 @@ class ModelSystem {
                         loadedModel = await new Promise((resolve, reject) => {
                             gltfLoader.load(filepath,
                                 (gltf: any) => resolve(gltf.scene),
-                                (xhr: any) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
+                                undefined,
                                 reject
                             );
                         });
@@ -65,7 +65,7 @@ class ModelSystem {
                         loadedModel = await new Promise((resolve, reject) => {
                             objLoader.load(filepath,
                                 (object: any) => resolve(object),
-                                (xhr: any) => console.log(`${filepath} ${(xhr.loaded / xhr.total * 100)}% loaded`),
+                                undefined,
                                 reject
                             );
                         });
@@ -140,7 +140,6 @@ class ModelSystem {
                 loadedModel.position.add(offset);
 
                 this.models[filepath] = modelGroup;
-                console.log(`Successfully loaded and positioned model ${filepath}`);
             } catch (error) {
                 console.error(`Failed to load model ${filepath}:`, error);
             }

@@ -143,11 +143,9 @@ class GridSystem {
     // ---------------------------
     static loadTexture(path: string) {
         if (!this.textures[path]) {
-            console.log(`Loading texture: ${path}`);
             this.textures[path] = this.textureLoader.load(
                 path,
                 (loadedTexture: any) => {
-                    console.log(`Texture loaded successfully: ${path}`);
                     loadedTexture.wrapS = THREE.RepeatWrapping;
                     loadedTexture.wrapT = THREE.RepeatWrapping;
                     loadedTexture.repeat.set(1, 1);
@@ -206,7 +204,6 @@ class GridSystem {
 
     static getHexIntersects(raycaster: any) {
         const intersectObjects: any[] = [];
-        console.log('Starting hex intersection check');
 
         GridSystem.hexGrid.forEach((hexGroup: any, index: number) => {
             let foundBoundingMesh = false;
@@ -221,10 +218,7 @@ class GridSystem {
             }
         });
 
-        console.log(`Found ${intersectObjects.length} bounding meshes for intersection testing`);
-        const intersects = raycaster.intersectObjects(intersectObjects, false);
-        console.log('Intersection results:', intersects.length);
-        return intersects;
+        return raycaster.intersectObjects(intersectObjects, false);
     }
 
     static createHexShape(radius: number = MAP_CONFIG.HEX_RADIUS) {
@@ -325,11 +319,8 @@ class GridSystem {
     // Map & Coordinate Helpers
     // ---------------------------
     static async createMap(mapSource: any) {
-        console.log("Starting map creation...");
-
         if (this.getOption('loadModels') && typeof ModelSystem !== 'undefined') {
             await this.loadTileModels();
-            console.log("3D models loaded");
         }
 
         this.clear();
@@ -366,7 +357,6 @@ class GridSystem {
             }
         }
 
-        console.log("Map created with 3D models, total hexes:", this.hexGrid.length);
         return { mapCenterX, mapCenterZ, mapReady: true };
     }
 
@@ -755,7 +745,6 @@ class GridSystem {
                 });
             });
             await ModelSystem.loadModels(modelConfigs);
-            console.log('Finished loading 3D models');
             return true;
         } catch (error) {
             console.error('Error in loadTileModels:', error);

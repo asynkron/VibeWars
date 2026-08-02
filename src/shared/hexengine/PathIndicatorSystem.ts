@@ -19,11 +19,9 @@ class PathIndicatorSystem {
         // Load the path texture
         this.pathTexturePromise = new Promise((resolve, reject) => {
             const loader = new THREE.TextureLoader();
-            console.log('Loading path texture from: assets/textures/path.png');
             loader.load(
                 'assets/textures/path.png',
                 (texture: any) => {
-                    console.log('Path texture loaded successfully');
                     this.pathTexture = texture;
                     texture.needsUpdate = true;
                     texture.flipY = false;  // Ensure texture isn't flipped
@@ -32,9 +30,7 @@ class PathIndicatorSystem {
                     texture.magFilter = THREE.LinearFilter;
                     resolve(texture);
                 },
-                (progress: any) => {
-                    console.log('Loading progress:', (progress.loaded / progress.total * 100) + '%');
-                },
+                undefined,
                 (err: any) => {
                     console.error('Error loading path texture:', err);
                     reject(err);
@@ -44,7 +40,6 @@ class PathIndicatorSystem {
 
         // Wait for texture to load
         await this.pathTexturePromise;
-        console.log('Path texture loaded and ready');
 
         // Start the animation loop
         this.startAnimation();
@@ -83,8 +78,6 @@ class PathIndicatorSystem {
     }
 
     static createPathIndicator(hex: any, direction: number = 0) {
-        console.log('Creating path indicator for hex:', hex.userData);
-
         const pathIndicators = group.getObjectByName("pathIndicators") || new THREE.Group();
         pathIndicators.name = "pathIndicators";
 
@@ -115,7 +108,6 @@ class PathIndicatorSystem {
 
         // Add pathIndicators group to main group if not already added
         if (!group.getObjectByName("pathIndicators")) {
-            console.log('Adding pathIndicators group to main group');
             group.add(pathIndicators);
         }
 
