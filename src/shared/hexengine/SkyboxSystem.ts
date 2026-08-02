@@ -24,7 +24,7 @@ class SkyboxSystem {
             const texture = this.textureLoader.load(file,
                 () => console.log(`Loaded texture: ${file}`),
                 undefined,
-                (error) => console.error(`Error loading texture ${file}:`, error)
+                (error: any) => console.error(`Error loading texture ${file}:`, error)
             );
             return new THREE.MeshBasicMaterial({
                 map: texture,

@@ -22,7 +22,7 @@ class PathIndicatorSystem {
             console.log('Loading path texture from: assets/textures/path.png');
             loader.load(
                 'assets/textures/path.png',
-                (texture) => {
+                (texture: any) => {
                     console.log('Path texture loaded successfully');
                     this.pathTexture = texture;
                     texture.needsUpdate = true;
@@ -32,10 +32,10 @@ class PathIndicatorSystem {
                     texture.magFilter = THREE.LinearFilter;
                     resolve(texture);
                 },
-                (progress) => {
+                (progress: any) => {
                     console.log('Loading progress:', (progress.loaded / progress.total * 100) + '%');
                 },
-                (err) => {
+                (err: any) => {
                     console.error('Error loading path texture:', err);
                     reject(err);
                 }
@@ -82,7 +82,7 @@ class PathIndicatorSystem {
         this.animationFrameId = requestAnimationFrame(() => this.animate());
     }
 
-    static createPathIndicator(hex, direction = 0) {
+    static createPathIndicator(hex: any, direction: number = 0) {
         console.log('Creating path indicator for hex:', hex.userData);
 
         const pathIndicators = group.getObjectByName("pathIndicators") || new THREE.Group();
@@ -136,7 +136,7 @@ class PathIndicatorSystem {
         this.pathIndicators = [];
     }
 
-    static showPath(path, unit) {
+    static showPath(path: any[], unit: any) {
 
         // Clear any existing path indicators
         this.clearPathIndicators();

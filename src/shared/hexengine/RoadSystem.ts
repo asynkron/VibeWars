@@ -25,7 +25,7 @@ class RoadSystem {
             const loader = new THREE.TextureLoader();
             loader.load(
                 texturePath,
-                (texture) => {
+                (texture: any) => {
                     // Set texture filtering to nearest-neighbor for crisp edges
                     texture.magFilter = THREE.NearestFilter;
                     texture.minFilter = THREE.NearestFilter;
@@ -33,7 +33,7 @@ class RoadSystem {
                     resolve(texture);
                 },
                 undefined,
-                (err) => reject(err)
+                (err: any) => reject(err)
             );
         });
     }
@@ -42,7 +42,7 @@ class RoadSystem {
         return this.roadTextures['assets/textures/road.png'];
     }
 
-    static generateRoad(startQ, startR, endQ, endR) {
+    static generateRoad(startQ: number, startR: number, endQ: number, endR: number): boolean {
         // Create a temporary unit using the Droid type
         const roadUnit = {
             type: 'Road',
@@ -64,7 +64,7 @@ class RoadSystem {
         }
 
         // Mark each tile in the path as having a road
-        path.forEach(hex => {
+        path.forEach((hex: any) => {
             const tile = gameState.map.getTile(hex.userData.q, hex.userData.r);
             if (tile) {
                 tile.hasRoad = true;
@@ -77,11 +77,11 @@ class RoadSystem {
         return true;
     }
 
-    static getRoadCost(terrainType) {
-        return this.terrainCosts[terrainType] || Infinity;
+    static getRoadCost(terrainType: string): number {
+        return (this.terrainCosts as Record<string, number>)[terrainType] || Infinity;
     }
 
-    static createRoad(hex) {
+    static createRoad(hex: any) {
 
         const roads = group.getObjectByName("roads") || new THREE.Group();
         roads.name = "roads";
@@ -149,7 +149,7 @@ class RoadSystem {
         return roadGroup;
     }
 
-    static removeRoad(road) {
+    static removeRoad(road: any) {
         const index = this.roads.indexOf(road);
         if (index > -1) {
             this.roads.splice(index, 1);
@@ -162,16 +162,16 @@ class RoadSystem {
         }
     }
 
-    static removeRoadsAt(q, r) {
+    static removeRoadsAt(q: number, r: number) {
         // Find all roads at the given coordinates
-        const roadsToRemove = this.roads.filter(road => {
+        const roadsToRemove = this.roads.filter((road: any) => {
             const roadPos = road.position;
             const hexPos = GridSystem.getWorldCoordinates(q, r);
             return roadPos.distanceTo(hexPos) < 0.1; // Small threshold for position comparison
         });
 
         // Remove each road found
-        roadsToRemove.forEach(road => this.removeRoad(road));
+        roadsToRemove.forEach((road: any) => this.removeRoad(road));
     }
 }
 

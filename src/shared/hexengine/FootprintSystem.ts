@@ -19,17 +19,17 @@ class FootprintSystem {
         });
 
         // Load each unique texture
-        const loadPromises = Array.from(texturePaths).map(texturePath => {
+        const loadPromises = Array.from(texturePaths).map((texturePath: any) => {
             return new Promise((resolve, reject) => {
                 const loader = new THREE.TextureLoader();
                 loader.load(
                     texturePath,
-                    (texture) => {
+                    (texture: any) => {
                         this.trackTextures[texturePath] = texture;
                         resolve(texture);
                     },
                     undefined,
-                    (err) => reject(err)
+                    (err: any) => reject(err)
                 );
             });
         });
@@ -39,12 +39,12 @@ class FootprintSystem {
         console.log('All footprint textures loaded:', Object.keys(this.trackTextures));
     }
 
-    static getFootprintTexture(unitType) {
-        const texturePath = UnitSystem.unitTypes[unitType]?.footprintTexture;
+    static getFootprintTexture(unitType: string) {
+        const texturePath = (UnitSystem.unitTypes as any)[unitType]?.footprintTexture;
         return texturePath ? this.trackTextures[texturePath] : null;
     }
 
-    static createFootprint(hex, direction = 0, unitType = null) {
+    static createFootprint(hex: any, direction: number = 0, unitType: string | null = null) {
         console.log('Creating footprint for hex:', hex.userData);
 
         // Early exit if the tile has a road
@@ -106,7 +106,7 @@ class FootprintSystem {
         return footprintGroup;
     }
 
-    static removeFootprint(footprint) {
+    static removeFootprint(footprint: any) {
         const index = this.footprints.indexOf(footprint);
         if (index > -1) {
             this.footprints.splice(index, 1);
@@ -119,16 +119,16 @@ class FootprintSystem {
         }
     }
 
-    static removeFootprintsAt(q, r) {
+    static removeFootprintsAt(q: number, r: number) {
         // Find all footprints at the given coordinates
-        const footprintsToRemove = this.footprints.filter(footprint => {
+        const footprintsToRemove = this.footprints.filter((footprint: any) => {
             const footprintPos = footprint.position;
             const hexPos = GridSystem.getWorldCoordinates(q, r);
             return footprintPos.distanceTo(hexPos) < 0.1; // Small threshold for position comparison
         });
 
         // Remove each footprint found
-        footprintsToRemove.forEach(footprint => this.removeFootprint(footprint));
+        footprintsToRemove.forEach((footprint: any) => this.removeFootprint(footprint));
     }
 
     static update() {
@@ -143,7 +143,7 @@ class FootprintSystem {
             const opacity = (currentTurns / maxTurns) * 0.4; // Start at 0.4 opacity
 
             // Update opacity for all meshes in the footprint group
-            footprint.traverse((child) => {
+            footprint.traverse((child: any) => {
                 if (child.isMesh) {
                     child.material.opacity = opacity;
                 }
