@@ -1,5 +1,6 @@
 // GameState.js - Manages the overall game state
 import { UnitSystem } from '../shared/hexengine/UnitSystem';
+import { GameMap } from '../shared/hexengine/MapSystem';
 
 class GameState {
     map: any;

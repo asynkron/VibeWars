@@ -38,8 +38,6 @@ declare const CRATER_COLOR: any;
 // shared/hexengine/*.js
 declare const HEX_ENGINE: any;
 declare const HexCoord: any;
-declare const Tile: any;
-declare const GameMap: any;
 declare const TerrainSystem: any;
 declare const hexGrid: any;
 

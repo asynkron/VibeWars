@@ -1,5 +1,11 @@
 // Shared map generator building on the Battle Isle terrain rules.
 class Tile {
+  height: any;
+  type: any;
+  color: any;
+  hasRoad: boolean;
+  moveCost: any;
+
   constructor(height, type, color) {
     this.height = height;
     this.type = type;
@@ -10,6 +16,10 @@ class Tile {
 }
 
 class GameMap {
+  rows: number;
+  cols: number;
+  tiles: any[];
+
   constructor(rows = MAP_CONFIG.ROWS, cols = MAP_CONFIG.COLS) {
     this.rows = rows;
     this.cols = cols;
@@ -59,3 +69,5 @@ if (typeof window !== 'undefined') {
   window.Tile = Tile;
   window.GameMap = GameMap;
 }
+
+export { Tile, GameMap };
