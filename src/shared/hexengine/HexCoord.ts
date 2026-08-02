@@ -1,6 +1,7 @@
 // Shared axial hex coordinate helper.
 import { GridSystem } from './GridSystem';
 import { UnitSystem } from './UnitSystem';
+import { MAP_CONFIG } from '../../constants';
 
 class HexCoord {
   q: any;

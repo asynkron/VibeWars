@@ -9,6 +9,7 @@ import { ModelSystem } from './ModelSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
+import { players, HIGHLIGHT_COLORS } from '../../constants';
 
 class UnitSystem {
     static unitTypes = {

@@ -4,6 +4,7 @@ import { VisualizationSystem } from './VisualizationSystem';
 import { PathfindingSystem } from './PathfindingSystem';
 import { UnitSystem } from './UnitSystem';
 import { GridSystem } from './GridSystem';
+import { VISUAL_OFFSETS } from '../../constants';
 
 class RoadSystem {
     static roads: any[] = [];
@@ -108,7 +109,7 @@ class RoadSystem {
                     hex,
                     this.getRoadTexture(),
                     {
-                        heightOffset: VISUAL_OFFSETS.ROAD_OFFSET,
+                        heightOffset: (VISUAL_OFFSETS as any).ROAD_OFFSET, // pre-existing: never defined, always undefined
                         color: '#ffffff',
                         opacity: 1.0,
                         renderOrder: 0,  // Same as terrain

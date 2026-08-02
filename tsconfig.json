@@ -14,9 +14,12 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true
   },
-  // noImplicitAny is intentionally off during the file-by-file JS->TS migration
-  // (see src/global.d.ts for the ambient `any` bridges to not-yet-converted
-  // classic scripts). Re-enable it once every file has real types.
+  // All 27 files are now real ES modules (see git log for the increment-by-
+  // increment conversion). noImplicitAny is still off because most function
+  // params/fields are typed `any` rather than given real types -- flipping
+  // it to true surfaces ~459 implicit-any errors across the codebase. That's
+  // the scope of the next phase: tightening `any` to real types file by file,
+  // same incremental approach as the JS->TS conversion itself.
   "include": ["**/*.ts", "**/*.js"],
   "exclude": ["node_modules", "dist"]
 }

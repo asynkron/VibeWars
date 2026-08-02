@@ -1,5 +1,6 @@
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
+import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
 
 // Scene Objects
 const scene = new THREE.Scene();

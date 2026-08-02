@@ -7,6 +7,7 @@ import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
 import { addColorVariation, getVertexOffsets } from './utils';
+import { MAP_CONFIG, WATER_FOAM_COLOR, CRATER_COLOR } from '../../constants';
 
 class GridSystem {
     static hexGrid: any[] = [];

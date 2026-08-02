@@ -4,6 +4,7 @@ import { VisualizationSystem } from './VisualizationSystem';
 import { UnitSystem } from './UnitSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
+import { VISUAL_OFFSETS } from '../../constants';
 
 class PathIndicatorSystem {
     static pathIndicators: any[] = [];

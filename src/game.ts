@@ -19,6 +19,7 @@ import { GridSystem } from './shared/hexengine/GridSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
+import { MAP_CONFIG } from './constants';
 
 // Game Data
 let selectedUnit: any = null;

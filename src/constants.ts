@@ -77,3 +77,8 @@ if (typeof window !== 'undefined') {
 }
 
 console.log('constants.js loaded');
+
+export {
+    MAP_CONFIG, TERRAIN_CONFIG, players, HIGHLIGHT_COLORS, VISUAL_COLORS,
+    VISUAL_OFFSETS, DEBUG_SETTINGS, WATER_FOAM_COLOR, CRATER_COLOR,
+};

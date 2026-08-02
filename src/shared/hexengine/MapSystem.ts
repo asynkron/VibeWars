@@ -1,6 +1,7 @@
 // Shared map generator building on the Battle Isle terrain rules.
 import { TerrainSystem } from './TerrainSystem';
 import { perlinNoise } from './perlinNoise';
+import { MAP_CONFIG, TERRAIN_CONFIG } from '../../constants';
 class Tile {
   height: any;
   type: any;

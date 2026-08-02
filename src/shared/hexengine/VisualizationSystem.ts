@@ -5,6 +5,7 @@ import { AudioSystem } from './AudioSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
+import { MAP_CONFIG, HIGHLIGHT_COLORS, VISUAL_OFFSETS } from '../../constants';
 
 /*
 Render Order Hierarchy (from top to bottom):
