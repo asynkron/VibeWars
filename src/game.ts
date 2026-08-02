@@ -1,6 +1,11 @@
 // game.js
 console.log('game.js starting');
 
+// Side-effect only: sets window.HEX_ENGINE from window.HEX_ENGINE_OPTIONS
+// (see index.html's inline script). GridSystem.getOption()/HexCoord read it
+// at runtime, so it must run before initGame(), but nothing imports its
+// exports (it has none) -- hence the bare import.
+import './shared/hexengine/options';
 import {
     scene, camera, renderer, group, mapWidth, mapHeight,
     initRenderer, setupCamera, setCameraPosition, updateCameraPosition,

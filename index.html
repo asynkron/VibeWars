@@ -76,7 +76,6 @@
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineMaterial.js"></script>
-    <script type="module" src="/src/constants.ts"></script>
     <script>
         window.HEX_ENGINE_OPTIONS = {
             loadModels: true,
@@ -85,32 +84,9 @@
             enableRoads: true,
         };
     </script>
-    <script type="module" src="/src/shared/hexengine/options.ts"></script>
-    <script type="module" src="/src/shared/hexengine/perlinNoise.ts"></script>
-    <script type="module" src="/src/shared/hexengine/utils.ts"></script>
-    <script type="module" src="/src/shared/hexengine/TerrainSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/HexCoord.ts"></script>
-    <script type="module" src="/src/shared/hexengine/MapSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/GridSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/ModelSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/AudioSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/UnitSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/PathfindingSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/FootprintSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/PathIndicatorSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/VisualizationSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/RoadSystem.ts"></script>
-    <script type="module" src="/src/shared/hexengine/ScoringSystem.ts"></script>
-    <script type="module" src="/src/systems/GameState.ts"></script>
-    <script type="module" src="/src/systems/ai/commands/Command.ts"></script>
-    <script type="module" src="/src/systems/ai/commands/MoveRandomCommand.ts"></script>
-    <script type="module" src="/src/systems/ai/commands/AttackRandomCommand.ts"></script>
-    <script type="module" src="/src/systems/ai/commands/MoveTowardsEnemyCommand.ts"></script>
-    <script type="module" src="/src/systems/ai/commands/MoveAwayFromEnemyCommand.ts"></script>
-    <script type="module" src="/src/systems/ai/commands/DoNothingCommand.ts"></script>
-    <script type="module" src="/src/shared/hexengine/ai/AISystem.ts"></script>
-    <script type="module" src="/src/render.ts"></script>
-    <script type="module" src="/src/shared/hexengine/SkyboxSystem.ts"></script>
+    <!-- Single ESM entry point -- game.ts's import graph pulls in every
+         other module (constants, options, all hexengine systems, render,
+         etc.), so they no longer need their own <script type="module"> tags. -->
     <script type="module" src="/src/game.ts"></script>
 </body>
 

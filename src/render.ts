@@ -137,9 +137,6 @@ function updateCameraZoom(matrices: CameraMatrices) {
 
 // Minimap Setup
 function setupMinimap(mapCenterX: number, mapCenterZ: number) {
-    const mapWidth = MAP_CONFIG.COLS * MAP_CONFIG.HEX_RADIUS * 1.5;  // 75
-    const mapHeight = MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3);  // ~86.6
-
     const miniMapCamera = new THREE.OrthographicCamera(
         -mapWidth / 2, mapWidth / 2,    // x: -37.5 to 37.5
         mapHeight / 2, -mapHeight / 2,  // z: 43.3 to -43.3
