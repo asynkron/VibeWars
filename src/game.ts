@@ -446,6 +446,12 @@ async function initGame() {
     // Initialize units using gameState
     gameState.initializeUnits();
 
+    // Full resync: UnitSystem.setPosition() updates the own-unit markers as
+    // each unit is created, but GameState.initializeUnits() only pushes a
+    // unit into gameState.units *after* creating it, so the very last unit
+    // created is missing from that list during its own update -- this catches it.
+    VisualizationSystem.updateOwnUnitMarkers(gameState.units, 0);
+
     // Update decorator transparency for all hexes
     GridSystem.updateAllDecoratorTransparency();
 

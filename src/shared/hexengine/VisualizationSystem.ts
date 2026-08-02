@@ -156,9 +156,35 @@ class VisualizationSystem {
         }
     }
 
-    static highlightHex(hex: any, color: number = HIGHLIGHT_COLORS.MOVE_RANGE, showOutline: boolean = false) {
-        const highlights = group.getObjectByName("highlights") || new THREE.Group();
-        highlights.name = "highlights";
+    // Ground-tile markers for the player's own units, kept separate from
+    // "highlights" (move/attack range, cursor hover) so the frequent
+    // clearHighlights() calls elsewhere don't wipe them. Flying units
+    // (helicopters/jets) render well above their actual hex due to
+    // flightAltitude, and the camera's angle then visually shifts them away
+    // from the tile they're really parked on -- these markers show which
+    // ground tile to click.
+    static clearOwnUnitMarkers() {
+        const markers = group.getObjectByName("ownUnitMarkers");
+        if (markers) {
+            group.remove(markers);
+        }
+    }
+
+    static updateOwnUnitMarkers(units: any[], playerIndex: number) {
+        this.clearOwnUnitMarkers();
+        units
+            .filter((unit) => unit.playerIndex === playerIndex)
+            .forEach((unit) => {
+                const hex = HexCoord.findHex(unit.q, unit.r);
+                if (hex) {
+                    this.highlightHex(hex, HIGHLIGHT_COLORS.OWN_UNIT, true, "ownUnitMarkers");
+                }
+            });
+    }
+
+    static highlightHex(hex: any, color: number = HIGHLIGHT_COLORS.MOVE_RANGE, showOutline: boolean = false, groupName: string = "highlights") {
+        const highlights = group.getObjectByName(groupName) || new THREE.Group();
+        highlights.name = groupName;
 
         // Create geometry using the shared helper
         const highlightGeometry = this.createHexTopGeometry(hex, VISUAL_OFFSETS.HIGHLIGHT_OFFSET);
@@ -240,8 +266,8 @@ class VisualizationSystem {
 
         highlights.add(highlightGroup);
 
-        // Check if highlights group needs to be added to main group
-        if (!group.getObjectByName("highlights")) {
+        // Check if the group needs to be added to main group
+        if (!group.getObjectByName(groupName)) {
             group.add(highlights);
         }
 

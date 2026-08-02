@@ -35,7 +35,8 @@ const HIGHLIGHT_COLORS = {
     SELECTED: 0x00FF00,     // Green for selected unit
     MOVE_RANGE: 0xFAFFA0,   // Goldenrod for move range
     ATTACK_RANGE: 0x8B0000, // Dark red for attack range
-    CANT_ATTACK: 0x808080   // Gray for can't attack
+    CANT_ATTACK: 0x808080,  // Gray for can't attack
+    OWN_UNIT: 0x40C4FF      // Cyan outline marking the ground tile under each of the player's own units
 };
 
 // Visual effect colors

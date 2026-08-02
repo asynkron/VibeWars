@@ -688,6 +688,12 @@ class UnitSystem {
             FootprintSystem.createFootprint(oldHex, rotation, unit.userData.type);
             // Create footprint at the new position
             FootprintSystem.createFootprint(hex, rotation, unit.userData.type);
+
+            // Keep the "which ground tile is my unit on" markers in sync --
+            // see VisualizationSystem.updateOwnUnitMarkers.
+            if (unit.userData.playerIndex === 0) {
+                VisualizationSystem.updateOwnUnitMarkers(getGameState().units, 0);
+            }
         }
     }
 
@@ -1138,6 +1144,9 @@ class UnitSystem {
 
         // Show death effect at unit's last position
         VisualizationSystem.showDeathEffect(unit.visualUnit.position);
+
+        // Keep the own-unit ground markers in sync now that this unit is gone
+        VisualizationSystem.updateOwnUnitMarkers(getGameState().units, 0);
     }
 }
 
