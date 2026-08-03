@@ -51,7 +51,7 @@ describe('resolveAttack: projectile/laser', () => {
 
 describe('resolveAttack: rocketBarrage', () => {
     it('splashes every unit on target + neighbor hexes, friendly fire included', () => {
-        // Kestrel uses rocketBarrage, expected damage (4+6)/2 = 5, splash floor(2.5) = 2.
+        // Kestrel uses rocketBarrage, expected damage (3+5)/2 = 4, splash floor(4*0.25) = 1.
         const defenderPos = { q: 2, r: 2 };
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const farAway = { q: 5, r: 5 };
@@ -64,8 +64,8 @@ describe('resolveAttack: rocketBarrage', () => {
         const resolved = resolveAttack(state, 0, 1, 7)!;
 
         const byIndex = new Map(resolved.hits.map((h) => [h.unitIndex, h.damage]));
-        expect(byIndex.get(1)).toBe(5);   // primary x1
-        expect(byIndex.get(2)).toBe(2);   // splash floor(5*0.5) -- friendly fire
+        expect(byIndex.get(1)).toBe(4);   // primary x1
+        expect(byIndex.get(2)).toBe(1);   // splash floor(4*0.25) -- friendly fire
         expect(byIndex.has(3)).toBe(false);
         expect(byIndex.has(0)).toBe(false); // attacker far away, not hit
 
@@ -92,6 +92,30 @@ describe('resolveAttack: rocketBarrage', () => {
     });
 });
 
+describe('resolveAttack: rocketVolley (attack helicopter)', () => {
+    it('several small hits on the SAME target, summing to the single-shot total', () => {
+        // Nightjar: expected (4+6)/2 = 5 vs neutral Pike -> hits [2,1,1,1].
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const state = makeState([
+            makeUnit({ type: 'Nightjar', q: neighbor.q, r: neighbor.r, playerIndex: 1 }),
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 0, hp: 4, maxHp: 4 }),
+        ]);
+        const resolved = resolveAttack(state, 0, 1, 3)!;
+
+        expect(resolved.hits.length).toBeGreaterThan(1);
+        expect(resolved.hits.every((h) => h.unitIndex === 1)).toBe(true);
+        expect(resolved.hits.reduce((sum, h) => sum + h.damage, 0)).toBe(5);
+
+        // Visually a flurry, but every rocket flies at the target hex and
+        // none of them damages terrain.
+        expect(resolved.impacts.length).toBeGreaterThan(0);
+        for (const impact of resolved.impacts) {
+            expect([impact.q, impact.r]).toEqual([2, 2]);
+            expect(impact.craterDelta).toBe(0);
+        }
+    });
+});
+
 describe('class counter triangle (aa > air > tank > aa)', () => {
     const neighborOf = (q: number, r: number) => HexCoord.getNeighbors(q, r)[0];
 
@@ -102,7 +126,9 @@ describe('class counter triangle (aa > air > tank > aa)', () => {
             makeUnit({ type: defenderType, q: n.q, r: n.r, playerIndex: 0 }),
         ]);
         const resolved = resolveAttack(state, 0, 1, 1)!;
-        return resolved.hits.find((h) => h.unitIndex === 1)!.damage;
+        // Sum, not find: a rocketVolley (Nightjar) splits the total into
+        // several small hits on the same defender.
+        return resolved.hits.filter((h) => h.unitIndex === 1).reduce((sum, h) => sum + h.damage, 0);
     }
 
     it('AA deals double to air, half to tanks', () => {

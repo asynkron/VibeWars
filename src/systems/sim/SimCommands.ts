@@ -132,7 +132,18 @@ export function applyGene(state: SimState, gene: Gene): boolean {
                 }
             }
             for (const impact of resolved.impacts) {
+                if (impact.craterDelta === 0) continue; // volley rockets: visual only
+                const before = state.getTile(impact.q, impact.r);
                 state.record({ type: 'terrainModified', q: impact.q, r: impact.r, delta: impact.craterDelta });
+                const after = state.getTile(impact.q, impact.r);
+                // Drowning: a tile that just sank into WATER takes any
+                // land unit standing on it down with it. Plums.
+                if (before && before.type !== 'WATER' && after && after.type === 'WATER') {
+                    const standing = state.getUnitAt(impact.q, impact.r);
+                    if (standing && UnitSystem.unitTypesRecord[standing[1].type].terrainCosts.WATER == null) {
+                        state.record({ type: 'unitDied', unitIndex: standing[0] });
+                    }
+                }
             }
             return true;
         }

@@ -63,7 +63,7 @@ class BuildingSystem {
             null,
             'teamCamo'
         );
-        visual.position.set(hex.userData.x, TerrainSystem.getHeight(hex), hex.userData.z);
+        visual.position.set(hex.userData.x, TerrainSystem.getPlacementHeight(hex), hex.userData.z);
         hex.userData.decorator = visual;
         hex.add(visual);
         building.visual = visual;

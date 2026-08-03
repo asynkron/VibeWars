@@ -158,6 +158,32 @@ describe('movement genes', () => {
     });
 });
 
+describe('drowning', () => {
+    it('a land unit on a tile that sinks into water dies (plums)', () => {
+        // Custom map: the target tile is one crater away from the water
+        // line, and a land unit stands on it.
+        const lowTile = { height: 0.5, type: 'GRASS', hasRoad: false, moveCost: 1 };
+        const state = SimState.snapshot({
+            map: { cols: 8, rows: 8, getTile: (q: number, r: number) => (q === 2 && r === 2 ? lowTile : grass()) },
+            units: [
+                makeUnit({ type: 'Kestrel', q: 5, r: 2, playerIndex: 1, minRange: 2, maxRange: 3 }),
+                // hp far above any splash damage: only drowning can kill it.
+                makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 0, hp: 100, maxHp: 100 }),
+            ],
+        });
+        // Fire barrages until a crater lands on the target tile and sinks
+        // it (placement is seeded per gene, so scan a few seeds).
+        for (let seed = 1; seed < 40 && state.getTile(2, 2)!.type !== 'WATER'; seed++) {
+            state.record({ type: 'turnStarted', playerIndex: 1 });
+            applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed });
+        }
+        expect(state.getTile(2, 2)!.type).toBe('WATER');
+        // The Pike went down with the tile despite its massive hp.
+        expect(state.getUnit(1)).toBeNull();
+        expect(state.events.some((e) => e.type === 'unitDied' && e.unitIndex === 1)).toBe(true);
+    });
+});
+
 describe('building capture in the sim', () => {
     const factoryAt = (q: number, r: number, patch: any = {}) =>
         ({ type: 'factory', q, r, ownerIndex: null, hiddenUnitType: 'Sabre', ...patch });

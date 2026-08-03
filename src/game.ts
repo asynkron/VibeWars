@@ -591,6 +591,13 @@ window.onload = () => {
     showStartMenu();
 };
 
+// Dev-only debug handle: the codebase deliberately keeps modules off
+// window, but probing live state from the console (unit heights, tiles,
+// pathfinding) needs an entry point. Stripped from production builds.
+if ((import.meta as any).env?.DEV) {
+    (window as any).__vibewars = { getGameState, GridSystem, TerrainSystem, UnitSystem, HexCoord };
+}
+
 function createRoads(gameState: GameState) {
     // Authored maps bake their roads as tile.hasRoad and set randomRoads
     // to 0; the random wilderness sprinkles this many on top.

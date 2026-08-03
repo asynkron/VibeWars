@@ -10,12 +10,16 @@
 // showRocketBarrageEffect exactly:
 //   - projectile/laser: single hit on the defender.
 //   - rocketBarrage: damage hits EVERY unit on the defender's hex (x1) and
-//     on each in-bounds neighbor hex (x0.5, floored) -- friendly fire
-//     included -- independent of where the rockets visually land. Each
+//     on each in-bounds neighbor hex (x SPLASH_FACTOR, floored) -- friendly
+//     fire included -- independent of where the rockets visually land. Each
 //     victim's damage is further scaled by the class counter triangle
 //     (UnitSystem.getClassModifier: aa>air, tank>aa, air>tank). Craters:
 //     6 rockets each pick a landing hex uniformly among
-//     [defender hex, ...in-bounds neighbors] and lower it by 0.5.
+//     [defender hex, ...in-bounds neighbors] and lower it by CRATER_DELTA.
+//   - rocketVolley (attack helicopters): visually a rocket flurry like the
+//     barrage, but every rocket goes at the TARGET hex -- several small
+//     hits on the same unit summing to the usual expected damage, no
+//     splash to neighbors, no terrain damage (craterDelta 0).
 //   - any other attackEffect deals no damage (mirrors the live if/else
 //     chain, which silently does nothing for unknown effects).
 //
@@ -45,7 +49,12 @@ export interface ResolvedAttack {
 }
 
 export const ROCKET_COUNT = 6; // showRocketBarrageEffect's projectileCount default
-export const CRATER_DELTA = -0.5; // its craterDepth
+// Barrage tuning (nerfed from -0.5 / 0.5: one barrage no longer deletes
+// whole neighborhoods or sinks terrain in a single strike).
+export const CRATER_DELTA = -0.25;
+export const SPLASH_FACTOR = 0.25;
+// Helicopter volley: this many small rockets, all at the target hex.
+export const VOLLEY_COUNT = 4;
 
 // Small fast deterministic PRNG (mulberry32).
 export function mulberry32(seed: number): () => number {
@@ -109,7 +118,7 @@ export function resolveAttack(
             const [unitIndex, victim] = found;
             const isPrimary = hex.q === defender.q && hex.r === defender.r;
             const classModifier = UnitSystem.getClassModifier(attacker.type, victim.type);
-            hits.push({ unitIndex, damage: Math.floor(damage * (isPrimary ? 1 : 0.5) * classModifier) });
+            hits.push({ unitIndex, damage: Math.floor(damage * (isPrimary ? 1 : SPLASH_FACTOR) * classModifier) });
         }
 
         // Craters: each rocket lands on a seeded-random splash hex.
@@ -117,6 +126,19 @@ export function resolveAttack(
         for (let i = 0; i < ROCKET_COUNT; i++) {
             const target = splashHexes[Math.floor(rng() * splashHexes.length)];
             impacts.push({ q: target.q, r: target.r, craterDelta: CRATER_DELTA });
+        }
+    } else if (stats.attackEffect === 'rocketVolley') {
+        // Several small rockets, all at the same target: the per-rocket
+        // damages sum exactly to the usual single-shot total.
+        const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);
+        const total = Math.floor(damage * classModifier);
+        const base = Math.floor(total / VOLLEY_COUNT);
+        let remainder = total - base * VOLLEY_COUNT;
+        for (let i = 0; i < VOLLEY_COUNT; i++) {
+            const rocketDamage = base + (remainder-- > 0 ? 1 : 0);
+            if (rocketDamage > 0) hits.push({ unitIndex: defenderIndex, damage: rocketDamage });
+            // Every rocket flies at the target hex; no terrain damage.
+            impacts.push({ q: defender.q, r: defender.r, craterDelta: 0 });
         }
     }
     // Any other attackEffect: no hits, no impacts (mirrors the live chain).

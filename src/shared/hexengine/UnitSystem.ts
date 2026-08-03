@@ -120,10 +120,12 @@ class UnitSystem {
             move: 1,
             minRange: 2,
             maxRange: 3,
-            minDamage: 4,
-            maxDamage: 6,
-            attack: 5,
-            model: "assets/units/kestrel-missile-carrier.glb",  // new-models test swap (was tank_3_green.fbx); fits rocketBarrage thematically
+            // Nerfed from 4-6: with full-strength splash + craters the
+            // barrage dominated every match (and sank half the map).
+            minDamage: 3,
+            maxDamage: 5,
+            attack: 4,
+            model: "assets/units/kestrel-bombard-artillery.glb",  // bombard-artillery from new-models; same footprint as the old carrier
             scale: 0.16,
             rotation: 0,
             attackEffect: 'rocketBarrage',  // Changed from 'projectile' to 'rocketBarrage'
@@ -346,7 +348,10 @@ class UnitSystem {
             scale: 0.11,
             rotation: 0,
             flightAltitude: 1.2,  // hovers above terrain/units
-            attackEffect: 'projectile',  // rockets, but single-target -- barrage is artillery-only
+            // Rocket flurry like the artillery barrage VISUALLY, but every
+            // rocket goes at the target hex: several small hits on one
+            // unit, no splash, no craters.
+            attackEffect: 'rocketVolley',
             footprintTexture: null,  // Flies -- leaves no tracks
             terrainCosts: {
                 // Flies over everything at a uniform cost, unlike ground units
@@ -645,7 +650,7 @@ class UnitSystem {
         // this unit's flightAltitude -- see move()'s startPos.y/endPos.y.
         const height = customPosition
             ? customPosition.y
-            : TerrainSystem.getHeight(hex) + (unit.userData.flightAltitude || 0);
+            : TerrainSystem.getPlacementHeight(hex) + (unit.userData.flightAltitude || 0);
 
         // Transform position in world space
         const finalPosition = new THREE.Vector3(
@@ -794,8 +799,8 @@ class UnitSystem {
                 // flightAltitude, so mid-flight interpolation (below) doesn't
                 // dip back down to ground level for helicopters/jets.
                 const flightAltitude = unit.visualUnit.userData.flightAltitude || 0;
-                startPos.y = TerrainSystem.getHeight(startHex) + flightAltitude;
-                endPos.y = TerrainSystem.getHeight(hex) + flightAltitude;
+                startPos.y = TerrainSystem.getPlacementHeight(startHex) + flightAltitude;
+                endPos.y = TerrainSystem.getPlacementHeight(hex) + flightAltitude;
 
                 // Create a temporary position vector for interpolation
                 const currentPos = new THREE.Vector3();
@@ -1078,9 +1083,16 @@ class UnitSystem {
             VisualizationSystem.showAttackEffect(attackerHex, defenderHex);
             await new Promise(resolve => setTimeout(resolve, 500));
             this.applyResolvedOutcome(outcome);
-        } else if (attackerStats.attackEffect === 'rocketBarrage') {
-            // Rockets fly to the exact resolved impact hexes.
-            VisualizationSystem.showRocketBarrageEffect(attackerHex, defenderHex, { impacts: outcome.impacts });
+        } else if (attackerStats.attackEffect === 'rocketBarrage' || attackerStats.attackEffect === 'rocketVolley') {
+            // Rockets fly to the exact resolved impact hexes (a volley's
+            // impacts all point at the defender's hex). A replayed volley
+            // arrives without impacts -- the sim drops craterDelta-0
+            // events -- so rebuild the purely-visual ones here.
+            let vfxImpacts = outcome.impacts;
+            if (attackerStats.attackEffect === 'rocketVolley' && vfxImpacts.length === 0) {
+                vfxImpacts = Array.from({ length: 4 }, () => ({ q: defender.q, r: defender.r, craterDelta: 0 }));
+            }
+            VisualizationSystem.showRocketBarrageEffect(attackerHex, defenderHex, { impacts: vfxImpacts });
             // Wait for all rockets to finish
             await new Promise(resolve => setTimeout(resolve, 1000));
             this.applyResolvedOutcome(outcome);
@@ -1125,10 +1137,23 @@ class UnitSystem {
             }
 
             const rocketCount = 6;
-            const craterDelta = -0.5;
+            const craterDelta = -0.25; // keep in sync with sim CRATER_DELTA
             for (let i = 0; i < rocketCount; i++) {
                 const target = splashHexes[Math.floor(Math.random() * splashHexes.length)];
                 impacts.push({ q: target.q, r: target.r, craterDelta });
+            }
+        } else if (attackerStats.attackEffect === 'rocketVolley') {
+            // Several small rockets, all at the target hex -- per-rocket
+            // damages sum to the single-shot total; no splash, no craters.
+            const classModifier = this.getClassModifier(attacker.type, defender.type);
+            const total = Math.floor(damage * classModifier);
+            const volleyCount = 4; // keep in sync with sim VOLLEY_COUNT
+            const base = Math.floor(total / volleyCount);
+            let remainder = total - base * volleyCount;
+            for (let i = 0; i < volleyCount; i++) {
+                const rocketDamage = base + (remainder-- > 0 ? 1 : 0);
+                if (rocketDamage > 0) damages.push({ unit: defender, damage: rocketDamage });
+                impacts.push({ q: defender.q, r: defender.r, craterDelta: 0 });
             }
         } else {
             // projectile/laser (and any future single-target effect)
@@ -1154,7 +1179,21 @@ class UnitSystem {
             }
         }
         for (const impact of outcome.impacts) {
+            if (impact.craterDelta === 0) continue; // volley rockets: visual only
+            const tileBefore = getGameState().map.getTile(impact.q, impact.r);
+            const wasLand = tileBefore && tileBefore.type !== 'WATER';
             GridSystem.modifyHexHeight(new HexCoord(impact.q, impact.r), impact.craterDelta);
+            const tileAfter = getGameState().map.getTile(impact.q, impact.r);
+            // Drowning: the tile just sank into water -- any land unit
+            // standing on it goes down with it. Plums. (Mirrors the sim's
+            // rule in SimCommands, so replayed AI turns stay in sync.)
+            if (wasLand && tileAfter && tileAfter.type === 'WATER') {
+                const standing = getGameState().getUnitAt(impact.q, impact.r);
+                if (standing && this.unitTypesRecord[standing.type].terrainCosts.WATER == null) {
+                    VisualizationSystem.showDamageNumber(standing.visualUnit.position.clone(), standing.hp);
+                    this.removeUnit(standing);
+                }
+            }
         }
     }
 

@@ -271,6 +271,17 @@ static terrainTypes = {
         return null;  // No decoration was selected
     }
 
+    // Ground height for PLACING things on a hex (units, buildings).
+    // getHeight() returns the smoothed center vertex, which smoothing can
+    // pull well ABOVE the hex's flat top face (userData.height) when
+    // neighbors are higher -- anything placed there visibly hovers over
+    // the rim the eye judges contact against. Take the LOWER of the two:
+    // feet never float; at worst the center bump clips slightly into the
+    // model's underside, which reads as sitting in the terrain.
+    static getPlacementHeight(hex: any): number {
+        return Math.min(this.getHeight(hex), hex.userData.height);
+    }
+
     static addDecorator(hex: any, decoratorType: string): void {
         if (this.decoratorModels[decoratorType]) {
             const decorator = this.decoratorModels[decoratorType].clone();
