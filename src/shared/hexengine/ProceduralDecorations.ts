@@ -191,6 +191,69 @@ function makeBush(rng: () => number): any {
     return bush;
 }
 
+// Dead tree: a bare, slightly leaning trunk with a couple of stubby
+// branches. Weathered gray-brown, no foliage.
+function makeDeadTree(rng: () => number): any {
+    const tree = new THREE.Group();
+    const trunkH = 0.5 + rng() * 0.4;
+    const trunk = addMesh(tree, new THREE.CylinderGeometry(0.035, 0.06, trunkH, 5), vary(0x6e6257, rng, 0.15), 0, trunkH / 2, 0);
+    trunk.rotation.z = (rng() - 0.5) * 0.25;
+    const branches = 1 + Math.floor(rng() * 3);
+    for (let i = 0; i < branches; i++) {
+        const branchL = 0.16 + rng() * 0.16;
+        const y = trunkH * (0.45 + rng() * 0.45);
+        const branch = addMesh(tree, new THREE.CylinderGeometry(0.015, 0.03, branchL, 4), vary(0x5c5145, rng, 0.15), 0, y, 0);
+        branch.rotation.z = 0.9 + rng() * 0.9;
+        branch.rotation.y = rng() * Math.PI * 2;
+        branch.translateY(branchL / 2);
+    }
+    return tree;
+}
+
+// Fallen log: a horizontal trunk resting on the ground, sometimes with a
+// bit of moss on top.
+function makeLog(rng: () => number): any {
+    const group = new THREE.Group();
+    const length = 0.4 + rng() * 0.3;
+    const radius = 0.055 + rng() * 0.035;
+    const log = addMesh(group, new THREE.CylinderGeometry(radius, radius * 0.9, length, 6), vary(0x5f4a33, rng, 0.18), 0, radius, 0);
+    log.rotation.z = Math.PI / 2;
+    log.rotation.y = rng() * Math.PI;
+    if (rng() < 0.6) {
+        // Moss patch riding on the log.
+        addMesh(
+            group,
+            new THREE.IcosahedronGeometry(radius * 0.9, 0),
+            vary(0x3e6b2f, rng, 0.2),
+            (rng() - 0.5) * length * 0.5,
+            radius * 1.6,
+            0,
+            2
+        );
+    }
+    return group;
+}
+
+// Grass/shrub tuft: a few tiny cones -- undergrowth for mountain feet
+// and forest edges.
+function makeTuft(rng: () => number): any {
+    const tuft = new THREE.Group();
+    const blades = 2 + Math.floor(rng() * 3);
+    for (let i = 0; i < blades; i++) {
+        const h = 0.08 + rng() * 0.1;
+        addMesh(
+            tuft,
+            new THREE.ConeGeometry(0.03 + rng() * 0.025, h, 4),
+            vary(0x5a7d33, rng, 0.25),
+            (rng() - 0.5) * 0.14,
+            h / 2,
+            (rng() - 0.5) * 0.14,
+            2
+        );
+    }
+    return tuft;
+}
+
 // Rock: 1-3 squashed gray dodecahedra.
 function makeRocks(rng: () => number, base: number): any {
     const rocks = new THREE.Group();
@@ -234,9 +297,18 @@ function scatter(rng: () => number, maxRadius: number): { x: number; z: number }
     return { x: Math.cos(angle) * dist, z: Math.sin(angle) * dist };
 }
 
+// Drop a sub-assembly into the tile group at a scattered position.
+function place(group: any, rng: () => number, piece: any, maxRadius: number, spin: boolean = true): void {
+    const { x, z } = scatter(rng, maxRadius);
+    piece.position.set(x, 0, z);
+    if (spin) piece.rotation.y = rng() * Math.PI * 2;
+    group.add(piece);
+}
+
 // Build the decoration group for a tile, or null for none. Deterministic
-// per (q, r): reloads produce the identical map dressing.
-export function createProceduralDecoration(terrainType: string, q: number, r: number): any | null {
+// per (q, r): reloads produce the identical map dressing. `tileHeight`
+// zones the mountains: vegetated foot, bare rocky heights.
+export function createProceduralDecoration(terrainType: string, q: number, r: number, tileHeight: number = 0): any | null {
     const rng = tileRng(q, r);
     const group = new THREE.Group();
 
@@ -245,15 +317,17 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
             // A grove: conifer-heavy mix, always present.
             const trees = 3 + Math.floor(rng() * 3);
             for (let i = 0; i < trees; i++) {
-                const tree = rng() < 0.65 ? makeConifer(rng) : makeDeciduous(rng);
+                // The occasional grove slot is a dead tree instead.
+                const roll = rng();
+                const tree = roll < 0.10 ? makeDeadTree(rng) : roll < 0.68 ? makeConifer(rng) : makeDeciduous(rng);
                 tintIndividual(tree, rng);
-                const { x, z } = scatter(rng, 0.55);
-                tree.position.set(x, 0, z);
-                tree.rotation.y = rng() * Math.PI * 2;
                 const s = 0.8 + rng() * 0.35;
                 tree.scale.set(s, s, s);
-                group.add(tree);
+                place(group, rng, tree, 0.55);
             }
+            // Forest floor litter: a fallen log and/or undergrowth tufts.
+            if (rng() < 0.35) place(group, rng, makeLog(rng), 0.5);
+            if (rng() < 0.4) place(group, rng, makeTuft(rng), 0.6);
             break;
         }
         case 'GRASS': {
@@ -264,18 +338,16 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
                 for (let i = 0; i < bushes; i++) {
                     const bush = makeBush(rng);
                     tintIndividual(bush, rng);
-                    const { x, z } = scatter(rng, 0.5);
-                    bush.position.set(x, 0, z);
-                    group.add(bush);
+                    place(group, rng, bush, 0.5, false);
                 }
             } else if (roll < 0.45) {
                 // A lone deciduous tree.
                 const tree = makeDeciduous(rng);
                 tintIndividual(tree, rng);
-                const { x, z } = scatter(rng, 0.4);
-                tree.position.set(x, 0, z);
-                tree.rotation.y = rng() * Math.PI * 2;
-                group.add(tree);
+                place(group, rng, tree, 0.4);
+            } else if (roll < 0.52) {
+                // A lone dead tree or a fallen log on open ground.
+                place(group, rng, rng() < 0.5 ? makeDeadTree(rng) : makeLog(rng), 0.45);
             } else {
                 return null; // open grassland
             }
@@ -283,24 +355,37 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
         }
         case 'SAND': {
             if (rng() < 0.35) {
-                const rocks = makeRocks(rng, 0xb8a98c);
-                const { x, z } = scatter(rng, 0.45);
-                rocks.position.set(x, 0, z);
-                group.add(rocks);
+                place(group, rng, makeRocks(rng, 0xb8a98c), 0.45, false);
             } else {
                 return null;
             }
             break;
         }
         case 'MOUNTAIN': {
-            if (rng() < 0.5) {
-                const rocks = makeRocks(rng, 0x7d7a74);
-                const { x, z } = scatter(rng, 0.4);
-                rocks.position.set(x, 0, z);
-                group.add(rocks);
-            } else {
-                return null;
+            // The mountain FOOT (low mountain tiles) is alive: undergrowth,
+            // shrubs, and rocks between them. Higher up it's bare rock --
+            // with the rare, hardy little conifer clinging on.
+            const foot = tileHeight < 2.0;
+            if (foot) {
+                if (rng() < 0.55) place(group, rng, makeTuft(rng), 0.5);
+                if (rng() < 0.45) {
+                    const bush = makeBush(rng);
+                    tintIndividual(bush, rng);
+                    place(group, rng, bush, 0.5, false);
+                }
+                if (rng() < 0.4) place(group, rng, makeRocks(rng, 0x7d7a74), 0.4, false);
+            } else if (rng() < 0.5) {
+                place(group, rng, makeRocks(rng, 0x7d7a74), 0.4, false);
             }
+            // Uncommon but possible: a lone small conifer on the mountain.
+            if (rng() < 0.08) {
+                const pine = makeConifer(rng);
+                tintIndividual(pine, rng);
+                const s = 0.45 + rng() * 0.2;
+                pine.scale.set(s, s, s);
+                place(group, rng, pine, 0.35);
+            }
+            if (group.children.length === 0) return null;
             break;
         }
         default:

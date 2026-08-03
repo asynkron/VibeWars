@@ -267,7 +267,7 @@ class GridSystem {
         // mountains), generated deterministically per (q, r) -- replaces
         // the old any-random-OBJ-on-any-tile table.
         if (this.getOption('enableDecorations')) {
-            const decorMesh = createProceduralDecoration(type.toUpperCase(), q, r);
+            const decorMesh = createProceduralDecoration(type.toUpperCase(), q, r, height);
             if (decorMesh) {
                 decorMesh.position.set(x, height, z);
                 hexGroup.userData.decorator = decorMesh;
