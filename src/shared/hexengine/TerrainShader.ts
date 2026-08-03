@@ -20,16 +20,8 @@ import { TerrainSystem } from './TerrainSystem';
 
 const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN']);
 
-const NOISE_GLSL = /* glsl */ `
-    varying vec3 vGroundWorldPos;
-    uniform vec3 uSandColor;
-    uniform vec3 uGrassColor;
-    uniform vec3 uForestColor;
-    uniform vec3 uRockColor;
-    uniform float uPaletteLum;
-    uniform float uSnowStart;
-    uniform float uSnowFull;
-
+// Shared noise toolkit (no declarations of its own).
+const NOISE_GLSL_CORE = /* glsl */ `
     float groundHash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
     }
@@ -103,6 +95,60 @@ const GROUND_FRAGMENT = /* glsl */ `
     }
 `;
 
+// Animated water surface: drifting ripple shimmer across all water, and
+// white lapping foam at the shorelines. The foam MASK comes from the
+// existing vertex colors -- smoothHexTile paints land-adjacent rim
+// vertices with WATER_FOAM_COLOR (higher green than deep water), and the
+// interpolated gradient across each triangle gives a soft shore band the
+// animation plays inside. uTime is driven per frame by
+// GridSystem.animateWater via material.userData.shader.
+const WATER_FRAGMENT = /* glsl */ `
+    {
+        vec2 wp = vGroundWorldPos.xz;
+
+        // Shore foam MASK first, from the raw vertex-color gradient (the
+        // land-adjacent rims are painted a green-heavier foam color) --
+        // sampled BEFORE the ripple modulation so the shimmer can't push
+        // open water over the threshold.
+        float foamMask = smoothstep(0.30, 0.44, diffuseColor.g);
+
+        // Two drifting ripple layers shimmering across the whole surface.
+        float ripple1 = groundNoise(wp * 3.0 + vec2(uTime * 0.35, uTime * 0.22));
+        float ripple2 = groundNoise(wp * 6.5 - vec2(uTime * 0.28, uTime * 0.41));
+        diffuseColor.rgb *= 0.86 + 0.14 * ripple1 + 0.08 * ripple2;
+        // Lapping: the foam edge surges in and out, its rhythm offset
+        // around the shoreline by position + noise so waves break at
+        // different moments along the beach.
+        float lap = sin(uTime * 1.7 + wp.x * 2.3 + wp.y * 1.9 + groundNoise(wp * 4.0) * 5.0) * 0.5 + 0.5;
+        // Broken white caps inside the foam band -- patches of churn, not
+        // a solid blanket.
+        float caps = groundNoise(wp * 11.0 + vec2(uTime * 0.6, -uTime * 0.35));
+        float foam = foamMask * (0.25 + 0.75 * lap) * smoothstep(0.55, 0.85, caps + foamMask * 0.25);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), clamp(foam, 0.0, 0.7));
+    }
+`;
+
+export function applyWaterSurface(material: any): void {
+    material.onBeforeCompile = (shader: any) => {
+        shader.uniforms.uTime = { value: 0 };
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\n varying vec3 vGroundWorldPos;')
+            .replace(
+                '#include <begin_vertex>',
+                '#include <begin_vertex>\n vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;'
+            );
+        shader.fragmentShader = shader.fragmentShader
+            .replace(
+                '#include <common>',
+                '#include <common>\n varying vec3 vGroundWorldPos;\n uniform float uTime;\n' + NOISE_GLSL_CORE
+            )
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + WATER_FRAGMENT);
+        // Expose the shader so animateWater can drive uTime each frame.
+        material.userData.shader = shader;
+    };
+    material.customProgramCacheKey = () => 'water-surface';
+}
+
 // Inject the height-banded procedural ground into a terrain
 // MeshStandardMaterial. `terrainType` is the UPPERCASE terrain key;
 // non-ground types (WATER) are left untouched.
@@ -129,7 +175,13 @@ export function applyProceduralGround(material: any, terrainType: string): void 
             );
 
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\n' + NOISE_GLSL)
+            .replace(
+                '#include <common>',
+                '#include <common>\n varying vec3 vGroundWorldPos;\n' +
+                ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
+                ' uniform vec3 uRockColor;\n uniform float uPaletteLum;\n uniform float uSnowStart;\n' +
+                ' uniform float uSnowFull;\n' + NOISE_GLSL_CORE
+            )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT);
     };
     // All ground materials share one height-banded program (uniforms

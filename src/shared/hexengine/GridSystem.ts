@@ -7,11 +7,12 @@ import { ModelSystem } from './ModelSystem';
 import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
-import { applyProceduralGround } from './TerrainShader';
+import { applyProceduralGround, applyWaterSurface } from './TerrainShader';
 import { createProceduralDecoration } from './ProceduralDecorations';
 import { addColorVariation, getVertexOffsets } from './utils';
 import { MAP_CONFIG, WATER_FOAM_COLOR, CRATER_COLOR } from '../../constants';
 import { getGameState, getGameStateOrNull } from '../../systems/gameStateStore';
+import { selectedMapProvider } from '../../systems/maps/mapRegistry';
 import type { GameUnit } from '../../types';
 
 class GridSystem {
@@ -183,10 +184,13 @@ class GridSystem {
             dithering: false,
             vertexColors: true,
         });
-        // Procedural ground detail (sand grain, grass mottle, forest
-        // floor, rock + snow cap) modulating the vertex colors. WATER and
-        // unknown types are left untouched.
-        applyProceduralGround(material, type.toUpperCase());
+        // Procedural surface detail: height-banded ground texturing for
+        // land, animated ripple + shore foam for water.
+        if (type.toUpperCase() === 'WATER') {
+            applyWaterSurface(material);
+        } else {
+            applyProceduralGround(material, type.toUpperCase());
+        }
         this.materialCache.set(type, material);
         return material;
     }
@@ -410,6 +414,15 @@ class GridSystem {
         const position = geometry.attributes.position;
         const { q, r, height: currentHeight, type } = hexGroup.userData;
 
+        // Building tiles keep their pristine flat-topped hexagonal prism:
+        // no rim smoothing, no vertex jitter. The tile itself IS the
+        // building's plinth -- a solid, straight foundation from the
+        // ground up -- instead of a tilted surface leaving the building
+        // half in the air. (Authored building spawns are static provider
+        // data, so this is known before buildings are initialized.)
+        const buildings = selectedMapProvider().buildings ?? [];
+        if (buildings.some((b) => b.q === q && b.r === r)) return;
+
         // Smooth non-water hexes based on neighbors
         const neighbors = this.getHexNeighbors(q, r);
         const currentCenter = this.getWorldCoordinatesWithHeight(q, r, currentHeight);
@@ -548,6 +561,12 @@ class GridSystem {
     // Animation & Update Helpers
     // ---------------------------
     static animateWater(time: number) {
+        // Drive the water shader's ripple/foam animation (single cached
+        // material shared by all water hexes).
+        const waterMaterial = this.materialCache.get('water');
+        if (waterMaterial?.userData?.shader) {
+            waterMaterial.userData.shader.uniforms.uTime.value = time;
+        }
         this.hexGrid.forEach((hexGroup: any) => {
             if (hexGroup.userData.type !== 'water') return;
             const hexMesh = hexGroup.children.find(
