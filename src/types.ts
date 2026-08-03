@@ -57,6 +57,10 @@ export type UnitClass = 'tank' | 'air' | 'aa' | 'artillery' | 'infantry' | 'nava
 // A single unit type's static config, see UnitSystem.unitTypes.
 export interface UnitTypeConfig {
   unitClass: UnitClass;
+  // Only unit types with canCapture may take control of buildings by
+  // standing on their tile (design rule: infantry only). Consumed by the
+  // upcoming buildings/factory feature.
+  canCapture?: boolean;
   symbol: string;
   name: string;
   maxHp: number;

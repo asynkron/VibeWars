@@ -172,30 +172,35 @@ class UnitSystem {
                 attack: 'rlauncher2'
             }
         },
-        "Droid": {
+        "Pike": {
             symbol: "E",
-            name: "Droid",
+            name: "Pike",
             unitClass: 'infantry' as const,
-            maxHp: 2,
-            hp: 2,
+            canCapture: true,  // the ONLY unit type that can capture buildings
+            maxHp: 4,
+            hp: 4,
             move: 2,
             minRange: 1,
             maxRange: 1,
-            minDamage: 3,
-            maxDamage: 5,
-            attack: 4,
-            model: "assets/droid.obj",
-            scale: 0.3,
-            attackEffect: 'laser',  // laser beam attack
-            footprintTexture: null,  // No footprints for droids
+            minDamage: 2,
+            maxDamage: 4,
+            attack: 3,
+            model: "assets/units/infantry-squad.glb",
+            scale: 0.35,
+            rotation: 0,
+            attackEffect: 'laser',  // squad volley
+            footprintTexture: null,  // No tracks for infantry
             terrainCosts: {
+                // Footsloggers: forests are no obstacle, and they're the
+                // ONLY unit that can cross mountains -- infantry's niche.
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
-                FOREST: 2,
-                MOUNTAIN: null
+                FOREST: 1,
+                MOUNTAIN: 2
             },
-            usePlayerColor: true,  // Use player color for this model
+            usePlayerColor: false,
+            teamColorMaterial: 'teamCamo',  // tint only the model's teamCamo material slot
             sounds: {
                 movement: 'step1',
                 attack: 'laser'

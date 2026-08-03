@@ -26,7 +26,7 @@ describe('scoreState', () => {
     it('rewards kills and dealt damage', () => {
         const state = makeState([
             makeUnit({ playerIndex: 1 }),
-            makeUnit({ type: 'Droid', q: 4, r: 4, playerIndex: 0, hp: 2, maxHp: 2 }),
+            makeUnit({ type: 'Pike', q: 4, r: 4, playerIndex: 0, hp: 2, maxHp: 2 }),
         ]);
         const before = scoreState(state, 1);
         state.record({ type: 'unitAttacked', attackerIndex: 0, defenderIndex: 1, damage: 2 });
@@ -51,7 +51,7 @@ describe('planTurn', () => {
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const snapshot = makeState([
             makeUnit({ playerIndex: 1 }),
-            makeUnit({ type: 'Droid', q: neighbor.q, r: neighbor.r, playerIndex: 0, hp: 2, maxHp: 2 }),
+            makeUnit({ type: 'Pike', q: neighbor.q, r: neighbor.r, playerIndex: 0, hp: 2, maxHp: 2 }),
         ]);
         const result = planTurn(snapshot, 1, { population: 16, rounds: 3, seed: 42 });
 
@@ -66,7 +66,7 @@ describe('planTurn', () => {
         // either moved or attacked, never both).
         const snapshot = makeState([
             makeUnit({ q: 2, r: 2, playerIndex: 1, move: 2, minRange: 1, maxRange: 1 }),
-            makeUnit({ type: 'Droid', q: 4, r: 2, playerIndex: 0, hp: 2, maxHp: 2 }),
+            makeUnit({ type: 'Pike', q: 4, r: 2, playerIndex: 0, hp: 2, maxHp: 2 }),
         ]);
         expect(HexCoord.getDistance(2, 2, 4, 2)).toBe(2);
 

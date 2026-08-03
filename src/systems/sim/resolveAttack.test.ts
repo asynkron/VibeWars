@@ -35,7 +35,7 @@ describe('resolveAttack: projectile/laser', () => {
         // Bulwark = projectile, Droid = laser
         const state = makeState([
             makeUnit({ type: 'Bulwark', q: 1, r: 1, playerIndex: 1 }),
-            makeUnit({ type: 'Droid', q: 2, r: 2, playerIndex: 0, hp: 2, maxHp: 2 }),
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 0, hp: 2, maxHp: 2 }),
         ]);
         const resolved = resolveAttack(state, 0, 1, 42)!;
         expect(resolved.hits).toEqual([{ unitIndex: 1, damage: 5 }]);
@@ -57,7 +57,7 @@ describe('resolveAttack: rocketBarrage', () => {
         const farAway = { q: 5, r: 5 };
         const state = makeState([
             makeUnit({ type: 'Kestrel', q: 0, r: 0, playerIndex: 1 }),                    // attacker
-            makeUnit({ type: 'Droid', ...defenderPos, playerIndex: 0, hp: 2 }),          // primary target
+            makeUnit({ type: 'Pike', ...defenderPos, playerIndex: 0, hp: 2 }),          // primary target
             makeUnit({ type: 'Bulwark', q: neighbor.q, r: neighbor.r, playerIndex: 1 }),   // AI's own unit in splash!
             makeUnit({ type: 'Sabre', ...farAway, playerIndex: 0 }),                     // outside splash
         ]);
@@ -80,7 +80,7 @@ describe('resolveAttack: rocketBarrage', () => {
     it('same seed gives identical impacts, different seeds diverge', () => {
         const state = makeState([
             makeUnit({ type: 'Kestrel', q: 0, r: 0, playerIndex: 1 }),
-            makeUnit({ type: 'Droid', q: 2, r: 2, playerIndex: 0 }),
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 0 }),
         ]);
         const a = resolveAttack(state, 0, 1, 1234)!;
         const b = resolveAttack(state, 0, 1, 1234)!;
@@ -125,7 +125,7 @@ describe('class counter triangle (aa > air > tank > aa)', () => {
 
     it('neutral matchups are unmodified', () => {
         expect(duel('Bulwark', 'Sabre')).toBe(5);   // tank vs tank
-        expect(duel('Droid', 'Bulwark')).toBe(4);   // infantry neutral, expected (3+5)/2
+        expect(duel('Pike', 'Bulwark')).toBe(3);   // infantry neutral, expected (2+4)/2
     });
 });
 

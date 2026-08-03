@@ -28,7 +28,7 @@ describe('attack gene', () => {
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const state = makeState([
             makeUnit({ playerIndex: 1 }),
-            makeUnit({ type: 'Droid', q: neighbor.q, r: neighbor.r, playerIndex: 0, hp: 2, maxHp: 2 }),
+            makeUnit({ type: 'Pike', q: neighbor.q, r: neighbor.r, playerIndex: 0, hp: 2, maxHp: 2 }),
         ]);
         const acted = applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 });
         expect(acted).toBe(true);
@@ -67,7 +67,7 @@ describe('attack gene', () => {
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const adjacent = makeState([
             makeUnit({ type: 'Kestrel', q: 2, r: 2, playerIndex: 1, minRange: 2, maxRange: 3 }),
-            makeUnit({ type: 'Droid', q: neighbor.q, r: neighbor.r, playerIndex: 0 }),
+            makeUnit({ type: 'Pike', q: neighbor.q, r: neighbor.r, playerIndex: 0 }),
         ]);
         expect(applyGene(adjacent, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(false);
         expect(adjacent.events).toEqual([]);
@@ -75,7 +75,7 @@ describe('attack gene', () => {
         // At distance 2 (one tile in between) the same shot is legal.
         const standoff = makeState([
             makeUnit({ type: 'Kestrel', q: 2, r: 2, playerIndex: 1, minRange: 2, maxRange: 3 }),
-            makeUnit({ type: 'Droid', q: 4, r: 2, playerIndex: 0 }),
+            makeUnit({ type: 'Pike', q: 4, r: 2, playerIndex: 0 }),
         ]);
         expect(HexCoord.getDistance(2, 2, 4, 2)).toBe(2);
         expect(applyGene(standoff, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(true);
@@ -86,7 +86,7 @@ describe('attack gene', () => {
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const state = makeState([
             makeUnit({ type: 'Kestrel', q: neighbor.q, r: neighbor.r, playerIndex: 1, minRange: 1, maxRange: 5 }),
-            makeUnit({ type: 'Droid', q: 2, r: 2, playerIndex: 0, hp: 2 }),
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 0, hp: 2 }),
         ]);
         applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 99 });
         const craters = state.events.filter((e) => e.type === 'terrainModified');

@@ -16,7 +16,7 @@ export const perlinMapProvider: MapProvider = {
     randomRoads: 10,
     spawns: {
         player: [
-            { type: 'Droid', q: 2, r: 2 },
+            { type: 'Pike', q: 2, r: 2 },
             { type: 'Mortar', q: 3, r: 3 },
             { type: 'Bulwark', q: 4, r: 4 },
             { type: 'Kestrel', q: 5, r: 4 },
