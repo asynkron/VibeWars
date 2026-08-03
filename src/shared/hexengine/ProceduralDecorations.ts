@@ -43,6 +43,7 @@ function vary(color: number, rng: () => number, amount: number): number {
 // from the instance.
 const DECOR_NOISE_GLSL = /* glsl */ `
     varying vec3 vDecorWorldPos;
+    varying vec3 vDecorLocalPos;
 
     float decorHash(vec2 p) {
         return fract(sin(dot(p, vec2(157.1, 269.5))) * 43758.5453123);
@@ -62,44 +63,75 @@ const DECOR_NOISE_GLSL = /* glsl */ `
 
 const DECOR_FRAGMENT = /* glsl */ `
     {
-        // Two octaves of world-space noise, sampled with a vertical drift
-        // so the pattern wraps around crowns and trunks instead of
-        // projecting flat from above.
+        // Base: two octaves of world-space noise with a vertical drift so
+        // the pattern wraps around crowns and trunks instead of projecting
+        // flat from above.
         vec2 dp = vDecorWorldPos.xz * 7.0 + vec2(vDecorWorldPos.y * 3.1, vDecorWorldPos.y * 2.3);
         float coarse = decorNoise(dp);
         float fine = decorNoise(dp * 3.7 + 11.0);
-        diffuseColor.rgb *= 0.82 + 0.24 * coarse + 0.10 * fine;
+        diffuseColor.rgb *= 0.84 + 0.20 * coarse + 0.08 * fine;
+
+        if (uDecorKind > 0.5 && uDecorKind < 1.5) {
+            // CONIFER foliage: layered branch fringes that HANG DOWNWARD.
+            // In the cone's local frame, iso-lines of (y + droop * radius)
+            // slope down and outward -- banding on that coordinate reads
+            // as tiers of drooping branches, with a darker underside at
+            // each band's lower edge.
+            float radial = length(vDecorLocalPos.xz);
+            // Epsilon guard: atan(0, 0) at the cone tip is undefined (NaN
+            // on many GPUs) and would paint the whole surface black.
+            float angle = atan(vDecorLocalPos.z, vDecorLocalPos.x + 0.0008);
+            float branchCoord = vDecorLocalPos.y * 9.0 + radial * 16.0 + decorNoise(vec2(angle * 1.4, 3.7)) * 1.6;
+            float band = fract(branchCoord);
+            float fringe = 0.68 + 0.32 * smoothstep(0.05, 0.45, band);
+            // Angular clumping: branches, not a smooth skirt.
+            float clump = 0.86 + 0.14 * decorNoise(vec2(angle * 3.0, vDecorLocalPos.y * 5.0));
+            diffuseColor.rgb *= fringe * clump;
+        } else if (uDecorKind > 1.5) {
+            // DECIDUOUS leaves: patchy variation WITHIN one crown -- some
+            // clusters shift toward sunlit yellow-green, others sit in
+            // deeper shade, plus fine leaf speckle.
+            float splotch = decorNoise(vDecorLocalPos.xz * 5.0 + vDecorLocalPos.y * 4.0);
+            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.22, 1.08, 0.62), splotch * 0.45);
+            float shade = decorNoise(vDecorLocalPos.zy * 4.2 + 7.0);
+            diffuseColor.rgb *= 0.86 + 0.10 * shade;
+            float speckle = decorNoise(vDecorWorldPos.xz * 30.0 + vDecorWorldPos.y * 14.0);
+            diffuseColor.rgb *= 0.92 + 0.14 * speckle;
+        }
     }
 `;
 
-function applyOrganicDetail(material: any): void {
+// kind: 0 = generic surface (bark, rock), 1 = conifer foliage,
+// 2 = deciduous/bush leaves.
+function applyOrganicDetail(material: any, kind: number): void {
     material.onBeforeCompile = (shader: any) => {
+        shader.uniforms.uDecorKind = { value: kind };
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;')
+            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;')
             .replace(
                 '#include <begin_vertex>',
-                '#include <begin_vertex>\n vDecorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;'
+                '#include <begin_vertex>\n vDecorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n vDecorLocalPos = position;'
             );
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\n' + DECOR_NOISE_GLSL)
+            .replace('#include <common>', '#include <common>\n uniform float uDecorKind;\n' + DECOR_NOISE_GLSL)
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT);
     };
     material.customProgramCacheKey = () => 'decor-organic';
 }
 
-function mat(color: number) {
+function mat(color: number, kind: number = 0) {
     const material = new THREE.MeshStandardMaterial({
         color,
         metalness: 0.05,
         roughness: 0.85,
         flatShading: true,
     });
-    applyOrganicDetail(material);
+    applyOrganicDetail(material, kind);
     return material;
 }
 
-function addMesh(parent: any, geometry: any, color: number, x: number, y: number, z: number): any {
-    const mesh = new THREE.Mesh(geometry, mat(color));
+function addMesh(parent: any, geometry: any, color: number, x: number, y: number, z: number, kind: number = 0): any {
+    const mesh = new THREE.Mesh(geometry, mat(color, kind));
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -119,7 +151,7 @@ function makeConifer(rng: () => number): any {
         const radius = (0.34 - 0.14 * t) * (0.8 + rng() * 0.4);
         const coneH = height * (0.45 - 0.08 * t);
         const y = trunkH + height * 0.55 * t + coneH / 2 - 0.02;
-        addMesh(tree, new THREE.ConeGeometry(radius, coneH, 6), vary(0x1d4a2a, rng, 0.18), 0, y, 0);
+        addMesh(tree, new THREE.ConeGeometry(radius, coneH, 6), vary(0x1d4a2a, rng, 0.18), 0, y, 0, 1);
     }
     return tree;
 }
@@ -135,7 +167,7 @@ function makeDeciduous(rng: () => number): any {
         const dx = (rng() - 0.5) * 0.3;
         const dz = (rng() - 0.5) * 0.3;
         const y = trunkH + radius * (0.75 + rng() * 0.3);
-        addMesh(tree, new THREE.IcosahedronGeometry(radius, 0), vary(0x3f7d3a, rng, 0.2), dx, y, dz);
+        addMesh(tree, new THREE.IcosahedronGeometry(radius, 0), vary(0x3f7d3a, rng, 0.2), dx, y, dz, 2);
     }
     return tree;
 }
@@ -152,7 +184,8 @@ function makeBush(rng: () => number): any {
             vary(0x30632f, rng, 0.22),
             (rng() - 0.5) * 0.2,
             radius * 0.7,
-            (rng() - 0.5) * 0.2
+            (rng() - 0.5) * 0.2,
+            2
         );
     }
     return bush;
