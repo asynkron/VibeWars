@@ -675,8 +675,15 @@ class UnitSystem {
 
         // Set model position
         unit.position.copy(finalPosition);
-        unit.userData.q = coord.q;
-        unit.userData.r = coord.r;
+        // Only once the unit has actually ARRIVED. The interpolation frames
+        // call this many times per step with a customPosition; letting them
+        // move the tile too meant oldHex above was already the destination
+        // by the time the step was finalized -- so the print meant for the
+        // tile being left landed on the tile being entered instead.
+        if (!customPosition) {
+            unit.userData.q = coord.q;
+            unit.userData.r = coord.r;
+        }
 
         // Terrain-normal alignment (tilting the unit to match the hex's
         // surface normal) was attempted here and abandoned: it fought with
@@ -711,15 +718,25 @@ class UnitSystem {
             GridSystem.updateDecoratorTransparency(hex);
         }
 
-        // Only create footprints if we're not in a transition (no customPosition)
+        // Only create footprints if we're not in a transition (no
+        // customPosition) AND this was a move rather than initial placement.
+        // Placement passes no rotation, so there is no direction for a track
+        // to run along; stamping anyway put a pair of opposing halves on an
+        // arbitrary axis onto every spawn tile -- tracks belonging to no
+        // journey at all.
+        const moved = rotation !== undefined && !!oldHex && !!hex;
         if (!customPosition) {
-            // Create footprint at the old position
-            FootprintSystem.createFootprint(oldHex, rotation, unit.userData.type);
-            // Create footprint at the new position
-            FootprintSystem.createFootprint(hex, rotation, unit.userData.type);
+            if (moved) {
+                // Two halves per step. Leaving: centre -> the edge crossed,
+                // so the heading. Arriving: centre -> the edge come in
+                // through, which is the reverse of the heading.
+                FootprintSystem.createFootprint(oldHex, rotation, unit.userData.type);
+                FootprintSystem.createFootprint(hex, rotation + Math.PI, unit.userData.type);
+            }
 
             // Keep the "which ground tile is my unit on" markers in sync --
-            // see VisualizationSystem.updateOwnUnitMarkers.
+            // see VisualizationSystem.updateOwnUnitMarkers. Runs on initial
+            // placement too, so it stays outside the moved guard.
             if (unit.userData.playerIndex === 0) {
                 VisualizationSystem.updateOwnUnitMarkers(getGameState().units);
             }
