@@ -84,6 +84,11 @@ export type GameEvent =
     | { type: 'turnStarted'; playerIndex: number };
 
 export class SimState {
+    // Hp repaired per turn for a unit starting its turn on an owned
+    // factory (the HeroesOfBlazor healing-beacon idea). Keep in sync with
+    // GameState.FACTORY_REPAIR_HP on the live side.
+    static readonly FACTORY_REPAIR_HP = 2;
+
     readonly cols: number;
     readonly rows: number;
 
@@ -257,8 +262,17 @@ export class SimState {
                 for (let i = 0; i < this.baseUnits.length; i++) {
                     const unit = this.getUnit(i);
                     if (unit && unit.playerIndex === event.playerIndex) {
+                        // Factory repair: a unit starting its turn on an
+                        // owned, standing factory patches up (mirrors
+                        // GameState.nextTurn's live rule). Deterministic,
+                        // so it may live in apply() like the move reset.
+                        const building = this.getBuildingAt(unit.q, unit.r);
+                        const repaired = building && building[1].ownerIndex === unit.playerIndex
+                            ? Math.min(unit.maxHp, unit.hp + SimState.FACTORY_REPAIR_HP)
+                            : unit.hp;
                         this.setUnit(i, {
                             ...unit,
+                            hp: repaired,
                             move: UnitSystem.unitTypesRecord[unit.type].move,
                             hasAttacked: false,
                         });

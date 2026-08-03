@@ -7,6 +7,9 @@ import type { Building, GameUnit, GamePlayer, PlayerController } from '../types'
 
 class GameState {
     static readonly CPU_TURN_PAUSE_MS = 400;
+    // Hp repaired per turn for a unit starting its turn on an owned
+    // factory. Keep in sync with SimState.FACTORY_REPAIR_HP.
+    static readonly FACTORY_REPAIR_HP = 2;
     static readonly MAX_TURNS = 200;
     static readonly STALEMATE_IDLE_TURNS = 4;
     static readonly STALEMATE_NO_COMBAT_TURNS = 40;
@@ -95,6 +98,16 @@ class GameState {
                 // Via setHasAttacked so visualUnit.userData stays in sync
                 // (a bare `unit.hasAttacked = false` left it stale).
                 UnitSystem.setHasAttacked(unit, false);
+                // Factory repair: starting the turn on an owned, standing
+                // factory patches the unit up. Mirrors SimState's
+                // turnStarted rule so the AI values it correctly.
+                const building = this.buildings.find(
+                    (b) => !b.destroyed && b.q === unit.q && b.r === unit.r && b.ownerIndex === unit.playerIndex
+                );
+                if (building && unit.hp < unit.maxHp) {
+                    unit.hp = Math.min(unit.maxHp, unit.hp + GameState.FACTORY_REPAIR_HP);
+                    UnitSystem.updateUnitVisuals(unit);
+                }
             }
         });
         if (this.getCurrentPlayer().controller === 'cpu') {

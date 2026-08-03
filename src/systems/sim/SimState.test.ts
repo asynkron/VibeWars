@@ -209,6 +209,31 @@ describe('buildings', () => {
         expect(sim.getBuilding(0)!.ownerIndex).toBeNull();
     });
 
+    it('turnStarted repairs a unit standing on its own factory (+2, capped)', () => {
+        const source = makeSourceWithFactory({ ownerIndex: 0, hiddenUnitType: null });
+        // Put the damaged Bulwark (p0) ON the factory tile.
+        source.units[0] = { ...source.units[0], q: 2, r: 2, hp: 5 };
+        const sim = SimState.snapshot(source);
+
+        sim.record({ type: 'turnStarted', playerIndex: 0 });
+        expect(sim.getUnit(0)!.hp).toBe(5 + SimState.FACTORY_REPAIR_HP);
+
+        // The enemy's turn doesn't heal our unit, and repair caps at maxHp.
+        sim.record({ type: 'turnStarted', playerIndex: 1 });
+        expect(sim.getUnit(0)!.hp).toBe(7);
+        sim.record({ type: 'turnStarted', playerIndex: 0 });
+        sim.record({ type: 'turnStarted', playerIndex: 0 });
+        expect(sim.getUnit(0)!.hp).toBe(10); // maxHp cap
+
+        // A NEUTRAL factory repairs nobody.
+        const neutral = SimState.snapshot({
+            ...makeSourceWithFactory({ hiddenUnitType: null }),
+            units: [{ ...makeSource().units[0], q: 2, r: 2, hp: 5 }],
+        });
+        neutral.record({ type: 'turnStarted', playerIndex: 0 });
+        expect(neutral.getUnit(0)!.hp).toBe(5);
+    });
+
     it('fork isolates building state and condense carries it (resetting yieldedTo)', () => {
         const base = SimState.snapshot(makeSourceWithFactory());
         const a = base.fork();
