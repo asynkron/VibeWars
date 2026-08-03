@@ -106,6 +106,13 @@ class GridSystem {
         geometry.setIndex(indices);
         geometry.computeVertexNormals();
         this.applyVertexColors(geometry, vertices);
+        // Per-vertex shoreline signal for the ground shader's beach wash.
+        // Zero everywhere until smoothHexTile fills in the corners that
+        // touch water -- so inland tiles simply never wash.
+        geometry.setAttribute(
+            'aShore',
+            new THREE.Float32BufferAttribute(new Float32Array(vertices.length / 3), 1)
+        );
         return geometry;
     }
 
@@ -514,6 +521,20 @@ class GridSystem {
                 );
             } else {
                 colors.setXYZ(vertexIndex, avgR, avgG, avgB);
+                // Land half of the shoreline, by the MIRROR of the rule
+                // above: the fraction of this corner's two adjacent hexes
+                // that are water. Both elements therefore mark the same
+                // corner points, so the foam on the water and the sheet
+                // washing up the sand meet as a single wave instead of two
+                // effects that stop at the waterline.
+                const shore = geometry.attributes.aShore;
+                if (shore) {
+                    const waterCount = vertexNeighbors[i].filter(
+                        (n: any) => n && n.userData.type === 'water'
+                    ).length;
+                    shore.setX(vertexIndex, waterCount / 2);
+                    shore.needsUpdate = true;
+                }
             }
             colors.needsUpdate = true;
 
@@ -569,12 +590,14 @@ class GridSystem {
     // Animation & Update Helpers
     // ---------------------------
     static animateWater(time: number) {
-        // Drive the water shader's ripple/foam animation (single cached
-        // material shared by all water hexes).
-        const waterMaterial = this.materialCache.get('water');
-        if (waterMaterial?.userData?.shader) {
-            waterMaterial.userData.shader.uniforms.uTime.value = time;
-        }
+        // Drive the ripple/foam animation on EVERY terrain shader, not just
+        // water: the ground materials run the beach wash off the same
+        // uTime, and a wave only reads as one wave if both halves of the
+        // shoreline are on the same clock.
+        this.materialCache.forEach((material: any) => {
+            const uniforms = material?.userData?.shader?.uniforms;
+            if (uniforms?.uTime) uniforms.uTime.value = time;
+        });
         this.hexGrid.forEach((hexGroup: any) => {
             if (hexGroup.userData.type !== 'water') return;
             const hexMesh = hexGroup.children.find(

@@ -14,7 +14,9 @@
 // coloring); band borders meander via noise. The mesh's vertex color is
 // kept as a DARKENING signal relative to the material's own palette
 // luminance, so crater scorching and shading blends still show through.
-// WATER is untouched (its animation/material is handled elsewhere).
+// The water SURFACE has its own shader below; the two meet at the
+// shoreline, where the ground shader runs the wash up the sand from the
+// same wave phase the water foams with.
 
 import { TerrainSystem } from './TerrainSystem';
 
@@ -46,6 +48,23 @@ const NOISE_GLSL_CORE = /* glsl */ `
             amplitude *= 0.5;
         }
         return value;
+    }
+
+    // Shoreline surge phase, 0 = drawn back, 1 = wave at its peak. Both
+    // the water and the land shaders call this with the SAME world
+    // position and time, so a crest breaking offshore is the crest that
+    // runs up the sand -- one wave, not two animations that happen to be
+    // adjacent. The position terms + noise offset the rhythm along the
+    // beach so waves break at different moments down the coast.
+    float shoreLap(vec2 p, float t) {
+        return sin(t * 1.7 + p.x * 2.3 + p.y * 1.9 + groundNoise(p * 4.0) * 5.0) * 0.5 + 0.5;
+    }
+
+    // Broken churn inside the foam -- patches, not a solid blanket. Shared
+    // for the same reason as shoreLap: the same speckle drifts across the
+    // waterline instead of stopping at it.
+    float shoreCaps(vec2 p, float t) {
+        return groundNoise(p * 11.0 + vec2(t * 0.6, -t * 0.35));
     }
 `;
 
@@ -91,6 +110,49 @@ const GROUND_FRAGMENT = /* glsl */ `
         float vLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
         band *= clamp(vLum / max(uPaletteLum, 0.001), 0.35, 1.05);
 
+        // ---- Beach: the LAND half of the water's shore foam ----
+        // vShore is this corner's water-adjacency, painted by smoothHexTile
+        // with the exact rule the water side uses for its foam (fraction of
+        // the corner's two neighbouring hexes that are the other element),
+        // and it falls off to 0 at the tile centre -- so it reads as "how
+        // far down the beach am I". Both sides therefore light up the SAME
+        // corner points, and the wash meets the foam at the waterline.
+        if (vShore > 0.001) {
+            float lap = shoreLap(gp, uTime);
+
+            // Permanently damp sand along the whole waterline: darker and
+            // cooler, no white. This starts BELOW the foam window so the
+            // half-strength corners (a single shared land/water edge) still
+            // read as wet even where no sheet reaches them.
+            float wet = smoothstep(0.30, 0.85, vShore + (groundFbm(gp * 3.0) - 0.5) * 0.12);
+            band *= mix(vec3(1.0), vec3(0.60, 0.65, 0.72), wet * 0.9);
+
+            // The sheet surges: a high lap pushes the water further UP the
+            // beach, i.e. down to a lower vShore. Its retracted position
+            // (0.98) leaves only the waterline itself wet.
+            float reach = mix(0.98, 0.56, lap);
+            float sheet = smoothstep(reach, reach + 0.16, vShore);
+
+            // What runs up the sand is WATER, not foam: a film carrying the
+            // sea's own blue with the sand showing through it, so the beach
+            // reads as the sea stretching a little way up the land.
+            // Whitening the whole sheet instead just draws a pale ribbon
+            // winding along the coast.
+            band = mix(band, mix(band, uWaterColor * 1.45, 0.62), sheet);
+
+            // White surf rides the FRONT of that film -- a band at the top
+            // of its run, with the blue trailing back down to the sea
+            // behind it. front is 0 at the leading edge and grows
+            // seaward, so the surf band sits just inside the water's reach.
+            float front = vShore - reach;
+            float caps = shoreCaps(gp, uTime);
+            float surf = smoothstep(0.13, 0.02, front) * smoothstep(-0.05, 0.015, front);
+            // Cut by the same churn the water foams with, so the edge
+            // scatters instead of tracing a clean contour around the tile.
+            surf *= smoothstep(0.30, 0.70, caps + 0.30) * smoothstep(0.12, 0.45, lap);
+            band = mix(band, vec3(0.95, 0.98, 1.0), clamp(surf, 0.0, 0.80));
+        }
+
         diffuseColor.rgb = band;
     }
 `;
@@ -118,13 +180,11 @@ const WATER_FRAGMENT = /* glsl */ `
         float ripple1 = groundNoise(wp * 3.0 + vec2(uTime * 0.35, uTime * 0.22));
         float ripple2 = groundNoise(wp * 6.5 - vec2(uTime * 0.28, uTime * 0.41));
         diffuseColor.rgb *= 0.86 + 0.14 * ripple1 + 0.08 * ripple2;
-        // Lapping: the foam edge surges in and out, its rhythm offset
-        // around the shoreline by position + noise so waves break at
-        // different moments along the beach.
-        float lap = sin(uTime * 1.7 + wp.x * 2.3 + wp.y * 1.9 + groundNoise(wp * 4.0) * 5.0) * 0.5 + 0.5;
-        // Broken white caps inside the foam band -- patches of churn, not
-        // a solid blanket.
-        float caps = groundNoise(wp * 11.0 + vec2(uTime * 0.6, -uTime * 0.35));
+        // Lapping: the foam edge surges in and out. Same shoreLap/shoreCaps
+        // the ground shader runs on the sand just across the waterline, so
+        // this crest and the sheet washing up the beach are one wave.
+        float lap = shoreLap(wp, uTime);
+        float caps = shoreCaps(wp, uTime);
         float foam = foamMask * (0.25 + 0.75 * lap) * smoothstep(0.55, 0.85, caps + foamMask * 0.25);
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), clamp(foam, 0.0, 0.7));
     }
@@ -165,26 +225,38 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uGrassColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('GRASS')) };
         shader.uniforms.uForestColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('FOREST')) };
         shader.uniforms.uRockColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('MOUNTAIN')) };
+        // Same source as the water material's own color, so the film
+        // running up the beach is the sea, not a blue of its own.
+        shader.uniforms.uWaterColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('WATER')) };
         shader.uniforms.uPaletteLum = { value: paletteLum };
         shader.uniforms.uSnowStart = { value: 2.4 };
         shader.uniforms.uSnowFull = { value: 3.6 };
+        shader.uniforms.uTime = { value: 0 };
 
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\n varying vec3 vGroundWorldPos;')
+            .replace(
+                '#include <common>',
+                '#include <common>\n varying vec3 vGroundWorldPos;\n' +
+                ' attribute float aShore;\n varying float vShore;'
+            )
             .replace(
                 '#include <begin_vertex>',
-                '#include <begin_vertex>\n vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;'
+                '#include <begin_vertex>\n vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n' +
+                ' vShore = aShore;'
             );
 
         shader.fragmentShader = shader.fragmentShader
             .replace(
                 '#include <common>',
-                '#include <common>\n varying vec3 vGroundWorldPos;\n' +
+                '#include <common>\n varying vec3 vGroundWorldPos;\n varying float vShore;\n' +
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
-                ' uniform vec3 uRockColor;\n uniform float uPaletteLum;\n uniform float uSnowStart;\n' +
-                ' uniform float uSnowFull;\n' + NOISE_GLSL_CORE
+                ' uniform vec3 uRockColor;\n uniform vec3 uWaterColor;\n uniform float uPaletteLum;\n' +
+                ' uniform float uSnowStart;\n uniform float uSnowFull;\n uniform float uTime;\n' + NOISE_GLSL_CORE
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT);
+        // Expose the shader so animateWater can drive uTime each frame --
+        // the beach wash animates on the same clock as the water.
+        material.userData.shader = shader;
     };
     // All ground materials share one height-banded program (uniforms
     // differ per material); distinct key from three.js's stock shader.
