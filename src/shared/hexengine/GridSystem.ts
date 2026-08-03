@@ -8,6 +8,7 @@ import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
 import { applyProceduralGround } from './TerrainShader';
+import { createProceduralDecoration } from './ProceduralDecorations';
 import { addColorVariation, getVertexOffsets } from './utils';
 import { MAP_CONFIG, WATER_FOAM_COLOR, CRATER_COLOR } from '../../constants';
 import { getGameState, getGameStateOrNull } from '../../systems/gameStateStore';
@@ -261,24 +262,17 @@ class GridSystem {
         hexGroup.userData = userData;
         boundingMesh.userData = { ...userData, isBoundingMesh: true };
 
-        // Add decoration if available
-        const shouldDecorate = this.getOption('enableDecorations') && typeof ModelSystem !== 'undefined';
-        const decoration = shouldDecorate ? TerrainSystem.getRandomDecoration(type.toUpperCase()) : null;
-        if (decoration && ModelSystem.getModel && ModelSystem.getModel(decoration.model)) {
-            const decorMesh = ModelSystem.getModel(decoration.model).clone();
-            const decoratorColor = addColorVariation(decoration.color, 0.1);
-            const decorMaterial = this.createDecoratorMaterial(decoratorColor);
-            decorMesh.traverse((child: any) => {
-                if (child.isMesh) {
-                    child.material = decorMaterial;
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                }
-            });
-            decorMesh.position.set(x, height, z);
-            decorMesh.rotation.y = Math.floor(Math.random() * 6) * (Math.PI / 3);
-            hexGroup.userData.decorator = decorMesh;
-            hexGroup.add(decorMesh);
+        // Procedural decoration matched to the terrain type (a grove on
+        // forest, bushes/lone trees on grass, stones on sand, outcrops on
+        // mountains), generated deterministically per (q, r) -- replaces
+        // the old any-random-OBJ-on-any-tile table.
+        if (this.getOption('enableDecorations')) {
+            const decorMesh = createProceduralDecoration(type.toUpperCase(), q, r);
+            if (decorMesh) {
+                decorMesh.position.set(x, height, z);
+                hexGroup.userData.decorator = decorMesh;
+                hexGroup.add(decorMesh);
+            }
         }
 
         return hexGroup;
@@ -325,9 +319,8 @@ class GridSystem {
     // Map & Coordinate Helpers
     // ---------------------------
     static async createMap(mapSource: any) {
-        if (this.getOption('loadModels') && typeof ModelSystem !== 'undefined') {
-            await this.loadTileModels();
-        }
+        // Decorations are generated procedurally (see
+        // ProceduralDecorations) -- no tile decoration models to load.
 
         this.clear();
 
