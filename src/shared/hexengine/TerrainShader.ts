@@ -235,15 +235,34 @@ const WATER_FRAGMENT = /* glsl */ `
 // tile-centre uniform is needed.
 const SHORE_VERTEX_DECL =
     ' varying vec3 vGroundWorldPos;\n attribute vec3 aShoreA;\n attribute vec3 aShoreB;\n' +
-    ' varying vec3 vShoreA;\n varying vec3 vShoreB;\n varying vec2 vTileLocal;';
+    ' attribute vec3 aTileNormal;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
+    ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;';
 
 const SHORE_VERTEX_BODY =
     ' vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n' +
-    ' vShoreA = aShoreA;\n vShoreB = aShoreB;\n vTileLocal = position.xz;';
+    ' vShoreA = aShoreA;\n vShoreB = aShoreB;\n vTileLocal = position.xz;\n' +
+    // Into view space, where the fragment shader's own normal lives.
+    ' vTileNormal = normalize(normalMatrix * aTileNormal);';
 
 const SHORE_FRAGMENT_DECL =
     ' varying vec3 vGroundWorldPos;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
-    ' varying vec2 vTileLocal;\n uniform float uHexRadius;\n uniform float uTime;';
+    ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;\n uniform float uHexRadius;\n' +
+    ' uniform float uTime;';
+
+// The top face is a fan of six triangles and the terrain material is
+// flat-shaded, so every slice shades off its own plane and the tile reads
+// as six wedges -- flat shading takes the normal from the triangle, so no
+// amount of flattening the geometry merges them. aTileNormal carries the
+// average of those six planes; shading up-facing fragments with it makes
+// the fan one surface. A fragment whose own normal disagrees sharply is on
+// a near-vertical side, and keeps its own facet.
+const TILE_NORMAL_FRAGMENT = /* glsl */ `
+    {
+        vec3 tileN = normalize(vTileNormal);
+        float topness = smoothstep(0.45, 0.80, dot(normal, tileN));
+        normal = normalize(mix(normal, tileN, topness));
+    }
+`;
 
 export function applyWaterSurface(material: any): void {
     material.onBeforeCompile = (shader: any) => {
@@ -254,7 +273,11 @@ export function applyWaterSurface(material: any): void {
             .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SHORE_VERTEX_BODY);
         shader.fragmentShader = shader.fragmentShader
             .replace('#include <common>', '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' + NOISE_GLSL_CORE)
-            .replace('#include <color_fragment>', '#include <color_fragment>\n' + WATER_FRAGMENT);
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + WATER_FRAGMENT)
+            .replace(
+                '#include <normal_fragment_begin>',
+                '#include <normal_fragment_begin>\n' + TILE_NORMAL_FRAGMENT
+            );
         // Expose the shader so animateWater can drive uTime each frame.
         material.userData.shader = shader;
     };
@@ -296,7 +319,11 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 ' uniform vec3 uRockColor;\n uniform vec3 uWaterColor;\n uniform float uPaletteLum;\n' +
                 ' uniform float uSnowStart;\n uniform float uSnowFull;\n' + NOISE_GLSL_CORE
             )
-            .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT);
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT)
+            .replace(
+                '#include <normal_fragment_begin>',
+                '#include <normal_fragment_begin>\n' + TILE_NORMAL_FRAGMENT
+            );
         // Expose the shader so animateWater can drive uTime each frame --
         // the beach wash animates on the same clock as the water.
         material.userData.shader = shader;

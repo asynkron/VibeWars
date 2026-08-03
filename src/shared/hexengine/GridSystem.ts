@@ -109,9 +109,16 @@ class GridSystem {
         // Shoreline flags, one per hex edge, split over two vec3 attributes
         // (edges 0-2 and 3-5). Constant across the tile and zero until
         // paintShoreEdges fills them in, so inland tiles never wash.
-        const edgeCount = vertices.length / 3;
-        geometry.setAttribute('aShoreA', new THREE.Float32BufferAttribute(new Float32Array(edgeCount * 3), 3));
-        geometry.setAttribute('aShoreB', new THREE.Float32BufferAttribute(new Float32Array(edgeCount * 3), 3));
+        const vertexCount = vertices.length / 3;
+        geometry.setAttribute('aShoreA', new THREE.Float32BufferAttribute(new Float32Array(vertexCount * 3), 3));
+        geometry.setAttribute('aShoreB', new THREE.Float32BufferAttribute(new Float32Array(vertexCount * 3), 3));
+
+        // One shared normal for the whole top face (see smoothHexTile).
+        // Straight up until the tile is smoothed -- which is also the right
+        // answer for the flat-topped prisms that skip smoothing.
+        const tileNormals = new Float32Array(vertexCount * 3);
+        for (let v = 0; v < vertexCount; v++) tileNormals[v * 3 + 1] = 1;
+        geometry.setAttribute('aTileNormal', new THREE.Float32BufferAttribute(tileNormals, 3));
         return geometry;
     }
 
@@ -486,10 +493,6 @@ class GridSystem {
         position.setY(12, 0);
         const normals = new Float32Array(position.count * 3);
 
-        // Track highest and lowest edge vertices
-        let highestHeight = -Infinity;
-        let lowestHeight = Infinity;
-
         for (let i = 0; i < 6; i++) {
             const vertexIndex = i + 6;
             let totalHeight = currentHeight, count = 1;
@@ -538,10 +541,6 @@ class GridSystem {
                 position.getZ(vertexIndex) + offsets.z
             );
 
-            // Update highest and lowest heights
-            highestHeight = Math.max(highestHeight, finalHeight);
-            lowestHeight = Math.min(lowestHeight, finalHeight);
-
             const colors = geometry.attributes.color;
             if (type === 'water') {
                 // Flat water colour: the foam is no longer a rim tint
@@ -570,9 +569,51 @@ class GridSystem {
         }
         position.setY(12, 0);
 
-        // Set center vertex height to average of highest and lowest edge vertices
-        const centerHeight = (highestHeight + lowestHeight) / 2;
-        position.setY(13, centerHeight);
+        // Centre vertex at the CENTROID of the six rim vertices, in all
+        // three axes. The rim is jittered in x/z and uneven in y, so a
+        // centre pinned to the tile origin at the midpoint of the highest
+        // and lowest rim vertex sits off the surface the rim describes --
+        // it domes or dishes the top face, and each of the six fan
+        // triangles ends up on its own plane, catching the light
+        // differently. The centroid lies on that surface, so the fan reads
+        // as one face. (animateWater already re-centres water tiles this
+        // way every frame; this brings land in line.)
+        let centerX = 0, centerY = 0, centerZ = 0;
+        for (let i = 6; i < 12; i++) {
+            centerX += position.getX(i);
+            centerY += position.getY(i);
+            centerZ += position.getZ(i);
+        }
+        position.setXYZ(13, centerX / 6, centerY / 6, centerZ / 6);
+
+        // ONE normal for the whole top face: the average of the six fan
+        // triangles' own planes. The material is flat-shaded, so without
+        // this each slice shades from its own plane and the tile reads as
+        // six wedges no matter how nearly coplanar they are -- flat shading
+        // takes the normal from the triangle, not from the vertices. The
+        // terrain shaders blend toward this on up-facing fragments, which
+        // leaves the near-vertical sides faceted as they should be.
+        const tileCenter = new THREE.Vector3(position.getX(13), position.getY(13), position.getZ(13));
+        const rimVertex = (i: number) =>
+            new THREE.Vector3(position.getX(6 + i), position.getY(6 + i), position.getZ(6 + i));
+        const tileNormal = new THREE.Vector3();
+        for (let i = 0; i < 6; i++) {
+            const toNext = rimVertex((i + 1) % 6).sub(tileCenter);
+            const toThis = rimVertex(i).sub(tileCenter);
+            tileNormal.add(new THREE.Vector3().crossVectors(toNext, toThis));
+        }
+        // Degenerate fans (a perfectly flat, zero-area case) fall back to up.
+        if (tileNormal.lengthSq() < 1e-12) tileNormal.set(0, 1, 0);
+        tileNormal.normalize();
+        if (tileNormal.y < 0) tileNormal.negate();
+
+        const tileNormals = geometry.attributes.aTileNormal;
+        if (tileNormals) {
+            for (let v = 0; v < tileNormals.count; v++) {
+                tileNormals.setXYZ(v, tileNormal.x, tileNormal.y, tileNormal.z);
+            }
+            tileNormals.needsUpdate = true;
+        }
 
         const centerNormal = new THREE.Vector3(0, 0, 0);
         let validNormals = 0;
