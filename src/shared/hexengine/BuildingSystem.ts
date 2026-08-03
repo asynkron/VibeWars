@@ -29,11 +29,13 @@ import type { Building, GameUnit } from '../../types';
 // Neutral (unowned) buildings render in gray; owned ones in player color.
 const NEUTRAL_TINT = 0x888888;
 
-// Model is ~14.4 units wide; scale 0.1 gives a ~1.4 footprint on our
-// radius-1 hexes. yOffset is a per-model vertical correction on top of
-// the computed ground height.
+// Model is ~14.4 units wide; scale 0.12 gives a ~1.73 footprint on our
+// radius-1 hexes -- that is the hex's own width across the flats, so the
+// building fills its tile without spilling over the edges into the
+// neighbours. yOffset is a per-model vertical correction on top of the
+// computed ground height.
 const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number }> = {
-    factory: { model: 'assets/buildings/factory-building.glb', scale: 0.1, yOffset: 0 },
+    factory: { model: 'assets/buildings/factory-building.glb', scale: 0.12, yOffset: 0 },
 };
 
 class BuildingSystem {
