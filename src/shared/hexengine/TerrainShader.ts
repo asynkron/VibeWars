@@ -73,11 +73,17 @@ const GROUND_FRAGMENT = /* glsl */ `
             float blades = groundNoise(gp * 30.0);
             ground *= 0.80 + 0.32 * patches + 0.10 * blades;
         } else if (uTerrainKind < 2.5) {
-            // FOREST floor: darker coarse patches with brown litter.
+            // FOREST floor: shaded soil under the canopy. The palette IS
+            // dark, but edge smoothing against bright grass/sand washes it
+            // out toward sand -- pull back to dark humus and keep the
+            // whole band clearly below grass brightness.
             float floorPatches = groundFbm(gp * 3.2);
             float litter = groundNoise(gp * 16.0);
-            ground *= 0.70 + 0.34 * floorPatches;
-            ground = mix(ground, ground * vec3(1.05, 0.85, 0.55), litter * 0.25);
+            float forestLum = dot(ground, vec3(0.299, 0.587, 0.114));
+            vec3 humus = vec3(forestLum) * vec3(0.55, 0.50, 0.38);
+            ground = mix(ground, humus, 0.55);
+            ground *= 0.62 + 0.30 * floorPatches;
+            ground = mix(ground, ground * vec3(1.08, 0.92, 0.70), litter * 0.15);
         } else if (uTerrainKind < 3.5) {
             // MOUNTAIN: rocky detail + slope striations (the granite hue
             // comes from the shared alpine overlay below).
