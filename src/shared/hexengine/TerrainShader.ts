@@ -71,13 +71,23 @@ const GROUND_FRAGMENT = /* glsl */ `
             float blades = groundNoise(gp * 30.0);
             ground *= 0.80 + 0.32 * patches + 0.10 * blades;
         } else if (uTerrainKind < 2.5) {
-            // FOREST floor: darker coarse patches with brown litter.
+            // FOREST floor: dark humus -- the palette green pulled hard
+            // toward deep gray-brown, then coarse shadow patches. Reads as
+            // shaded soil under the canopy instead of bright grass.
             float floorPatches = groundFbm(gp * 3.2);
             float litter = groundNoise(gp * 16.0);
-            ground *= 0.70 + 0.34 * floorPatches;
-            ground = mix(ground, ground * vec3(1.05, 0.85, 0.55), litter * 0.25);
+            float forestLum = dot(ground, vec3(0.299, 0.587, 0.114));
+            vec3 humus = vec3(forestLum) * vec3(0.62, 0.52, 0.42);
+            ground = mix(ground, humus, 0.75);
+            ground *= 0.55 + 0.30 * floorPatches;
+            ground = mix(ground, ground * vec3(1.10, 0.90, 0.65), litter * 0.20);
         } else if (uTerrainKind < 3.5) {
-            // MOUNTAIN: rocky detail + slope striations...
+            // MOUNTAIN: pull the palette's warm tan strongly toward cool
+            // gray granite (the raw color reads as "sand" on the lower
+            // slopes), then add rocky detail + slope striations...
+            float rockLum = dot(ground, vec3(0.299, 0.587, 0.114));
+            vec3 granite = vec3(rockLum) * vec3(0.82, 0.84, 0.88);
+            ground = mix(ground, granite, 0.65);
             float rock = groundFbm(gp * 5.0);
             float striation = groundNoise(vec2(gp.x * 1.6 + vGroundWorldPos.y * 3.0, gp.y * 1.6));
             ground *= 0.74 + 0.34 * rock + 0.12 * striation;
