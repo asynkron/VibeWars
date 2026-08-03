@@ -36,13 +36,66 @@ function vary(color: number, rng: () => number, amount: number): number {
     return c.getHex();
 }
 
+// World-position noise injected into every decoration material: foliage,
+// bark, and rock surfaces get organic light/dark patterning instead of
+// flat single-color faces. One shared compiled program for all
+// decorations (same cache key); the per-material base color still comes
+// from the instance.
+const DECOR_NOISE_GLSL = /* glsl */ `
+    varying vec3 vDecorWorldPos;
+
+    float decorHash(vec2 p) {
+        return fract(sin(dot(p, vec2(157.1, 269.5))) * 43758.5453123);
+    }
+
+    float decorNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+            mix(decorHash(i), decorHash(i + vec2(1.0, 0.0)), u.x),
+            mix(decorHash(i + vec2(0.0, 1.0)), decorHash(i + vec2(1.0, 1.0)), u.x),
+            u.y
+        );
+    }
+`;
+
+const DECOR_FRAGMENT = /* glsl */ `
+    {
+        // Two octaves of world-space noise, sampled with a vertical drift
+        // so the pattern wraps around crowns and trunks instead of
+        // projecting flat from above.
+        vec2 dp = vDecorWorldPos.xz * 7.0 + vec2(vDecorWorldPos.y * 3.1, vDecorWorldPos.y * 2.3);
+        float coarse = decorNoise(dp);
+        float fine = decorNoise(dp * 3.7 + 11.0);
+        diffuseColor.rgb *= 0.82 + 0.24 * coarse + 0.10 * fine;
+    }
+`;
+
+function applyOrganicDetail(material: any): void {
+    material.onBeforeCompile = (shader: any) => {
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;')
+            .replace(
+                '#include <begin_vertex>',
+                '#include <begin_vertex>\n vDecorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;'
+            );
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\n' + DECOR_NOISE_GLSL)
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT);
+    };
+    material.customProgramCacheKey = () => 'decor-organic';
+}
+
 function mat(color: number) {
-    return new THREE.MeshStandardMaterial({
+    const material = new THREE.MeshStandardMaterial({
         color,
         metalness: 0.05,
         roughness: 0.85,
         flatShading: true,
     });
+    applyOrganicDetail(material);
+    return material;
 }
 
 function addMesh(parent: any, geometry: any, color: number, x: number, y: number, z: number): any {
@@ -125,6 +178,22 @@ function makeRocks(rng: () => number, base: number): any {
     return rocks;
 }
 
+// Per-individual tint: nudge every mesh color in the assembly along its
+// own warm/cool green axis, so no two trees (or bushes, or rocks) read
+// as the exact same shade even when the silhouette repeats.
+function tintIndividual(object: any, rng: () => number): void {
+    const rf = 1 + (rng() - 0.5) * 0.16;
+    const gf = 1 + (rng() - 0.5) * 0.10;
+    const bf = 1 + (rng() - 0.5) * 0.16;
+    object.traverse((child: any) => {
+        if (child.isMesh && child.material?.color) {
+            child.material.color.r = Math.min(1, child.material.color.r * rf);
+            child.material.color.g = Math.min(1, child.material.color.g * gf);
+            child.material.color.b = Math.min(1, child.material.color.b * bf);
+        }
+    });
+}
+
 // Random offset within the hex, keeping clear of the rim.
 function scatter(rng: () => number, maxRadius: number): { x: number; z: number } {
     const angle = rng() * Math.PI * 2;
@@ -144,6 +213,7 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
             const trees = 3 + Math.floor(rng() * 3);
             for (let i = 0; i < trees; i++) {
                 const tree = rng() < 0.65 ? makeConifer(rng) : makeDeciduous(rng);
+                tintIndividual(tree, rng);
                 const { x, z } = scatter(rng, 0.55);
                 tree.position.set(x, 0, z);
                 tree.rotation.y = rng() * Math.PI * 2;
@@ -160,6 +230,7 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
                 const bushes = 1 + Math.floor(rng() * 2);
                 for (let i = 0; i < bushes; i++) {
                     const bush = makeBush(rng);
+                    tintIndividual(bush, rng);
                     const { x, z } = scatter(rng, 0.5);
                     bush.position.set(x, 0, z);
                     group.add(bush);
@@ -167,6 +238,7 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
             } else if (roll < 0.45) {
                 // A lone deciduous tree.
                 const tree = makeDeciduous(rng);
+                tintIndividual(tree, rng);
                 const { x, z } = scatter(rng, 0.4);
                 tree.position.set(x, 0, z);
                 tree.rotation.y = rng() * Math.PI * 2;
