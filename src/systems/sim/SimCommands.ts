@@ -22,7 +22,7 @@ import { SimState, SimUnit } from './SimState';
 import { simDijkstra } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
 
-export type GeneKind = 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'attack' | 'idle';
+export type GeneKind = 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'standoff' | 'attack' | 'idle';
 
 export interface Gene {
     kind: GeneKind;
@@ -71,12 +71,58 @@ export function nearestEnemyIndex(state: SimState, unitIndex: number): number | 
     return best;
 }
 
-// Resolve the gene's target: an explicitly set live enemy, else the nearest.
+// Nearest enemy this unit is ALLOWED to shoot (respects the class
+// targeting rule: artillery/infantry can't touch air).
+export function nearestTargetableEnemyIndex(state: SimState, unitIndex: number): number | null {
+    const unit = state.getUnit(unitIndex);
+    if (!unit) return null;
+    let best: number | null = null;
+    let bestDist = Infinity;
+    for (const [i, other] of state.liveUnits()) {
+        if (other.playerIndex === unit.playerIndex) continue;
+        if (!UnitSystem.canTarget(unit.type, other.type)) continue;
+        const dist = HexCoord.getDistance(unit.q, unit.r, other.q, other.r);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+        }
+    }
+    return best;
+}
+
+// Focus fire (the HeroesOfBlazor lesson): the most VALUABLE target is the
+// weakest one -- finishing a damaged unit removes its whole material value
+// from the board, while spreading damage removes nothing. Lowest hp wins;
+// distance breaks ties. Only targets this unit may legally shoot.
+export function weakestTargetableEnemyIndex(state: SimState, unitIndex: number): number | null {
+    const unit = state.getUnit(unitIndex);
+    if (!unit) return null;
+    let best: number | null = null;
+    let bestHp = Infinity;
+    let bestDist = Infinity;
+    for (const [i, other] of state.liveUnits()) {
+        if (other.playerIndex === unit.playerIndex) continue;
+        if (!UnitSystem.canTarget(unit.type, other.type)) continue;
+        const dist = HexCoord.getDistance(unit.q, unit.r, other.q, other.r);
+        if (other.hp < bestHp || (other.hp === bestHp && dist < bestDist)) {
+            bestHp = other.hp;
+            bestDist = dist;
+            best = i;
+        }
+    }
+    return best;
+}
+
+// Resolve the gene's target: an explicitly set live enemy, else the
+// nearest (targetable one for genes that end in shooting).
 function resolveTargetIndex(state: SimState, unitIndex: number, gene: Gene): number | null {
     const unit = state.getUnit(unitIndex)!;
     if (gene.targetIndex !== undefined) {
         const target = state.getUnit(gene.targetIndex);
         if (target && target.playerIndex !== unit.playerIndex) return gene.targetIndex;
+    }
+    if (gene.kind === 'attack' || gene.kind === 'standoff') {
+        return nearestTargetableEnemyIndex(state, unitIndex);
     }
     return nearestEnemyIndex(state, unitIndex);
 }
@@ -158,21 +204,40 @@ export function applyGene(state: SimState, gene: Gene): boolean {
             if (targetIndex === null) return false;
             const target = state.getUnit(targetIndex)!;
 
+            // moveAway flees WITH PURPOSE (the HeroesOfBlazor lesson):
+            // best is a hex the threat cannot even reach next turn
+            // (distance > its move + max range); only if no such hex is
+            // reachable fall back to plain distance-maximizing.
+            const threatStats = UnitSystem.unitTypesRecord[target.type];
+            const safeDist = threatStats.move + threatStats.maxRange;
+
             const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
             let bestKey: string | null = null;
             let bestDist = gene.kind === 'moveTowards'
                 ? HexCoord.getDistance(unit.q, unit.r, target.q, target.r)
                 : -Infinity;
             let bestCost = Infinity;
+            let bestSafe = gene.kind === 'moveAway'
+                && HexCoord.getDistance(unit.q, unit.r, target.q, target.r) > safeDist;
 
             for (const key of reachable) {
                 const [q, r] = key.split(',').map(Number);
                 if (q === unit.q && r === unit.r) continue;
                 const dist = HexCoord.getDistance(q, r, target.q, target.r);
                 const cost = distances.get(key)!;
-                const better = gene.kind === 'moveTowards'
-                    ? dist < bestDist || (dist === bestDist && cost < bestCost && bestKey !== null)
-                    : dist > bestDist || (dist === bestDist && cost < bestCost && bestKey !== null);
+                let better: boolean;
+                if (gene.kind === 'moveTowards') {
+                    better = dist < bestDist || (dist === bestDist && cost < bestCost && bestKey !== null);
+                } else {
+                    const safe = dist > safeDist;
+                    // Safe beats unsafe; among safe hexes prefer CHEAP
+                    // (don't waste movement running further than needed);
+                    // among unsafe prefer far.
+                    better = (safe && !bestSafe)
+                        || (safe && bestSafe && (cost < bestCost || (cost === bestCost && dist > bestDist)))
+                        || (!safe && !bestSafe && (dist > bestDist || (dist === bestDist && cost < bestCost && bestKey !== null)));
+                    if (better) bestSafe = safe;
+                }
                 if (better) {
                     bestDist = dist;
                     bestCost = cost;
@@ -181,6 +246,44 @@ export function applyGene(state: SimState, gene: Gene): boolean {
             }
 
             if (bestKey === null) return false; // nothing strictly better than staying
+            const [toQ, toR] = bestKey.split(',').map(Number);
+            recordMove(state, gene.unitIndex, toQ, toR, bestCost);
+            return true;
+        }
+
+        case 'standoff': {
+            // Kiting (the HeroesOfBlazor "fire from max range" lesson):
+            // move to a reachable hex INSIDE the unit's firing bracket
+            // around the target, preferring the farthest legal distance --
+            // this is how artillery fights: walk to range 3, never range 1.
+            if (unit.move <= 0) return false;
+            const targetIndex = resolveTargetIndex(state, gene.unitIndex, gene);
+            if (targetIndex === null) return false;
+            const target = state.getUnit(targetIndex)!;
+            if (!UnitSystem.canTarget(unit.type, target.type)) return false;
+
+            const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
+            let bestKey: string | null = null;
+            let bestDist = -Infinity;
+            let bestCost = Infinity;
+            const currentDist = HexCoord.getDistance(unit.q, unit.r, target.q, target.r);
+
+            for (const key of reachable) {
+                const [q, r] = key.split(',').map(Number);
+                if (q === unit.q && r === unit.r) continue;
+                const dist = HexCoord.getDistance(q, r, target.q, target.r);
+                if (dist < unit.minRange || dist > unit.maxRange) continue;
+                const cost = distances.get(key)!;
+                // Prefer the farthest in-bracket distance, then cheapest.
+                if (dist > bestDist || (dist === bestDist && cost < bestCost)) {
+                    bestDist = dist;
+                    bestCost = cost;
+                    bestKey = key;
+                }
+            }
+
+            // Already parked at the ideal distance? Nothing to do.
+            if (bestKey === null || (currentDist === unit.maxRange && bestDist <= currentDist)) return false;
             const [toQ, toR] = bestKey.split(',').map(Number);
             recordMove(state, gene.unitIndex, toQ, toR, bestCost);
             return true;
@@ -292,8 +395,9 @@ export function sweepAttacks(state: SimState, playerIndex: number): boolean {
 
 const KIND_WEIGHTS: Array<[GeneKind, number]> = [
     ['attack', 0.30],
-    ['moveTowards', 0.25],
-    ['moveRandom', 0.15],
+    ['moveTowards', 0.20],
+    ['standoff', 0.10],
+    ['moveRandom', 0.10],
     ['moveAway', 0.10],
     ['moveToBuilding', 0.10],
     ['idle', 0.10],
@@ -323,14 +427,29 @@ export function randomGene(state: SimState, unitIndex: number, rng: () => number
     if (kind === 'moveToBuilding' && (!unit || !unitCanCapture(unit) || nearestCapturableBuildingIndex(state, unitIndex) === null)) {
         kind = 'moveTowards';
     }
+    // standoff needs an enemy this unit may legally shoot.
+    if (kind === 'standoff' && (!unit || nearestTargetableEnemyIndex(state, unitIndex) === null)) {
+        kind = 'moveTowards';
+    }
     if (enemies.length === 0 && (kind === 'attack' || kind === 'moveTowards' || kind === 'moveAway')) {
         kind = 'moveRandom';
+    }
+
+    // Focus fire: half the time aim at the weakest legal target (finish
+    // damaged units off) instead of a uniformly random enemy -- the random
+    // half keeps exploration alive for the hillclimber.
+    let targetIndex: number | undefined;
+    if (enemies.length > 0) {
+        const weakest = unit ? weakestTargetableEnemyIndex(state, unitIndex) : null;
+        targetIndex = rng() < 0.5 && weakest !== null
+            ? weakest
+            : enemies[Math.floor(rng() * enemies.length)];
     }
 
     return {
         kind,
         unitIndex,
-        targetIndex: enemies.length > 0 ? enemies[Math.floor(rng() * enemies.length)] : undefined,
+        targetIndex,
         seed: Math.floor(rng() * 0x7fffffff),
     };
 }

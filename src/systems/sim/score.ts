@@ -37,6 +37,11 @@ export const BUILDING_BLOCK_PENALTY = 15;
 // aggression gradient -- a capture is worth a unit, closing with the
 // enemy is worth a tiebreak.
 const CAPTURE_PULL_WEIGHT = 3;
+// Quadratic army-size pressure (HeroesOfBlazor's count-multiplied
+// fitness): each ADDITIONAL enemy unit costs increasingly more, so
+// FINISHING units off beats spreading the same damage across many --
+// and the value of a kill is highest when the enemy army is large.
+const ARMY_SIZE_WEIGHT = 3;
 
 export function scoreState(state: SimState, playerIndex: number): number {
     let score = 0;
@@ -53,6 +58,9 @@ export function scoreState(state: SimState, playerIndex: number): number {
             enemies.push(unit);
         }
     }
+
+    // Quadratic head-count term: see ARMY_SIZE_WEIGHT.
+    score += ARMY_SIZE_WEIGHT * (own.length * own.length - enemies.length * enemies.length);
 
     for (const unit of own) {
         let nearest = Infinity;

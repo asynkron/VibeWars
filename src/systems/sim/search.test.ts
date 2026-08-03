@@ -74,6 +74,30 @@ describe('scoreState', () => {
         expect(near).toBeGreaterThan(far);
     });
 
+    it('quadratic army-size term: a kill outweighs the same damage spread out', () => {
+        // Two boards with IDENTICAL total enemy hp (12): one has a unit
+        // fully dead (3 units, one at full 10 + one at 2), the other has
+        // the damage smeared across all four. Fewer enemy units must
+        // score better for us.
+        const spread = makeState([
+            makeUnit({ playerIndex: 1 }),
+            makeUnit({ q: 5, r: 1, playerIndex: 0, hp: 3 }),
+            makeUnit({ q: 5, r: 3, playerIndex: 0, hp: 3 }),
+            makeUnit({ q: 5, r: 5, playerIndex: 0, hp: 3 }),
+            makeUnit({ q: 5, r: 7, playerIndex: 0, hp: 3 }),
+        ]);
+        const concentrated = makeState([
+            makeUnit({ playerIndex: 1 }),
+            makeUnit({ q: 5, r: 1, playerIndex: 0, hp: 10 }),
+            makeUnit({ q: 5, r: 3, playerIndex: 0, hp: 2 }),
+            makeUnit({ q: 5, r: 5, playerIndex: 0, hp: 0 }),
+            makeUnit({ q: 5, r: 7, playerIndex: 0, hp: 0 }),
+        ]);
+        concentrated.record({ type: 'unitDied', unitIndex: 3 });
+        concentrated.record({ type: 'unitDied', unitIndex: 4 });
+        expect(scoreState(concentrated, 1)).toBeGreaterThan(scoreState(spread, 1));
+    });
+
     it('penalizes a non-capture unit parked on a capturable factory', () => {
         // Identical states except for WHERE the neutral factory sits: under
         // the tank, or far away. No capture-capable units, so the pull term

@@ -1,7 +1,7 @@
 import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { SimState } from './SimState';
-import { applyGene, randomGene, nearestEnemyIndex, nearestCapturableBuildingIndex, sweepAttacks } from './SimCommands';
+import { applyGene, randomGene, nearestEnemyIndex, nearestCapturableBuildingIndex, sweepAttacks, weakestTargetableEnemyIndex } from './SimCommands';
 import { mulberry32 } from './resolveAttack';
 import { HexCoord } from '../../shared/hexengine/HexCoord';
 
@@ -298,6 +298,62 @@ describe('building capture in the sim', () => {
         const kinds = new Set<string>();
         for (let i = 0; i < 200; i++) kinds.add(randomGene(state, 0, rng).kind);
         expect(kinds.has('moveToBuilding')).toBe(true);
+    });
+});
+
+describe('standoff gene (kiting)', () => {
+    it('artillery walks to MAX range of the target, never closer', () => {
+        // Kestrel (range 2-3) far from a Bulwark, with plenty of move.
+        const state = makeState([
+            makeUnit({ type: 'Kestrel', q: 0, r: 2, playerIndex: 1, move: 4, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Bulwark', q: 6, r: 2, playerIndex: 0 }),
+        ]);
+        const acted = applyGene(state, { kind: 'standoff', unitIndex: 0, targetIndex: 1, seed: 1 });
+        expect(acted).toBe(true);
+        const moved = state.getUnit(0)!;
+        expect(HexCoord.getDistance(moved.q, moved.r, 6, 2)).toBe(3); // max range exactly
+    });
+
+    it('is a no-op when already parked at max range', () => {
+        const state = makeState([
+            makeUnit({ type: 'Kestrel', q: 3, r: 2, playerIndex: 1, move: 1, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Bulwark', q: 6, r: 2, playerIndex: 0 }),
+        ]);
+        expect(HexCoord.getDistance(3, 2, 6, 2)).toBe(3);
+        expect(applyGene(state, { kind: 'standoff', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(false);
+        expect(state.events).toEqual([]);
+    });
+
+    it('rejects targets the unit cannot legally shoot (artillery vs air)', () => {
+        const state = makeState([
+            makeUnit({ type: 'Kestrel', q: 0, r: 2, playerIndex: 1, move: 4, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Nightjar', q: 6, r: 2, playerIndex: 0 }),
+        ]);
+        expect(applyGene(state, { kind: 'standoff', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(false);
+    });
+});
+
+describe('focus fire helpers', () => {
+    it('weakestTargetableEnemyIndex prefers low hp and respects targeting rules', () => {
+        const state = makeState([
+            makeUnit({ type: 'Kestrel', q: 0, r: 0, playerIndex: 1 }),
+            makeUnit({ type: 'Bulwark', q: 3, r: 0, playerIndex: 0, hp: 9 }),
+            makeUnit({ type: 'Sabre', q: 5, r: 0, playerIndex: 0, hp: 2 }),   // weakest ground unit
+            makeUnit({ type: 'Nightjar', q: 2, r: 0, playerIndex: 0, hp: 1 }), // weakest overall but AIR
+        ]);
+        // Artillery can't shoot the 1hp helicopter -- the 2hp Sabre wins.
+        expect(weakestTargetableEnemyIndex(state, 0)).toBe(2);
+    });
+
+    it('moveAway prefers ending BEYOND the threat reach when possible', () => {
+        // Threat: Bulwark, move 2 + range 1 -> safe is distance > 3.
+        const state = makeState([
+            makeUnit({ type: 'Sabre', q: 3, r: 4, playerIndex: 1, move: 3 }),
+            makeUnit({ type: 'Bulwark', q: 1, r: 4, playerIndex: 0 }),
+        ]);
+        applyGene(state, { kind: 'moveAway', unitIndex: 0, targetIndex: 1, seed: 1 });
+        const moved = state.getUnit(0)!;
+        expect(HexCoord.getDistance(moved.q, moved.r, 1, 4)).toBeGreaterThan(3);
     });
 });
 
