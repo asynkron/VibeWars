@@ -1,5 +1,6 @@
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
+import { GlowSystem } from './shared/hexengine/GlowSystem';
 import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
 import type { CameraMatrices } from './types';
 
@@ -34,6 +35,44 @@ const mapWidth = MAP_CONFIG.COLS * MAP_CONFIG.HEX_RADIUS * 1.5;  // 75 units
 const mapHeight = MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3);  // ~86.6 units
 
 // Renderer Initialization
+// Post-processing chain for the bloom. Built lazily in initRenderer.
+let composer: any = null;
+let bloomPass: any = null;
+
+// Only the emissive energy panels should bloom -- not the snow caps, not
+// the white shore foam. Luminance alone cannot separate them in an 8-bit
+// buffer: everything bright clamps to 1.0 before the bloom pass ever sees
+// it. So the composer renders into a HALF-FLOAT target, where the panels'
+// emissive (up to ~3.0 once GlowSystem drives it) survives above 1 while
+// snow and foam stay at or below it, and the threshold sits just above 1.
+const BLOOM_STRENGTH = 0.9;
+const BLOOM_RADIUS = 0.5;
+const BLOOM_THRESHOLD = 1.02;
+
+function buildComposer() {
+    const size = new THREE.Vector2(window.innerWidth, window.innerHeight);
+    const target = new THREE.WebGLRenderTarget(size.x, size.y, {
+        minFilter: THREE.LinearFilter,
+        magFilter: THREE.LinearFilter,
+        format: THREE.RGBAFormat,
+        type: THREE.HalfFloatType,
+    });
+
+    composer = new THREE.EffectComposer(renderer, target);
+    composer.setSize(size.x, size.y);
+    composer.addPass(new THREE.RenderPass(scene, camera));
+
+    bloomPass = new THREE.UnrealBloomPass(size, BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD);
+    composer.addPass(bloomPass);
+}
+
+// The composer owns its own render targets, so resizing the renderer alone
+// leaves the bloom rendering at the old resolution. EffectComposer.setSize
+// forwards to every pass, so the bloom pass does not need resizing too.
+function resizeComposer(width: number, height: number) {
+    composer?.setSize(width, height);
+}
+
 function initRenderer() {
     if (isRendererInitialized) {
         return;
@@ -44,6 +83,8 @@ function initRenderer() {
     renderer.shadowMap.type = THREE.VSMShadowMap;
     document.body.appendChild(renderer.domElement);
     scene.add(group);
+
+    buildComposer();
 
     isRendererInitialized = true;
 }
@@ -171,13 +212,31 @@ function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number,
     VisualizationSystem.updatePathAnimation();
 
     // Animate water tiles
-    GridSystem.animateWater(performance.now() * 0.001); // Convert to seconds
+    const seconds = performance.now() * 0.001;
+    GridSystem.animateWater(seconds);
+
+    // Gutter the models' energy panels on the same clock.
+    GlowSystem.animate(seconds);
 
     renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
     renderer.setScissor(0, 0, window.innerWidth, window.innerHeight);
     renderer.setScissorTest(true);
     renderer.setClearColor(0x000000, 0); // Set clear color to transparent black
-    renderer.render(scene, camera);
+    // Through the bloom chain rather than straight to the canvas. The
+    // composer leaves the renderer's viewport and scissor alone, so the
+    // minimap below still draws into its own corner afterwards.
+    if (composer) {
+        composer.render();
+    } else {
+        renderer.render(scene, camera);
+    }
+
+    // The minimap draws a second scene into the same framebuffer and relies
+    // on autoClear to clear inside its scissor rect. The bloom chain's
+    // passes set autoClear false and restore it -- but NOT in a finally, so
+    // a pass that throws would leave it false and the minimap would ghost
+    // over the scene from then on. Assert it rather than inherit it.
+    renderer.autoClear = true;
 
     const left = window.innerWidth - MAP_CONFIG.MINIMAP.WIDTH - 10;
     const bottom = window.innerHeight - MAP_CONFIG.MINIMAP.HEIGHT - 10;
@@ -231,5 +290,5 @@ export {
     scene, camera, renderer, group, miniMapScene, mapWidth, mapHeight, cameraTarget,
     initRenderer, setupCamera, getLookDirection, setCameraPosition, updateCameraPosition,
     updateCameraZoom, setupMinimap, animate, updateMiniMapHighlights,
-    getCameraHeight, setCameraHeight,
+    getCameraHeight, setCameraHeight, resizeComposer,
 };

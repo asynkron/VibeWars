@@ -1,4 +1,5 @@
 // ModelSystem.js
+import { GlowSystem } from './GlowSystem';
 
 class ModelSystem {
     static models: Record<string, any> = {};  // Cache for loaded 3D models
@@ -182,6 +183,7 @@ class ModelSystem {
                         : tintIfMatch(child.material);
                 }
             });
+            GlowSystem.claim(modelClone);
             return modelClone;
         }
 
@@ -243,6 +245,9 @@ class ModelSystem {
             });
         }
 
+        // After every material swap above, so the glow claims the materials
+        // that actually end up in the scene rather than ones replaced later.
+        GlowSystem.claim(modelClone);
         return modelClone;
     }
 

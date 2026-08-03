@@ -9,6 +9,7 @@ import {
     scene, camera, renderer, group, mapWidth, mapHeight,
     initRenderer, setupCamera, setCameraPosition, updateCameraPosition,
     updateCameraZoom, setupMinimap, animate, getCameraHeight, setCameraHeight,
+    resizeComposer,
 } from './render';
 import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
 import { GameState } from './systems/GameState';
@@ -403,6 +404,8 @@ function setupEventListeners(matrices: CameraMatrices) {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        // The bloom chain has its own render targets to keep in step.
+        resizeComposer(window.innerWidth, window.innerHeight);
         minimapOverlay.style.top = '10px';
         minimapOverlay.style.right = '10px';
 
