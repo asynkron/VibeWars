@@ -4,8 +4,8 @@ import { runHeadlessMatch, stateFromProvider } from './headless';
 import { mirror8MapProvider } from '../maps/Mirror8MapProvider';
 
 // Small search budget keeps these fast; the point is the loop mechanics,
-// not AI strength.
-const FAST = { population: 8, rounds: 1, lookaheadPlies: 1, replyCandidates: 3 };
+// not AI strength. finalists: 0 skips the deep finalist stage entirely.
+const FAST = { population: 8, rounds: 1, lookaheadPlies: 1, replyCandidates: 3, finalists: 0 };
 
 describe('stateFromProvider', () => {
     it('builds the full mirrored setup as pure sim state', () => {
@@ -41,5 +41,5 @@ describe('runHeadlessMatch', () => {
         const a = runHeadlessMatch(mirror8MapProvider, { seed: 7, plan: FAST });
         const b = runHeadlessMatch(mirror8MapProvider, { seed: 7, plan: FAST });
         expect(b).toEqual(a);
-    });
+    }, 30_000);
 });

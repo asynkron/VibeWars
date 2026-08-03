@@ -81,7 +81,17 @@ export class AIController {
                 const unit = liveRefs[event.unitIndex];
                 if (!isAlive(unit)) continue;
                 const path = PathfindingSystem.getPath(unit.q, unit.r, event.toQ, event.toR, unit.move, unit);
-                if (path.length === 0) continue; // live world diverged; skip gracefully
+                if (path.length === 0) {
+                    // The live world diverged from the simulation. Skip
+                    // gracefully, but LOUDLY -- a silent drop here cascades
+                    // (the unit never reaches its firing position, so its
+                    // planned attacks get range-rejected later).
+                    console.warn(
+                        `AI replay: no live path for ${unit.type} (${unit.q},${unit.r}) -> ` +
+                        `(${event.toQ},${event.toR}) with move ${unit.move} -- move dropped`
+                    );
+                    continue;
+                }
                 unit.move -= event.moveSpent;
                 stats.moves++;
                 await UnitSystem.move(unit, path);
@@ -113,9 +123,22 @@ export class AIController {
 
                 const attacker = liveRefs[attackerIndex];
                 if (isAlive(attacker) && isAlive(primaryDefender)) {
-                    stats.attacks++;
-                    await UnitSystem.attack(attacker, primaryDefender, outcome);
-                    await sleep(ACTION_PAUSE_MS);
+                    // Same range/hasAttacked preconditions attack() checks
+                    // silently -- verify them here so a diverged replay is
+                    // visible instead of a no-op.
+                    const dist = UnitSystem.getHexDistance(attacker.q, attacker.r, primaryDefender.q, primaryDefender.r);
+                    if (dist < attacker.minRange || dist > attacker.maxRange || UnitSystem.hasUnitAttacked(attacker)) {
+                        console.warn(
+                            `AI replay: attack dropped for ${attacker.type} at (${attacker.q},${attacker.r}) -> ` +
+                            `${primaryDefender.type} at (${primaryDefender.q},${primaryDefender.r}): ` +
+                            `dist ${dist}, range ${attacker.minRange}-${attacker.maxRange}, ` +
+                            `hasAttacked ${UnitSystem.hasUnitAttacked(attacker)}`
+                        );
+                    } else {
+                        stats.attacks++;
+                        await UnitSystem.attack(attacker, primaryDefender, outcome);
+                        await sleep(ACTION_PAUSE_MS);
+                    }
                 }
                 continue;
             }

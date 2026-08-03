@@ -88,7 +88,15 @@ class PathfindingSystem {
     // heuristic in that direction.
     static heuristic(a: { q: number; r: number }, b: { q: number; r: number } | null): number {
         if (!b) return 0;
-        return HexCoord.getDistance(a.q, a.r, b.q, b.r);
+        // Scaled by the CHEAPEST possible step cost (roads: 0.5). With the
+        // raw hex distance the heuristic OVERESTIMATES along roads (h says
+        // 1/step, reality is 0.5/step) -- inadmissible A* then reports
+        // inflated path costs, and callers with a move budget (getPath's
+        // maxCost) see "unreachable" for road paths the AI simulation
+        // (plain Dijkstra, no heuristic) correctly found. That silent
+        // divergence made replayed AI moves -- and the attacks that
+        // depended on them -- vanish.
+        return 0.5 * HexCoord.getDistance(a.q, a.r, b.q, b.r);
     }
 
     // Note: Function signature remains the same.

@@ -73,6 +73,19 @@ describe('scoreState', () => {
         const near = scoreState(build(5), 1);
         expect(near).toBeGreaterThan(far);
     });
+
+    it('penalizes a non-capture unit parked on a capturable factory', () => {
+        // Identical states except for WHERE the neutral factory sits: under
+        // the tank, or far away. No capture-capable units, so the pull term
+        // is silent -- the whole difference is the blocking penalty.
+        const build = (factoryQ: number, factoryR: number) => makeState(
+            [makeUnit({ type: 'Bulwark', q: 4, r: 4, playerIndex: 1 }), makeUnit({ q: 0, r: 0, playerIndex: 0 })],
+            [{ type: 'factory', q: factoryQ, r: factoryR, ownerIndex: null, hiddenUnitType: 'Sabre' }],
+        );
+        const tankOnFactory = scoreState(build(4, 4), 1);
+        const factoryElsewhere = scoreState(build(7, 7), 1);
+        expect(tankOnFactory).toBeLessThan(factoryElsewhere);
+    });
 });
 
 describe('planTurn', () => {
