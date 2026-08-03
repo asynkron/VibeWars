@@ -138,6 +138,30 @@ export interface ResolvedAttackOutcome {
   impacts: Array<{ q: number; r: number; craterDelta: number }>;
 }
 
+// A building placed on the map (currently only factories). Ownership is
+// per-player-index; null means neutral. A factory may hold one hidden unit
+// that is yielded (spawned next to the building) the first time a
+// canCapture unit takes the tile; hiddenUnitType is nulled after that, so
+// re-captures only flip ownership. `visual` is the THREE group decorating
+// the hex (see BuildingSystem).
+export interface Building {
+  type: 'factory';
+  q: number;
+  r: number;
+  ownerIndex: number | null;
+  hiddenUnitType: string | null;
+  destroyed: boolean;
+  visual?: Object3DLike | null;
+}
+
+// A building as authored by a MapProvider -- spawn-time data only.
+export interface BuildingSpawn {
+  type: 'factory';
+  q: number;
+  r: number;
+  hiddenUnitType: string | null;
+}
+
 // A GameMap tile, see MapSystem's Tile class.
 export interface TileLike {
   height: number;

@@ -17,7 +17,7 @@
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
 import { hash } from '../../shared/hexengine/utils';
 import { MapProvider, StartingUnit, Tile } from './MapProvider';
-import type { TileLike } from '../../types';
+import type { BuildingSpawn, TileLike } from '../../types';
 
 const ROWS = 8;
 const COLS = 8;
@@ -51,6 +51,18 @@ const ROSTER: Array<{ type: string; q: number }> = [
     { type: 'Kestrel', q: 3 },
     { type: 'Halberd', q: 4 },
     { type: 'Nightjar', q: 5 },
+    // Infantry -- the only class that can capture the factories below.
+    { type: 'Pike', q: 6 },
+];
+
+// One neutral factory per half, mirrored across the center line
+// ((q,2) <-> (q,5)), each holding the same hidden unit so neither side
+// gets a content advantage. (4,2)/(4,5) are the SAND ford tiles between
+// the twin lakes -- reachable, contested ground. The Sabre medium tank
+// (cut from the starting roster) returns as the capture prize.
+const FACTORIES: BuildingSpawn[] = [
+    { type: 'factory', q: 4, r: 2, hiddenUnitType: 'Sabre' },
+    { type: 'factory', q: 4, r: ROWS - 1 - 2, hiddenUnitType: 'Sabre' },
 ];
 
 const asSpawns = (r: number): StartingUnit[] => ROSTER.map(({ type, q }) => ({ type, q, r }));
@@ -61,6 +73,7 @@ export const mirror8MapProvider: MapProvider = {
     rows: ROWS,
     cols: COLS,
     randomRoads: 0,
+    buildings: FACTORIES,
     spawns: {
         player: asSpawns(ROWS - 1),
         cpu: asSpawns(0),

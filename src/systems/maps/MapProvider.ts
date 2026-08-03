@@ -11,7 +11,7 @@
 // The registry asserts the two stay in sync at startup instead.
 
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
-import type { TileLike } from '../../types';
+import type { BuildingSpawn, TileLike } from '../../types';
 
 export interface StartingUnit {
     type: string;
@@ -32,6 +32,9 @@ export interface MapProvider {
         player: StartingUnit[];
         cpu: StartingUnit[];
     };
+    // Buildings authored onto the map (factories with hidden units).
+    // Omitted/empty for maps without buildings.
+    readonly buildings?: BuildingSpawn[];
     // Produce the full tile grid, indexed [q][r].
     generate(): TileLike[][];
 }

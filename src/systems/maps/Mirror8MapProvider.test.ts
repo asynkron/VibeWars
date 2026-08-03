@@ -67,4 +67,36 @@ describe('mirror8MapProvider', () => {
         const keys = [...player, ...cpu].map((s) => `${s.q},${s.r}`);
         expect(new Set(keys).size).toBe(keys.length);
     });
+
+    it('roster includes exactly one infantry so factories are capturable', () => {
+        const { player, cpu } = mirror8MapProvider.spawns;
+        expect(player.filter((s) => s.type === 'Pike').length).toBe(1);
+        expect(cpu.filter((s) => s.type === 'Pike').length).toBe(1);
+        expect(player.length).toBe(5);
+    });
+
+    it('has two mirrored neutral factories with the same hidden unit, on sand fords', () => {
+        const tiles = mirror8MapProvider.generate();
+        const buildings = mirror8MapProvider.buildings!;
+        expect(buildings.length).toBe(2);
+
+        const [north, south] = [...buildings].sort((a, b) => a.r - b.r);
+        // Mirrored across the center line, same column.
+        expect(south.q).toBe(north.q);
+        expect(south.r).toBe(rows - 1 - north.r);
+        // Same prize on both sides.
+        expect(south.hiddenUnitType).toBe(north.hiddenUnitType);
+        expect(north.hiddenUnitType).toBe('Sabre');
+
+        for (const b of buildings) {
+            expect(b.type).toBe('factory');
+            // On the sand ford between the lakes -- passable, contested.
+            expect(tiles[b.q][b.r].type).toBe('SAND');
+            // Not on top of a spawn.
+            const spawnKeys = new Set(
+                [...mirror8MapProvider.spawns.player, ...mirror8MapProvider.spawns.cpu].map((s) => `${s.q},${s.r}`),
+            );
+            expect(spawnKeys.has(`${b.q},${b.r}`)).toBe(false);
+        }
+    });
 });
