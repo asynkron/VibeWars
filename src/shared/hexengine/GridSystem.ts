@@ -178,11 +178,7 @@ class GridSystem {
             color: baseColor,
             metalness: materialProps.metalness,
             roughness: materialProps.roughness,
-            // smoothHexTile computes proper neighbor-averaged vertex
-            // normals -- but flatShading makes the shader IGNORE them and
-            // derive faceted face normals instead. Smooth shading lets the
-            // authored normals soften the terrain silhouette.
-            flatShading: false,
+            flatShading: true,
             dithering: false,
             vertexColors: true,
         });
