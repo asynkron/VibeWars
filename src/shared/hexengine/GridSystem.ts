@@ -7,6 +7,7 @@ import { ModelSystem } from './ModelSystem';
 import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
+import { applyProceduralGround } from './TerrainShader';
 import { addColorVariation, getVertexOffsets } from './utils';
 import { MAP_CONFIG, WATER_FOAM_COLOR, CRATER_COLOR } from '../../constants';
 import { getGameState, getGameStateOrNull } from '../../systems/gameStateStore';
@@ -181,6 +182,10 @@ class GridSystem {
             dithering: false,
             vertexColors: true,
         });
+        // Procedural ground detail (sand grain, grass mottle, forest
+        // floor, rock + snow cap) modulating the vertex colors. WATER and
+        // unknown types are left untouched.
+        applyProceduralGround(material, type.toUpperCase());
         this.materialCache.set(type, material);
         return material;
     }
