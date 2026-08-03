@@ -98,6 +98,12 @@ export function resolveAttack(
     const hits: ResolvedHit[] = [];
     const impacts: ResolvedImpact[] = [];
 
+    // Class targeting rule (mirrors UnitSystem.canTarget): artillery and
+    // infantry can't attack air units at all.
+    if (!UnitSystem.canTarget(attacker.type, defender.type)) {
+        return { attackerIndex, defenderIndex, hits, impacts };
+    }
+
     if (stats.attackEffect === 'projectile' || stats.attackEffect === 'laser') {
         const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);
         hits.push({ unitIndex: defenderIndex, damage: Math.floor(damage * classModifier) });
@@ -116,6 +122,8 @@ export function resolveAttack(
             const found = state.getUnitAt(hex.q, hex.r);
             if (!found) continue;
             const [unitIndex, victim] = found;
+            // Shells can't touch air units hovering over the splash zone.
+            if (!UnitSystem.canTarget(attacker.type, victim.type)) continue;
             const isPrimary = hex.q === defender.q && hex.r === defender.r;
             const classModifier = UnitSystem.getClassModifier(attacker.type, victim.type);
             hits.push({ unitIndex, damage: Math.floor(damage * (isPrimary ? 1 : SPLASH_FACTOR) * classModifier) });

@@ -116,6 +116,9 @@ export function applyGene(state: SimState, gene: Gene): boolean {
             const dist = HexCoord.getDistance(unit.q, unit.r, target.q, target.r);
             if (dist < unit.minRange || dist > unit.maxRange) return false;
 
+            // Class targeting rule: artillery/infantry can't attack air.
+            if (!UnitSystem.canTarget(unit.type, target.type)) return false;
+
             const resolved = resolveAttack(state, gene.unitIndex, targetIndex, gene.seed);
             if (!resolved || resolved.hits.length === 0) return false;
 

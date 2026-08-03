@@ -92,6 +92,39 @@ describe('resolveAttack: rocketBarrage', () => {
     });
 });
 
+describe('air-unit targeting restrictions', () => {
+    it('artillery cannot hit air units -- not even as primary target', () => {
+        const state = makeState([
+            makeUnit({ type: 'Kestrel', q: 0, r: 0, playerIndex: 1, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Nightjar', q: 2, r: 2, playerIndex: 0 }),
+        ]);
+        const resolved = resolveAttack(state, 0, 1, 5)!;
+        expect(resolved.hits).toEqual([]);
+        expect(resolved.impacts).toEqual([]);
+    });
+
+    it('barrage splash passes harmlessly under a helicopter in the blast zone', () => {
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const state = makeState([
+            makeUnit({ type: 'Kestrel', q: 5, r: 5, playerIndex: 1 }),
+            makeUnit({ type: 'Bulwark', q: 2, r: 2, playerIndex: 0 }),                        // ground target
+            makeUnit({ type: 'Nightjar', q: neighbor.q, r: neighbor.r, playerIndex: 0 }),     // air, in splash
+        ]);
+        const resolved = resolveAttack(state, 0, 1, 5)!;
+        const hitIndexes = resolved.hits.map((h) => h.unitIndex);
+        expect(hitIndexes).toContain(1);
+        expect(hitIndexes).not.toContain(2);
+    });
+
+    it('infantry cannot hit air units', () => {
+        const state = makeState([
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 1 }),
+            makeUnit({ type: 'Nightjar', q: 2, r: 3, playerIndex: 0 }),
+        ]);
+        expect(resolveAttack(state, 0, 1, 5)!.hits).toEqual([]);
+    });
+});
+
 describe('resolveAttack: rocketVolley (attack helicopter)', () => {
     it('several small hits on the SAME target, summing to the single-shot total', () => {
         // Nightjar: expected (4+6)/2 = 5 vs neutral Pike -> hits [2,1,1,1].

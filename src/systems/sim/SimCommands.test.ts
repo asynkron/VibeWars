@@ -83,6 +83,25 @@ describe('attack gene', () => {
         expect(standoff.events.some((e) => e.type === 'unitAttacked')).toBe(true);
     });
 
+    it('artillery and infantry attack genes reject air targets outright', () => {
+        // Kestrel (artillery) at perfect standoff range from a Nightjar.
+        const artillery = makeState([
+            makeUnit({ type: 'Kestrel', q: 2, r: 2, playerIndex: 1, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Nightjar', q: 4, r: 2, playerIndex: 0 }),
+        ]);
+        expect(applyGene(artillery, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(false);
+        expect(artillery.events).toEqual([]);
+
+        // Pike (infantry) adjacent to the same helicopter.
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const infantry = makeState([
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 1 }),
+            makeUnit({ type: 'Nightjar', q: neighbor.q, r: neighbor.r, playerIndex: 0 }),
+        ]);
+        expect(applyGene(infantry, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(false);
+        expect(infantry.events).toEqual([]);
+    });
+
     it('rocketBarrage genes record terrainModified craters', () => {
         const neighbor = HexCoord.getNeighbors(2, 2)[0];
         const state = makeState([

@@ -115,8 +115,10 @@ class UnitSystem {
             symbol: "O",
             name: "Kestrel",
             unitClass: 'artillery' as const,
-            maxHp: 7,
-            hp: 7,
+            // Glass cannon: huge indirect firepower, but dies to almost
+            // anything that reaches it -- closing in on artillery must pay.
+            maxHp: 3,
+            hp: 3,
             move: 1,
             minRange: 2,
             maxRange: 3,
@@ -411,6 +413,17 @@ class UnitSystem {
         tank: { aa: 2.0, air: 0.5 },
         air:  { tank: 2.0, aa: 0.5 },
     };
+
+    // Hard targeting restrictions on top of the class-modifier triangle:
+    // artillery lobs shells and infantry carries small arms -- neither can
+    // touch an AIR unit at all (no attack, no barrage splash). Everything
+    // else may target anything.
+    static canTarget(attackerType: string, defenderType: string): boolean {
+        const attackerClass = this.unitTypesRecord[attackerType]?.unitClass;
+        const defenderClass = this.unitTypesRecord[defenderType]?.unitClass;
+        if (defenderClass !== 'air') return true;
+        return attackerClass !== 'artillery' && attackerClass !== 'infantry';
+    }
 
     static getClassModifier(attackerType: string, defenderType: string): number {
         const attackerClass = this.unitTypesRecord[attackerType]?.unitClass;
@@ -957,6 +970,9 @@ class UnitSystem {
             // Skip if it's our own unit
             if (targetUnit.playerIndex === unit.playerIndex) return;
 
+            // Skip targets this unit class can't touch (artillery/infantry vs air).
+            if (!this.canTarget(unit.type, targetUnit.type)) return;
+
             // Calculate distance to this enemy unit
             const distance = this.getHexDistance(unit.q, unit.r, targetUnit.q, targetUnit.r);
 
@@ -1051,6 +1067,11 @@ class UnitSystem {
             return;
         }
 
+        // Class targeting rule: artillery/infantry can't attack air at all.
+        if (!this.canTarget(attacker.type, defender.type)) {
+            return;
+        }
+
         // Check if target is within attack range
         const distance = this.getHexDistance(attacker.q, attacker.r, defender.q, defender.r);
         if (distance < attacker.minRange || distance > attacker.maxRange) {
@@ -1128,6 +1149,8 @@ class UnitSystem {
             for (const hex of splashHexes) {
                 const unitAtHex = getGameState().getUnitAt(hex.q, hex.r);
                 if (!unitAtHex) continue;
+                // Shells can't touch air units hovering over the splash zone.
+                if (!this.canTarget(attacker.type, unitAtHex.type)) continue;
                 const isPrimary = hex.q === defender.q && hex.r === defender.r;
                 const classModifier = this.getClassModifier(attacker.type, unitAtHex.type);
                 damages.push({
