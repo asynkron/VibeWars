@@ -497,13 +497,21 @@ class GridSystem {
 
             const colors = geometry.attributes.color;
             if (type === 'water') {
-                const hasLandNeighbor = vertexNeighbors[i].some((n: any) => n && n.userData.type !== 'water');
-                if (hasLandNeighbor) {
-                    const foamColor = new THREE.Color(WATER_FOAM_COLOR);
-                    colors.setXYZ(vertexIndex, foamColor.r, foamColor.g, foamColor.b);
-                } else {
-                    colors.setXYZ(vertexIndex, currentColor.r, currentColor.g, currentColor.b);
-                }
+                // Foam STRENGTH = fraction of this corner's two adjacent
+                // hexes that are land (0, 1/2, 1). The shader only foams
+                // near full strength, so the shared edge between two
+                // water tiles -- whose corners each touch one land hex
+                // and one water hex (strength 1/2) -- stays calm instead
+                // of drawing a foam line across open water.
+                const landCount = vertexNeighbors[i].filter((n: any) => n && n.userData.type !== 'water').length;
+                const strength = landCount / 2;
+                const foamColor = new THREE.Color(WATER_FOAM_COLOR);
+                colors.setXYZ(
+                    vertexIndex,
+                    currentColor.r + (foamColor.r - currentColor.r) * strength,
+                    currentColor.g + (foamColor.g - currentColor.g) * strength,
+                    currentColor.b + (foamColor.b - currentColor.b) * strength
+                );
             } else {
                 colors.setXYZ(vertexIndex, avgR, avgG, avgB);
             }

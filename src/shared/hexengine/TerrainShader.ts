@@ -109,8 +109,10 @@ const WATER_FRAGMENT = /* glsl */ `
         // Shore foam MASK first, from the raw vertex-color gradient (the
         // land-adjacent rims are painted a green-heavier foam color) --
         // sampled BEFORE the ripple modulation so the shimmer can't push
-        // open water over the threshold.
-        float foamMask = smoothstep(0.30, 0.44, diffuseColor.g);
+        // open water over the threshold. The window sits ABOVE the
+        // half-strength corners (one land + one water neighbor), so only
+        // true shore edges foam -- not the seam between two water tiles.
+        float foamMask = smoothstep(0.36, 0.43, diffuseColor.g);
 
         // Two drifting ripple layers shimmering across the whole surface.
         float ripple1 = groundNoise(wp * 3.0 + vec2(uTime * 0.35, uTime * 0.22));
