@@ -30,6 +30,8 @@ class AudioSystem {
         await this.loadSound('step1', 'assets/sounds/step_lth33.ogg');
         await this.loadSound('battleship_movement', 'assets/sounds/BattleShipMovementAmbient.ogg');
         await this.loadSound('jet', 'assets/sounds/jet.wav');
+        // Tank main gun: a launcher's thump, not the rocket's jet whoosh.
+        await this.loadSound('cannon', 'assets/sounds/glauncher.ogg');
 
         this.initialized = true;
     }

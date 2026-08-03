@@ -8,7 +8,7 @@
 //
 // The rules mirror UnitSystem.attack + VisualizationSystem.
 // showRocketBarrageEffect exactly:
-//   - projectile/laser: single hit on the defender.
+//   - projectile/laser/cannon: single hit on the defender.
 //   - rocketBarrage: damage hits EVERY unit on the defender's hex (x1) and
 //     on each in-bounds neighbor hex (x SPLASH_FACTOR, floored) -- friendly
 //     fire included -- independent of where the rockets visually land. Each
@@ -108,7 +108,11 @@ export function resolveAttack(
         return { attackerIndex, defenderIndex, hits, impacts };
     }
 
-    if (stats.attackEffect === 'projectile' || stats.attackEffect === 'laser') {
+    // Single-target effects. 'cannon' MUST be listed here: anything not
+    // matched below deals no damage at all, so a new effect name silently
+    // makes the unit harmless to the search.
+    if (stats.attackEffect === 'projectile' || stats.attackEffect === 'laser'
+        || stats.attackEffect === 'cannon') {
         const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);
         hits.push({ unitIndex: defenderIndex, damage: Math.floor(damage * classModifier) });
     } else if (stats.attackEffect === 'rocketBarrage') {

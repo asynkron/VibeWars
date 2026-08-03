@@ -1316,6 +1316,120 @@ class VisualizationSystem {
         requestAnimationFrame(animate);
     }
 
+    // A tank's main gun: muzzle flash, a tracer that streaks flat and fast
+    // to the target, and an impact flash. Deliberately NOT showAttackEffect,
+    // which loads a missile model and lobs it along a parabola with a jet
+    // whoosh -- that is a rocket, and armour does not fire rockets.
+    static showCannonShotEffect(startHex: any, targetHex: any) {
+        AudioSystem.playSound('cannon', 0.5);
+
+        const startPos = new HexCoord(startHex.userData.q, startHex.userData.r).getWorldPosition();
+        const endPos = new HexCoord(targetHex.userData.q, targetHex.userData.r).getWorldPosition();
+        // Barrel height, and a touch lower at the target so the round comes
+        // down into the hull rather than sailing over it.
+        startPos.y = TerrainSystem.getHeight(startHex) + 0.9;
+        endPos.y = TerrainSystem.getHeight(targetHex) + 0.7;
+
+        const direction = new THREE.Vector3().subVectors(endPos, startPos);
+        const distance = direction.length();
+        const heading = direction.clone().normalize();
+        const aim = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), heading);
+
+        const group = new THREE.Group();
+        scene.add(group);
+
+        // Muzzle flash: a short cone at the barrel, pointing down-range.
+        const flashGeometry = new THREE.ConeGeometry(0.22, 0.7, 10, 1, true);
+        const flashMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffd08a, transparent: true, opacity: 1, depthWrite: false,
+        });
+        const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+        flash.position.copy(startPos).addScaledVector(heading, 0.35);
+        flash.setRotationFromQuaternion(aim);
+        group.add(flash);
+
+        const flashLight = new THREE.PointLight(0xffc070, 14, 7);
+        flashLight.position.copy(flash.position);
+        group.add(flashLight);
+
+        // The round itself: a short stretched streak, not a missile.
+        const tracerLength = Math.min(1.1, distance * 0.35);
+        const tracerGeometry = new THREE.CylinderGeometry(0.05, 0.02, tracerLength, 6, 1);
+        const tracerMaterial = new THREE.MeshBasicMaterial({
+            color: 0xfff0c0, transparent: true, opacity: 1, depthWrite: false,
+        });
+        const tracer = new THREE.Mesh(tracerGeometry, tracerMaterial);
+        tracer.setRotationFromQuaternion(aim);
+        group.add(tracer);
+
+        const tracerLight = new THREE.PointLight(0xffb050, 6, 4);
+        group.add(tracerLight);
+
+        // Flat and fast: no arc, and gone in a quarter second.
+        const flightDuration = 260;
+        const flashDuration = 90;
+        const impactDuration = 180;
+        let startTime: any = null;
+        let impact: any = null;
+        let impactMaterial: any = null;
+        let impactLight: any = null;
+
+        const step = (timestamp: number) => {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+
+            // Muzzle flash punches out and dies immediately.
+            const flashProgress = Math.min(elapsed / flashDuration, 1);
+            flashMaterial.opacity = 1 - flashProgress;
+            flash.scale.setScalar(1 + flashProgress * 0.8);
+            flashLight.intensity = 14 * (1 - flashProgress);
+
+            const flight = Math.min(elapsed / flightDuration, 1);
+            const along = startPos.clone().lerp(endPos, flight);
+            tracer.position.copy(along);
+            tracerLight.position.copy(along);
+            tracerMaterial.opacity = flight < 1 ? 1 : 0;
+            tracerLight.intensity = flight < 1 ? 6 : 0;
+
+            // Impact, spawned once the round lands.
+            if (flight >= 1 && !impact) {
+                const impactGeometry = new THREE.SphereGeometry(0.28, 10, 8);
+                impactMaterial = new THREE.MeshBasicMaterial({
+                    color: 0xffd9a0, transparent: true, opacity: 1, depthWrite: false,
+                });
+                impact = new THREE.Mesh(impactGeometry, impactMaterial);
+                impact.position.copy(endPos);
+                group.add(impact);
+
+                impactLight = new THREE.PointLight(0xffa040, 16, 8);
+                impactLight.position.copy(endPos);
+                group.add(impactLight);
+            }
+
+            if (impact) {
+                const burst = Math.min((elapsed - flightDuration) / impactDuration, 1);
+                impact.scale.setScalar(1 + burst * 2.2);
+                impactMaterial.opacity = 1 - burst;
+                impactLight.intensity = 16 * (1 - burst);
+            }
+
+            if (elapsed < flightDuration + impactDuration) {
+                requestAnimationFrame(step);
+                return;
+            }
+
+            scene.remove(group);
+            flashGeometry.dispose();
+            flashMaterial.dispose();
+            tracerGeometry.dispose();
+            tracerMaterial.dispose();
+            impact?.geometry.dispose();
+            impactMaterial?.dispose();
+        };
+
+        requestAnimationFrame(step);
+    }
+
     static createTexturedHexGeometry(hex: any, texture: any, options: any = {}) {
         const {
             radius = MAP_CONFIG.HEX_RADIUS * 0.8,

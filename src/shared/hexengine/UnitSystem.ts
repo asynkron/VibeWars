@@ -95,7 +95,7 @@ class UnitSystem {
             model: "assets/units/bulwark-heavy-tank.glb",  // new-models test swap (was tank_2_green.fbx)
             scale: 0.2,
             rotation: 0,
-            attackEffect: 'projectile',  // default projectile attack
+            attackEffect: 'cannon',  // main gun, not a rocket
             footprintTexture: 'assets/textures/tracks2.png',  // Tank tracks
             terrainCosts: {
                 WATER: null,
@@ -161,7 +161,7 @@ class UnitSystem {
             model: "assets/units/sabre-medium-tank.glb",  // new-models test swap (was tank_4_green.fbx)
             scale: 0.18,
             rotation: 0,
-            attackEffect: 'projectile',  // default projectile attack
+            attackEffect: 'cannon',  // main gun, not a rocket
             footprintTexture: 'assets/textures/tracks2.png',  // Tank tracks
             terrainCosts: {
                 WATER: null,
@@ -256,7 +256,7 @@ class UnitSystem {
             model: "assets/units/drover-apc.glb",
             scale: 0.22,
             rotation: 0,
-            attackEffect: 'projectile',
+            attackEffect: 'cannon',  // main gun, not a rocket
             footprintTexture: 'assets/textures/tracks2.png',
             terrainCosts: {
                 WATER: null,
@@ -318,7 +318,7 @@ class UnitSystem {
             model: "assets/units/lynx-light-ifv.glb",
             scale: 0.22,
             rotation: 0,
-            attackEffect: 'projectile',
+            attackEffect: 'cannon',  // main gun, not a rocket
             footprintTexture: 'assets/textures/tracks2.png',
             terrainCosts: {
                 WATER: null,
@@ -1121,6 +1121,10 @@ class UnitSystem {
         if (attackerStats.attackEffect === 'projectile') {
             VisualizationSystem.showAttackEffect(attackerHex, defenderHex);
             await new Promise(resolve => setTimeout(resolve, 500));
+            this.applyResolvedOutcome(outcome);
+        } else if (attackerStats.attackEffect === 'cannon') {
+            VisualizationSystem.showCannonShotEffect(attackerHex, defenderHex);
+            await new Promise(resolve => setTimeout(resolve, 300));
             this.applyResolvedOutcome(outcome);
         } else if (attackerStats.attackEffect === 'rocketBarrage' || attackerStats.attackEffect === 'rocketVolley') {
             // Rockets fly to the exact resolved impact hexes (a volley's
