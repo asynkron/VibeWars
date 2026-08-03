@@ -664,7 +664,7 @@ class UnitSystem {
         // this unit's flightAltitude -- see move()'s startPos.y/endPos.y.
         const height = customPosition
             ? customPosition.y
-            : TerrainSystem.getPlacementHeight(hex) + (unit.userData.flightAltitude || 0) + (unit.userData.yOffset || 0);
+            : TerrainSystem.getHeight(hex) + (unit.userData.flightAltitude || 0) + (unit.userData.yOffset || 0);
 
         // Transform position in world space
         const finalPosition = new THREE.Vector3(
@@ -813,8 +813,8 @@ class UnitSystem {
                 // flightAltitude, so mid-flight interpolation (below) doesn't
                 // dip back down to ground level for helicopters/jets.
                 const flightAltitude = (unit.visualUnit.userData.flightAltitude || 0) + (unit.visualUnit.userData.yOffset || 0);
-                startPos.y = TerrainSystem.getPlacementHeight(startHex) + flightAltitude;
-                endPos.y = TerrainSystem.getPlacementHeight(hex) + flightAltitude;
+                startPos.y = TerrainSystem.getHeight(startHex) + flightAltitude;
+                endPos.y = TerrainSystem.getHeight(hex) + flightAltitude;
 
                 // Create a temporary position vector for interpolation
                 const currentPos = new THREE.Vector3();
@@ -1216,15 +1216,6 @@ class UnitSystem {
                 if (standing && this.unitTypesRecord[standing.type].terrainCosts.WATER == null) {
                     VisualizationSystem.showDamageNumber(standing.visualUnit.position.clone(), standing.hp);
                     this.removeUnit(standing);
-                }
-            } else if (wasLand) {
-                // The crater lowered the ground under a surviving unit --
-                // re-seat it on the new surface instead of leaving it
-                // hovering at the pre-crater height.
-                const standing = getGameState().getUnitAt(impact.q, impact.r);
-                if (standing) {
-                    const hex = HexCoord.findHex(impact.q, impact.r);
-                    if (hex) this.setPosition(standing.visualUnit, new HexCoord(impact.q, impact.r), hex);
                 }
             }
         }

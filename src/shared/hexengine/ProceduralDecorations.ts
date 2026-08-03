@@ -311,11 +311,6 @@ function place(group: any, rng: () => number, piece: any, maxRadius: number, spi
 export function createProceduralDecoration(terrainType: string, q: number, r: number, tileHeight: number = 0): any | null {
     const rng = tileRng(q, r);
     const group = new THREE.Group();
-    // Marks this decorator's children as individually ground-snappable --
-    // GridSystem.smoothHexTile re-seats each scattered piece onto the
-    // smoothed surface (a single-model decorator like the factory must
-    // NOT have its parts snapped separately).
-    group.userData.proceduralDecoration = true;
 
     switch (terrainType) {
         case 'FOREST': {

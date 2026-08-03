@@ -117,20 +117,32 @@ class ModelSystem {
                     }
                 });
 
-                // Calculate bounding box
-                const bbox = new THREE.Box3().setFromObject(loadedModel);
-
-                // Calculate center for X and Z only, keeping Y at bottom
-                const centerX = (bbox.max.x + bbox.min.x) / 2;
-                const centerZ = (bbox.max.z + bbox.min.z) / 2;
+                // Ground-normalize by scanning the ACTUAL geometry: find
+                // the model's lowest vertex (and X/Z extents) across every
+                // mesh, with world matrices explicitly refreshed first --
+                // Box3.setFromObject computed against stale pre-render
+                // matrices and left models hovering above their origin.
+                loadedModel.updateMatrixWorld(true);
+                const vMin = new THREE.Vector3(Infinity, Infinity, Infinity);
+                const vMax = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+                const vertex = new THREE.Vector3();
+                loadedModel.traverse((child: any) => {
+                    const pos = child.isMesh ? child.geometry?.attributes?.position : null;
+                    if (!pos) return;
+                    for (let i = 0; i < pos.count; i++) {
+                        vertex.fromBufferAttribute(pos, i).applyMatrix4(child.matrixWorld);
+                        vMin.min(vertex);
+                        vMax.max(vertex);
+                    }
+                });
 
                 // Create offset to move model:
                 // - Center it in X and Z
-                // - Move bottom to Y=0
+                // - Put the LOWEST VERTEX exactly at Y=0
                 const offset = new THREE.Vector3(
-                    -centerX,
-                    -bbox.min.y,  // Move up by the minimum Y value
-                    -centerZ
+                    -(vMax.x + vMin.x) / 2,
+                    -vMin.y,
+                    -(vMax.z + vMin.z) / 2
                 );
 
                 // Create a centered group

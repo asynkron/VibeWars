@@ -64,13 +64,7 @@ class BuildingSystem {
             null,
             'teamCamo'
         );
-        // Buildings span the WHOLE hex, so unlike units (small footprint,
-        // placed at the lower of center/rim -- see getPlacementHeight) a
-        // building must clear the smoothed center bump or its base plate
-        // gets buried. Use the HIGHER of the two, plus the model's own
-        // vertical correction.
-        const groundY = Math.max(TerrainSystem.getHeight(hex), hex.userData.height)
-            + BUILDING_TYPES[building.type].yOffset;
+        const groundY = TerrainSystem.getHeight(hex) + BUILDING_TYPES[building.type].yOffset;
         visual.position.set(hex.userData.x, groundY, hex.userData.z);
         hex.userData.decorator = visual;
         hex.add(visual);
