@@ -50,8 +50,12 @@ export interface ResolvedAttack {
 
 export const ROCKET_COUNT = 6; // showRocketBarrageEffect's projectileCount default
 // Barrage tuning (nerfed from -0.5 / 0.5: one barrage no longer deletes
-// whole neighborhoods or sinks terrain in a single strike).
-export const CRATER_DELTA = -0.25;
+// whole neighborhoods or sinks terrain in a single strike). Craters are
+// deliberately SHALLOW: sinking a typical grass tile (height ~1.0+) into
+// water now takes on the order of ten crater hits on the SAME tile, so
+// flooding stays a rare, earned event instead of the map ending up as
+// open sea after every artillery duel.
+export const CRATER_DELTA = -0.1;
 export const SPLASH_FACTOR = 0.25;
 // Helicopter volley: this many small rockets, all at the target hex.
 export const VOLLEY_COUNT = 4;

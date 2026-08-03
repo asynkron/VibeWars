@@ -1161,7 +1161,7 @@ class UnitSystem {
             }
 
             const rocketCount = 6;
-            const craterDelta = -0.25; // keep in sync with sim CRATER_DELTA
+            const craterDelta = -0.1; // keep in sync with sim CRATER_DELTA
             for (let i = 0; i < rocketCount; i++) {
                 const target = splashHexes[Math.floor(Math.random() * splashHexes.length)];
                 impacts.push({ q: target.q, r: target.r, craterDelta });
