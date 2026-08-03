@@ -23,8 +23,11 @@ import { MAP_CONFIG } from '../../constants';
 
 const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN']);
 
-// Shared noise toolkit (no declarations of its own).
-const NOISE_GLSL_CORE = /* glsl */ `
+// Shared noise toolkit (no declarations of its own). Exported because the
+// road decal paints its gravel from the same noise the ground does --
+// metalling that comes from a different generator than the dirt around it
+// reads as a sticker laid on the terrain.
+export const NOISE_GLSL_BASE = /* glsl */ `
     float groundHash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
     }
@@ -50,7 +53,10 @@ const NOISE_GLSL_CORE = /* glsl */ `
         }
         return value;
     }
+`;
 
+// The terrain's own additions on top of that: everything shoreline.
+const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
     // --- Shoreline geometry ------------------------------------------
     // Every tile carries a flag per hex edge saying whether that edge
     // borders the other element (painted by GridSystem.paintShoreEdges).

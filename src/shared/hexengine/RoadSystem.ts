@@ -4,6 +4,7 @@ import { VisualizationSystem } from './VisualizationSystem';
 import { PathfindingSystem } from './PathfindingSystem';
 import { UnitSystem } from './UnitSystem';
 import { GridSystem } from './GridSystem';
+import { applyRoadSurface } from './DecalShaders';
 import { VISUAL_OFFSETS } from '../../constants';
 import { getGameState } from '../../systems/gameStateStore';
 
@@ -19,29 +20,11 @@ class RoadSystem {
         'WATER': Infinity
     };
 
-    static async initialize() {
-        // Load road texture
-        const texturePath = 'assets/textures/road.png';
-        return new Promise((resolve, reject) => {
-            const loader = new THREE.TextureLoader();
-            loader.load(
-                texturePath,
-                (texture: any) => {
-                    // Set texture filtering to nearest-neighbor for crisp edges
-                    texture.magFilter = THREE.NearestFilter;
-                    texture.minFilter = THREE.NearestFilter;
-                    this.roadTextures[texturePath] = texture;
-                    resolve(texture);
-                },
-                undefined,
-                (err: any) => reject(err)
-            );
-        });
-    }
-
-    static getRoadTexture() {
-        return this.roadTextures['assets/textures/road.png'];
-    }
+    // Nothing to load any more: the road surface is generated in the
+    // fragment shader (DecalShaders.applyRoadSurface) instead of being
+    // sampled from road.png. Kept so game.ts's start-up sequence is
+    // unchanged.
+    static async initialize() {}
 
     static generateRoad(startQ: number, startR: number, endQ: number, endR: number): boolean {
         // Create a temporary unit using the Droid type
@@ -105,27 +88,31 @@ class RoadSystem {
                 // Get rotation using UnitSystem helper
                 const rotation = UnitSystem.getRotation(hex.userData.q, hex.userData.r, nq, nr);
 
-                // Create road mesh for this direction
+                // Create road mesh for this direction. No texture: the
+                // half-road road.png used to draw is generated in the
+                // fragment shader from this direction instead.
                 const roadMesh = VisualizationSystem.createTexturedHexGeometry(
                     hex,
-                    this.getRoadTexture(),
+                    null,
                     {
                         heightOffset: (VISUAL_OFFSETS as any).ROAD_OFFSET, // pre-existing: never defined, always undefined
                         color: '#ffffff',
                         opacity: 1.0,
                         renderOrder: 0,  // Same as terrain
                         depthWrite: true,
-                        textureRotation: Math.PI - rotation,
                         materialType: 'MeshStandardMaterial',  // Use standard material for lighting
                         receiveShadow: true,  // Enable shadow receiving
                         castShadow: true,  // Enable shadow casting
-                        metalness: 0.15,
-                        roughness: 0.5,
+                        metalness: 0.0,
+                        // Grit, not moulded plastic -- and the shader
+                        // varies it per fragment on top of this.
+                        roughness: 0.95,
                         flatShading: true,
                         dithering: false,
                     }
                 );
                 if (roadMesh) {
+                    applyRoadSurface(roadMesh.material, rotation);
                     // Ensure shadows are enabled on the mesh itself
                     roadMesh.castShadow = true;
                     roadMesh.receiveShadow = true;
