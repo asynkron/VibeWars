@@ -342,6 +342,9 @@ function setupEventListeners(matrices: CameraMatrices) {
         updateEndTurnButton();
         updateNextUnitButton();  // Update next unit button state
         currentUnitIndex = -1;   // Reset unit index on turn change
+        // Markers follow the turn: shown only for a human player's own
+        // units during their turn (hotseat swaps sides; AI turns show none).
+        VisualizationSystem.updateOwnUnitMarkers(this.units);
     };
 
     // Next Unit button handler
@@ -462,7 +465,7 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // each unit is created, but GameState.initializeUnits() only pushes a
     // unit into gameState.units *after* creating it, so the very last unit
     // created is missing from that list during its own update -- this catches it.
-    VisualizationSystem.updateOwnUnitMarkers(gameState.units, 0);
+    VisualizationSystem.updateOwnUnitMarkers(gameState.units);
 
     // Update decorator transparency for all hexes
     GridSystem.updateAllDecoratorTransparency();

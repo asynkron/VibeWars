@@ -143,7 +143,7 @@ class BuildingSystem {
             gameState.spawnUnit(type, c.q, c.r, playerIndex);
             // Same off-by-one resync as initGame: the marker update during
             // creation ran before the unit was in gameState.units.
-            VisualizationSystem.updateOwnUnitMarkers(gameState.units, 0);
+            VisualizationSystem.updateOwnUnitMarkers(gameState.units);
             return;
         }
         console.warn(`Factory at (${building.q},${building.r}): no free tile to yield ${type} -- unit lost`);

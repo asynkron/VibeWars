@@ -702,7 +702,7 @@ class UnitSystem {
             // Keep the "which ground tile is my unit on" markers in sync --
             // see VisualizationSystem.updateOwnUnitMarkers.
             if (unit.userData.playerIndex === 0) {
-                VisualizationSystem.updateOwnUnitMarkers(getGameState().units, 0);
+                VisualizationSystem.updateOwnUnitMarkers(getGameState().units);
             }
         }
     }
@@ -1207,7 +1207,7 @@ class UnitSystem {
         VisualizationSystem.showDeathEffect(unit.visualUnit.position);
 
         // Keep the own-unit ground markers in sync now that this unit is gone
-        VisualizationSystem.updateOwnUnitMarkers(getGameState().units, 0);
+        VisualizationSystem.updateOwnUnitMarkers(getGameState().units);
     }
 }
 

@@ -6,6 +6,7 @@ import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 import { MAP_CONFIG, HIGHLIGHT_COLORS, VISUAL_OFFSETS } from '../../constants';
+import { getGameStateOrNull } from '../../systems/gameStateStore';
 
 /*
 Render Order Hierarchy (from top to bottom):
@@ -170,14 +171,21 @@ class VisualizationSystem {
         }
     }
 
-    static updateOwnUnitMarkers(units: any[], playerIndex: number) {
+    // Rule: only a HUMAN player gets their own units marked, only during
+    // their own turn, and in their own player color. AI sides never show
+    // markers (in AI vs AI there is no "own" side to assist).
+    static updateOwnUnitMarkers(units: any[]) {
         this.clearOwnUnitMarkers();
+        const gameState = getGameStateOrNull();
+        if (!gameState) return;
+        const current = gameState.getCurrentPlayer();
+        if (current.controller !== 'human') return;
         units
-            .filter((unit) => unit.playerIndex === playerIndex)
+            .filter((unit) => unit.playerIndex === current.id)
             .forEach((unit) => {
                 const hex = HexCoord.findHex(unit.q, unit.r);
                 if (hex) {
-                    this.highlightHex(hex, HIGHLIGHT_COLORS.OWN_UNIT, true, "ownUnitMarkers");
+                    this.highlightHex(hex, current.color, true, "ownUnitMarkers");
                 }
             });
     }
