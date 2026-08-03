@@ -27,6 +27,8 @@ const NOISE_GLSL = /* glsl */ `
     uniform float uTerrainKind;
     uniform float uSnowStart;
     uniform float uSnowFull;
+    uniform float uRockStart;
+    uniform float uRockFull;
 
     float groundHash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -77,22 +79,39 @@ const GROUND_FRAGMENT = /* glsl */ `
             ground *= 0.70 + 0.34 * floorPatches;
             ground = mix(ground, ground * vec3(1.05, 0.85, 0.55), litter * 0.25);
         } else if (uTerrainKind < 3.5) {
-            // MOUNTAIN: a GENTLE pull toward gray granite (the raw palette
-            // tan reads as sand on the lower slopes; a strong pull turned
-            // the whole map murky, so keep it subtle), then rocky detail +
-            // slope striations...
-            float rockLum = dot(ground, vec3(0.299, 0.587, 0.114));
-            ground = mix(ground, vec3(rockLum) * vec3(0.92, 0.94, 0.98), 0.35);
+            // MOUNTAIN: rocky detail + slope striations (the granite hue
+            // comes from the shared alpine overlay below).
             float rock = groundFbm(gp * 5.0);
             float striation = groundNoise(vec2(gp.x * 1.6 + vGroundWorldPos.y * 3.0, gp.y * 1.6));
             ground *= 0.74 + 0.34 * rock + 0.12 * striation;
-            // ...and the altitude snow cap, edge broken up by noise so the
-            // snow line meanders instead of being a straight contour.
-            float snowLine = vGroundWorldPos.y + (groundFbm(gp * 2.2) - 0.5) * 1.2;
-            float snow = smoothstep(uSnowStart, uSnowFull, snowLine);
-            vec3 snowColor = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * groundNoise(gp * 12.0));
-            ground = mix(ground, snowColor, snow);
         }
+
+        // ALPINE OVERLAY -- applies to EVERY ground type, driven purely by
+        // altitude. The mountain's smoothed skirt spills its warm palette
+        // onto neighboring grass/sand tiles (their vertex colors blend at
+        // the seams), so tying rock to the MATERIAL leaves beige slopes
+        // under a gray peak. Instead: as the terrain climbs, whatever is
+        // there turns luminance-preserving gray granite, and above the
+        // noise-broken snow line it whitens -- one continuous gradient up
+        // the whole mountainside.
+        // Rock takes over by ALTITUDE or by STEEPNESS: the mountain skirt
+        // is steep from its very base, so slope catches the low warm band
+        // that the altitude ramp alone misses. Face normal from screen-
+        // space derivatives (flat-shaded materials have no vNormal).
+        vec3 faceN = normalize(cross(dFdx(vGroundWorldPos), dFdy(vGroundWorldPos)));
+        float slope = 1.0 - clamp(abs(faceN.y), 0.0, 1.0);
+        float slopeRock = smoothstep(0.45, 0.70, slope) * smoothstep(0.35, 0.55, vGroundWorldPos.y);
+        float rockify = max(smoothstep(uRockStart, uRockFull, vGroundWorldPos.y), slopeRock);
+        if (rockify > 0.0) {
+            float rockLum = dot(ground, vec3(0.299, 0.587, 0.114));
+            vec3 granite = vec3(rockLum) * vec3(0.97, 1.0, 1.05);
+            granite *= 0.86 + 0.24 * groundFbm(gp * 5.0);
+            ground = mix(ground, granite, rockify * 0.9);
+        }
+        float snowLine = vGroundWorldPos.y + (groundFbm(gp * 2.2) - 0.5) * 1.2;
+        float snow = smoothstep(uSnowStart, uSnowFull, snowLine);
+        vec3 snowColor = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * groundNoise(gp * 12.0));
+        ground = mix(ground, snowColor, snow);
 
         diffuseColor.rgb = ground;
     }
@@ -109,6 +128,11 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uTerrainKind = { value: kind };
         shader.uniforms.uSnowStart = { value: 2.4 };
         shader.uniforms.uSnowFull = { value: 3.6 };
+        // Altitude band where any terrain fades into gray rock -- flat
+        // ground (grass/sand tops out around y ~0.5) stays untouched,
+        // and the mountain skirt turns granite from its very base.
+        shader.uniforms.uRockStart = { value: 0.6 };
+        shader.uniforms.uRockFull = { value: 1.3 };
 
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\n varying vec3 vGroundWorldPos;')
