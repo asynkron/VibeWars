@@ -1,34 +1,34 @@
 // Procedural ground textures, injected into the terrain's standard
 // materials via onBeforeCompile. No texture assets: a world-position
-// based value-noise/fbm in the fragment shader MODULATES the existing
-// vertex color, so every current coloring rule -- terrain palette,
-// neighbor smoothing blends, crater darkening -- stays authoritative and
-// the procedural detail rides on top. World-space coordinates make the
-// pattern continuous across hex boundaries.
+// based value-noise/fbm in the fragment shader paints the ground.
 //
-// Per-type looks (same rules the terrain palette follows):
-//   SAND      fine grain + soft dune banding
-//   GRASS     mottled patches + high-frequency blade speckle
-//   FOREST    darker, coarser forest-floor patches with brown litter
-//   MOUNTAIN  rocky high-frequency detail + altitude SNOW CAP: above
-//             uSnowStart the rock fades into noise-broken white,
-//             fully snowed at uSnowFull (mountains span y ~1..5).
-//   WATER     untouched (its animation/material is handled elsewhere).
+// THE RULE: the fragment's WORLD HEIGHT decides the texture, exactly like
+// the terrain ladder that assigns tile types -- sand < grass < forest <
+// rock < snow. Tile MATERIAL no longer matters for the look. This is what
+// makes the smoothed slopes cohesive: edge smoothing stretches low tiles
+// (sand fords, grass) up the mountainside as steep ramps, and a
+// height-driven shader recolors those ramps through the whole ladder on
+// the way up instead of dragging their lowland color to the summit.
+//
+// Band colors come from TerrainSystem's palette (same source as tile
+// coloring); band borders meander via noise. The mesh's vertex color is
+// kept as a DARKENING signal relative to the material's own palette
+// luminance, so crater scorching and shading blends still show through.
+// WATER is untouched (its animation/material is handled elsewhere).
 
-const TYPE_IDS: Record<string, number> = {
-    SAND: 0,
-    GRASS: 1,
-    FOREST: 2,
-    MOUNTAIN: 3,
-};
+import { TerrainSystem } from './TerrainSystem';
+
+const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN']);
 
 const NOISE_GLSL = /* glsl */ `
     varying vec3 vGroundWorldPos;
-    uniform float uTerrainKind;
+    uniform vec3 uSandColor;
+    uniform vec3 uGrassColor;
+    uniform vec3 uForestColor;
+    uniform vec3 uRockColor;
+    uniform float uPaletteLum;
     uniform float uSnowStart;
     uniform float uSnowFull;
-    uniform float uRockStart;
-    uniform float uRockFull;
 
     float groundHash(vec2 p) {
         return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -60,85 +60,66 @@ const NOISE_GLSL = /* glsl */ `
 const GROUND_FRAGMENT = /* glsl */ `
     {
         vec2 gp = vGroundWorldPos.xz;
-        vec3 ground = diffuseColor.rgb;
+        float y = vGroundWorldPos.y;
+        // Shared border wobble so the band lines meander organically
+        // instead of tracing flat contour lines.
+        float wob = groundFbm(gp * 2.2) - 0.5;
 
-        if (uTerrainKind < 0.5) {
-            // SAND: fine grain + soft wind-swept dune banding.
-            float grain = groundNoise(gp * 24.0);
-            float dunes = sin(gp.x * 2.1 + gp.y * 0.8 + groundFbm(gp * 0.9) * 5.0) * 0.5 + 0.5;
-            ground *= 0.90 + 0.14 * grain + 0.10 * dunes;
-        } else if (uTerrainKind < 1.5) {
-            // GRASS: broad mottled patches + tiny blade speckle.
-            float patches = groundFbm(gp * 2.6);
-            float blades = groundNoise(gp * 30.0);
-            ground *= 0.80 + 0.32 * patches + 0.10 * blades;
-        } else if (uTerrainKind < 2.5) {
-            // FOREST floor: shaded soil under the canopy. The palette IS
-            // dark, but edge smoothing against bright grass/sand washes it
-            // out toward sand -- pull back to dark humus and keep the
-            // whole band clearly below grass brightness.
-            float floorPatches = groundFbm(gp * 3.2);
-            float litter = groundNoise(gp * 16.0);
-            float forestLum = dot(ground, vec3(0.299, 0.587, 0.114));
-            vec3 humus = vec3(forestLum) * vec3(0.55, 0.50, 0.38);
-            ground = mix(ground, humus, 0.55);
-            ground *= 0.62 + 0.30 * floorPatches;
-            ground = mix(ground, ground * vec3(1.08, 0.92, 0.70), litter * 0.15);
-        } else if (uTerrainKind < 3.5) {
-            // MOUNTAIN: rocky detail + slope striations (the granite hue
-            // comes from the shared alpine overlay below).
-            float rock = groundFbm(gp * 5.0);
-            float striation = groundNoise(vec2(gp.x * 1.6 + vGroundWorldPos.y * 3.0, gp.y * 1.6));
-            ground *= 0.74 + 0.34 * rock + 0.12 * striation;
-        }
+        // Band masks up the height ladder (thresholds follow the terrain
+        // config: sand tops ~0.2, grass ~0.45, forest ~0.9, then rock).
+        float toGrass  = smoothstep(0.20, 0.34, y + wob * 0.10);
+        float toForest = smoothstep(0.44, 0.58, y + wob * 0.14);
+        float toRock   = smoothstep(0.85, 1.20, y + wob * 0.30);
+        float toSnow   = smoothstep(uSnowStart, uSnowFull, y + wob * 1.2);
 
-        // ALPINE OVERLAY -- applies to EVERY ground type, driven purely by
-        // altitude. The mountain's smoothed skirt spills its warm palette
-        // onto neighboring grass/sand tiles (their vertex colors blend at
-        // the seams), so tying rock to the MATERIAL leaves beige slopes
-        // under a gray peak. Instead: as the terrain climbs, whatever is
-        // there turns luminance-preserving gray granite, and above the
-        // noise-broken snow line it whitens -- one continuous gradient up
-        // the whole mountainside.
-        // Rock takes over by ALTITUDE or by STEEPNESS: the mountain skirt
-        // is steep from its very base, so slope catches the low warm band
-        // that the altitude ramp alone misses. Face normal from screen-
-        // space derivatives (flat-shaded materials have no vNormal).
-        vec3 faceN = normalize(cross(dFdx(vGroundWorldPos), dFdy(vGroundWorldPos)));
-        float slope = 1.0 - clamp(abs(faceN.y), 0.0, 1.0);
-        float slopeRock = smoothstep(0.45, 0.70, slope) * smoothstep(0.35, 0.55, vGroundWorldPos.y);
-        float rockify = max(smoothstep(uRockStart, uRockFull, vGroundWorldPos.y), slopeRock);
-        if (rockify > 0.0) {
-            float rockLum = dot(ground, vec3(0.299, 0.587, 0.114));
-            vec3 granite = vec3(rockLum) * vec3(0.97, 1.0, 1.05);
-            granite *= 0.86 + 0.24 * groundFbm(gp * 5.0);
-            ground = mix(ground, granite, rockify * 0.9);
-        }
-        float snowLine = vGroundWorldPos.y + (groundFbm(gp * 2.2) - 0.5) * 1.2;
-        float snow = smoothstep(uSnowStart, uSnowFull, snowLine);
-        vec3 snowColor = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * groundNoise(gp * 12.0));
-        ground = mix(ground, snowColor, snow);
+        // Per-band procedural detail, each tinted by its palette color.
+        float dunes = sin(gp.x * 2.1 + gp.y * 0.8 + groundFbm(gp * 0.9) * 5.0) * 0.5 + 0.5;
+        vec3 sandC = uSandColor * (0.88 + 0.14 * groundNoise(gp * 24.0) + 0.10 * dunes);
 
-        diffuseColor.rgb = ground;
+        vec3 grassC = uGrassColor * (0.80 + 0.32 * groundFbm(gp * 2.6) + 0.10 * groundNoise(gp * 30.0));
+
+        vec3 forestC = uForestColor * (0.85 + 0.45 * groundFbm(gp * 3.2) + 0.15 * groundNoise(gp * 16.0));
+
+        float rockDetail = 0.74 + 0.34 * groundFbm(gp * 5.0)
+            + 0.12 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6));
+        float rockLum = dot(uRockColor, vec3(0.299, 0.587, 0.114));
+        vec3 rockC = vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05) * rockDetail;
+
+        vec3 snowC = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * groundNoise(gp * 12.0));
+
+        // Climb the ladder.
+        vec3 band = mix(sandC, grassC, toGrass);
+        band = mix(band, forestC, toForest);
+        band = mix(band, rockC, toRock);
+        band = mix(band, snowC, toSnow);
+
+        // Vertex color as a darkening signal relative to this material's
+        // own palette luminance: untouched tiles pass 1.0, crater-scorched
+        // or shadow-blended vertices darken the band correspondingly.
+        float vLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+        band *= clamp(vLum / max(uPaletteLum, 0.001), 0.35, 1.05);
+
+        diffuseColor.rgb = band;
     }
 `;
 
-// Inject the procedural ground pattern into a terrain MeshStandardMaterial.
-// `terrainType` is the UPPERCASE terrain key; unknown types (WATER) are
-// left untouched.
+// Inject the height-banded procedural ground into a terrain
+// MeshStandardMaterial. `terrainType` is the UPPERCASE terrain key;
+// non-ground types (WATER) are left untouched.
 export function applyProceduralGround(material: any, terrainType: string): void {
-    const kind = TYPE_IDS[terrainType];
-    if (kind === undefined) return;
+    if (!GROUND_TYPES.has(terrainType)) return;
+
+    const paletteColor = new THREE.Color(TerrainSystem.getTerrainColor(terrainType));
+    const paletteLum = 0.299 * paletteColor.r + 0.587 * paletteColor.g + 0.114 * paletteColor.b;
 
     material.onBeforeCompile = (shader: any) => {
-        shader.uniforms.uTerrainKind = { value: kind };
+        shader.uniforms.uSandColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('SAND')) };
+        shader.uniforms.uGrassColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('GRASS')) };
+        shader.uniforms.uForestColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('FOREST')) };
+        shader.uniforms.uRockColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('MOUNTAIN')) };
+        shader.uniforms.uPaletteLum = { value: paletteLum };
         shader.uniforms.uSnowStart = { value: 2.4 };
         shader.uniforms.uSnowFull = { value: 3.6 };
-        // Altitude band where any terrain fades into gray rock -- flat
-        // ground (grass/sand tops out around y ~0.5) stays untouched,
-        // and the mountain skirt turns granite from its very base.
-        shader.uniforms.uRockStart = { value: 0.6 };
-        shader.uniforms.uRockFull = { value: 1.3 };
 
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\n varying vec3 vGroundWorldPos;')
@@ -151,7 +132,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
             .replace('#include <common>', '#include <common>\n' + NOISE_GLSL)
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT);
     };
-    // Distinct cache key per terrain kind so three.js doesn't reuse the
-    // wrong compiled program across materials sharing the base shader.
-    material.customProgramCacheKey = () => `ground-${kind}`;
+    // All ground materials share one height-banded program (uniforms
+    // differ per material); distinct key from three.js's stock shader.
+    material.customProgramCacheKey = () => 'ground-height-banded';
 }
