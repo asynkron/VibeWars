@@ -30,9 +30,10 @@ import type { Building, GameUnit } from '../../types';
 const NEUTRAL_TINT = 0x888888;
 
 // Model is ~14.4 units wide; scale 0.1 gives a ~1.4 footprint on our
-// radius-1 hexes.
-const BUILDING_TYPES: Record<string, { model: string; scale: number }> = {
-    factory: { model: 'assets/buildings/factory-building.glb', scale: 0.1 },
+// radius-1 hexes. yOffset is a per-model vertical correction on top of
+// the computed ground height.
+const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number }> = {
+    factory: { model: 'assets/buildings/factory-building.glb', scale: 0.1, yOffset: 0 },
 };
 
 class BuildingSystem {
@@ -63,7 +64,14 @@ class BuildingSystem {
             null,
             'teamCamo'
         );
-        visual.position.set(hex.userData.x, TerrainSystem.getPlacementHeight(hex), hex.userData.z);
+        // Buildings span the WHOLE hex, so unlike units (small footprint,
+        // placed at the lower of center/rim -- see getPlacementHeight) a
+        // building must clear the smoothed center bump or its base plate
+        // gets buried. Use the HIGHER of the two, plus the model's own
+        // vertical correction.
+        const groundY = Math.max(TerrainSystem.getHeight(hex), hex.userData.height)
+            + BUILDING_TYPES[building.type].yOffset;
+        visual.position.set(hex.userData.x, groundY, hex.userData.z);
         hex.userData.decorator = visual;
         hex.add(visual);
         building.visual = visual;

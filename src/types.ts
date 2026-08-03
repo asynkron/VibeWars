@@ -79,6 +79,10 @@ export interface UnitTypeConfig {
   // creation time, so it's a per-type default that a specific unit instance
   // can still override individually by mutating its own userData.
   flightAltitude?: number;
+  // Small per-model vertical correction added on top of the computed
+  // ground height -- for models whose visual base doesn't quite match
+  // their bounding box (skids, ground clutter baked into the mesh, etc).
+  yOffset?: number;
   attackEffect?: string;
   footprintTexture?: string | null;
   terrainCosts: Record<string, number | null>;

@@ -627,6 +627,7 @@ class UnitSystem {
                 sprite: unitSprite,  // Store reference to sprite
                 modelHeight: modelHeight,  // Store model height for positioning
                 flightAltitude: this.unitTypesRecord[type].flightAltitude || 0,
+                yOffset: this.unitTypesRecord[type].yOffset || 0,
                 terrainCosts: this.unitTypesRecord[type].terrainCosts
             };
 
@@ -663,7 +664,7 @@ class UnitSystem {
         // this unit's flightAltitude -- see move()'s startPos.y/endPos.y.
         const height = customPosition
             ? customPosition.y
-            : TerrainSystem.getPlacementHeight(hex) + (unit.userData.flightAltitude || 0);
+            : TerrainSystem.getPlacementHeight(hex) + (unit.userData.flightAltitude || 0) + (unit.userData.yOffset || 0);
 
         // Transform position in world space
         const finalPosition = new THREE.Vector3(
@@ -811,7 +812,7 @@ class UnitSystem {
                 // Adjust Y positions based on terrain height plus this unit's
                 // flightAltitude, so mid-flight interpolation (below) doesn't
                 // dip back down to ground level for helicopters/jets.
-                const flightAltitude = unit.visualUnit.userData.flightAltitude || 0;
+                const flightAltitude = (unit.visualUnit.userData.flightAltitude || 0) + (unit.visualUnit.userData.yOffset || 0);
                 startPos.y = TerrainSystem.getPlacementHeight(startHex) + flightAltitude;
                 endPos.y = TerrainSystem.getPlacementHeight(hex) + flightAltitude;
 
