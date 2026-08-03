@@ -47,6 +47,22 @@ export interface SimUnit {
     hasAttacked: boolean;
 }
 
+// A building as the simulation sees it. Deliberately does NOT carry the
+// hidden unit's TYPE -- only whether one is still inside. The hidden
+// content is invisible to both players by design, so the search must value
+// a capture at a fixed expected value (see score.ts) instead of peeking at
+// the actual prize. `yieldedTo` marks who opened the factory within THIS
+// snapshot's rollout, so horizon scoring can credit the capture even
+// though SimState can't spawn the prize unit itself.
+export interface SimBuilding {
+    q: number;
+    r: number;
+    ownerIndex: number | null;
+    hasHiddenUnit: boolean;
+    yieldedTo: number | null;
+    destroyed: boolean;
+}
+
 // Facts, not intentions: each event is deterministic to apply, both here
 // and (later) against the live game. Units are addressed by their index in
 // the turn snapshot; indices stay stable even after deaths.
@@ -55,6 +71,12 @@ export type GameEvent =
     | { type: 'unitAttacked'; attackerIndex: number; defenderIndex: number; damage: number }
     | { type: 'unitDied'; unitIndex: number }
     | { type: 'terrainModified'; q: number; r: number; delta: number }
+    // A canCapture unit ended a move on a building it doesn't own. Applies
+    // the ownership flip and (first time only) marks the hidden unit as
+    // yielded. The LIVE side spawns the actual prize unit via
+    // BuildingSystem's move hook -- AIController must NOT execute this
+    // event directly.
+    | { type: 'buildingCaptured'; buildingIndex: number; playerIndex: number }
     // A new simulated turn begins for a player: their units regain full
     // movement and may attack again (mirrors GameState.nextTurn's reset).
     // Used by the search's multi-turn lookahead rollouts; never part of the
@@ -68,6 +90,7 @@ export class SimState {
     // Shared, treated as immutable -- all mutation happens via events.
     private readonly baseTiles: readonly SimTile[];
     private readonly baseUnits: readonly SimUnit[];
+    private readonly baseBuildings: readonly SimBuilding[];
 
     // The canonical change history for this branch.
     private log: GameEvent[];
@@ -75,23 +98,28 @@ export class SimState {
     // Materialized cache of the log (override value null = dead unit).
     private tileOverrides: Map<number, SimTile>;
     private unitOverrides: Map<number, SimUnit | null>;
+    private buildingOverrides: Map<number, SimBuilding>;
 
     private constructor(
         cols: number,
         rows: number,
         baseTiles: readonly SimTile[],
         baseUnits: readonly SimUnit[],
+        baseBuildings: readonly SimBuilding[],
         log: GameEvent[],
         tileOverrides: Map<number, SimTile>,
-        unitOverrides: Map<number, SimUnit | null>
+        unitOverrides: Map<number, SimUnit | null>,
+        buildingOverrides: Map<number, SimBuilding>
     ) {
         this.cols = cols;
         this.rows = rows;
         this.baseTiles = baseTiles;
         this.baseUnits = baseUnits;
+        this.baseBuildings = baseBuildings;
         this.log = log;
         this.tileOverrides = tileOverrides;
         this.unitOverrides = unitOverrides;
+        this.buildingOverrides = buildingOverrides;
     }
 
     // Flatten the live game into a pure base. Call once per AI turn, then
@@ -99,6 +127,7 @@ export class SimState {
     static snapshot(source: {
         map: { cols: number; rows: number; getTile(q: number, r: number): any };
         units: any[];
+        buildings?: any[];
     }): SimState {
         const { cols, rows } = source.map;
         const tiles: SimTile[] = new Array(cols * rows);
@@ -126,7 +155,21 @@ export class SimState {
             maxRange: u.maxRange,
             hasAttacked: u.hasAttacked,
         }));
-        return new SimState(cols, rows, tiles, units, [], new Map(), new Map());
+        // Accepts both the live Building shape (hiddenUnitType) and an
+        // already-flattened SimBuilding (hasHiddenUnit) so condense() can
+        // feed its own buildings back through. The hidden unit's TYPE is
+        // intentionally dropped here -- the simulation stays blind to the
+        // factory's content. yieldedTo always starts null: it's a
+        // per-snapshot scoring marker, not persistent state.
+        const buildings: SimBuilding[] = (source.buildings ?? []).map((b: any) => ({
+            q: b.q,
+            r: b.r,
+            ownerIndex: b.ownerIndex ?? null,
+            hasHiddenUnit: b.hasHiddenUnit ?? b.hiddenUnitType != null,
+            yieldedTo: null,
+            destroyed: !!b.destroyed,
+        }));
+        return new SimState(cols, rows, tiles, units, buildings, [], new Map(), new Map(), new Map());
     }
 
     // Flatten this state's CURRENT tiles and live units into a fresh
@@ -146,6 +189,7 @@ export class SimState {
                 getTile: (q: number, r: number) => this.getTile(q, r),
             },
             units,
+            buildings: this.baseBuildings.map((_, i) => this.getBuilding(i)),
         });
     }
 
@@ -158,9 +202,11 @@ export class SimState {
             this.rows,
             this.baseTiles,
             this.baseUnits,
+            this.baseBuildings,
             [...this.log],
             new Map(this.tileOverrides),
-            new Map(this.unitOverrides)
+            new Map(this.unitOverrides),
+            new Map(this.buildingOverrides)
         );
     }
 
@@ -241,9 +287,32 @@ export class SimState {
                         height: waterHeight,
                         moveCost: TerrainSystem.terrainTypes.WATER.moveCost,
                     });
+                    // Sinking a building's tile destroys the building --
+                    // mirrors convertHexToWater removing the hex decorator
+                    // on the live side.
+                    for (let i = 0; i < this.baseBuildings.length; i++) {
+                        const building = this.getBuilding(i)!;
+                        if (building.q === event.q && building.r === event.r && !building.destroyed) {
+                            this.setBuilding(i, { ...building, destroyed: true });
+                        }
+                    }
                 } else {
                     this.setTile(event.q, event.r, { ...tile, height: newHeight });
                 }
+                return;
+            }
+            case 'buildingCaptured': {
+                const building = this.getBuilding(event.buildingIndex);
+                if (!building || building.destroyed) return;
+                const opensFactory = building.hasHiddenUnit;
+                this.setBuilding(event.buildingIndex, {
+                    ...building,
+                    ownerIndex: event.playerIndex,
+                    hasHiddenUnit: false,
+                    // First capture yields the hidden unit; re-captures only
+                    // flip ownership and must not re-credit the prize.
+                    yieldedTo: opensFactory ? event.playerIndex : building.yieldedTo,
+                });
                 return;
             }
         }
@@ -287,6 +356,31 @@ export class SimState {
         return null;
     }
 
+    get buildingCount(): number {
+        return this.baseBuildings.length;
+    }
+
+    getBuilding(index: number): SimBuilding | null {
+        if (index < 0 || index >= this.baseBuildings.length) return null;
+        return this.buildingOverrides.get(index) ?? this.baseBuildings[index];
+    }
+
+    // Buildings that still exist on the map (destroyed ones sank with
+    // their tile and are gone for good).
+    *liveBuildings(): Generator<[number, SimBuilding]> {
+        for (let i = 0; i < this.baseBuildings.length; i++) {
+            const building = this.getBuilding(i)!;
+            if (!building.destroyed) yield [i, building];
+        }
+    }
+
+    getBuildingAt(q: number, r: number): [number, SimBuilding] | null {
+        for (const [i, building] of this.liveBuildings()) {
+            if (building.q === q && building.r === r) return [i, building];
+        }
+        return null;
+    }
+
     // ---- Private cache writers (only apply() calls these) ----
 
     private setTile(q: number, r: number, tile: SimTile): void {
@@ -296,5 +390,9 @@ export class SimState {
 
     private setUnit(index: number, unit: SimUnit): void {
         this.unitOverrides.set(index, unit);
+    }
+
+    private setBuilding(index: number, building: SimBuilding): void {
+        this.buildingOverrides.set(index, building);
     }
 }

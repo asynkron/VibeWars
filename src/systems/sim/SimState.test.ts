@@ -158,6 +158,76 @@ describe('fork isolation', () => {
     });
 });
 
+describe('buildings', () => {
+    function makeSourceWithFactory(patch: any = {}) {
+        const source = makeSource();
+        return {
+            ...source,
+            buildings: [{ type: 'factory', q: 2, r: 2, ownerIndex: null, hiddenUnitType: 'Sabre', ...patch }],
+        };
+    }
+
+    it('snapshot flattens buildings but hides the unit TYPE from the sim', () => {
+        const sim = SimState.snapshot(makeSourceWithFactory());
+        expect(sim.buildingCount).toBe(1);
+        const b = sim.getBuilding(0)!;
+        expect(b).toEqual({ q: 2, r: 2, ownerIndex: null, hasHiddenUnit: true, yieldedTo: null, destroyed: false });
+        // No hiddenUnitType anywhere -- the sim can't cheat.
+        expect('hiddenUnitType' in b).toBe(false);
+        expect(sim.getBuildingAt(2, 2)![0]).toBe(0);
+        expect(sim.getBuildingAt(0, 0)).toBeNull();
+    });
+
+    it('buildingCaptured flips ownership and yields the hidden unit exactly once', () => {
+        const sim = SimState.snapshot(makeSourceWithFactory());
+        sim.record({ type: 'buildingCaptured', buildingIndex: 0, playerIndex: 1 });
+        expect(sim.getBuilding(0)).toMatchObject({ ownerIndex: 1, hasHiddenUnit: false, yieldedTo: 1 });
+
+        // Re-capture by the other side: ownership flips, but the prize was
+        // already taken -- yieldedTo keeps crediting the original opener.
+        sim.record({ type: 'buildingCaptured', buildingIndex: 0, playerIndex: 0 });
+        expect(sim.getBuilding(0)).toMatchObject({ ownerIndex: 0, hasHiddenUnit: false, yieldedTo: 1 });
+    });
+
+    it('an empty factory captures without yielding', () => {
+        const sim = SimState.snapshot(makeSourceWithFactory({ hiddenUnitType: null }));
+        expect(sim.getBuilding(0)!.hasHiddenUnit).toBe(false);
+        sim.record({ type: 'buildingCaptured', buildingIndex: 0, playerIndex: 1 });
+        expect(sim.getBuilding(0)).toMatchObject({ ownerIndex: 1, yieldedTo: null });
+    });
+
+    it('sinking a building tile to WATER destroys the building', () => {
+        const sim = SimState.snapshot(makeSourceWithFactory());
+        sim.record({ type: 'terrainModified', q: 2, r: 2, delta: -1 });
+        expect(sim.getTile(2, 2)!.type).toBe('WATER');
+        expect(sim.getBuilding(0)!.destroyed).toBe(true);
+        expect(sim.getBuildingAt(2, 2)).toBeNull();
+        expect([...sim.liveBuildings()].length).toBe(0);
+
+        // Capturing a destroyed building is a no-op.
+        sim.record({ type: 'buildingCaptured', buildingIndex: 0, playerIndex: 1 });
+        expect(sim.getBuilding(0)!.ownerIndex).toBeNull();
+    });
+
+    it('fork isolates building state and condense carries it (resetting yieldedTo)', () => {
+        const base = SimState.snapshot(makeSourceWithFactory());
+        const a = base.fork();
+        a.record({ type: 'buildingCaptured', buildingIndex: 0, playerIndex: 1 });
+
+        expect(base.getBuilding(0)!.ownerIndex).toBeNull();
+        expect(a.getBuilding(0)!.ownerIndex).toBe(1);
+
+        // condense: ownership + emptied factory survive into the fresh
+        // snapshot, but the yield marker does not (it's per-snapshot
+        // scoring state -- the prize was already "paid out").
+        const next = a.condense();
+        expect(next.getBuilding(0)).toEqual({
+            q: 2, r: 2, ownerIndex: 1, hasHiddenUnit: false, yieldedTo: null, destroyed: false,
+        });
+        expect(next.events.length).toBe(0);
+    });
+});
+
 describe('replay determinism', () => {
     it('replaying one branch\'s log onto a fresh fork reproduces identical state', () => {
         const base = SimState.snapshot(makeSource());
