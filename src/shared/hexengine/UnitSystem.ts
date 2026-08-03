@@ -1217,6 +1217,15 @@ class UnitSystem {
                     VisualizationSystem.showDamageNumber(standing.visualUnit.position.clone(), standing.hp);
                     this.removeUnit(standing);
                 }
+            } else if (wasLand) {
+                // The crater lowered the ground under a surviving unit --
+                // re-seat it on the new surface instead of leaving it
+                // hovering at the pre-crater height.
+                const standing = getGameState().getUnitAt(impact.q, impact.r);
+                if (standing) {
+                    const hex = HexCoord.findHex(impact.q, impact.r);
+                    if (hex) this.setPosition(standing.visualUnit, new HexCoord(impact.q, impact.r), hex);
+                }
             }
         }
     }

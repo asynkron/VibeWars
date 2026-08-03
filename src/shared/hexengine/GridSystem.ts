@@ -533,11 +533,47 @@ class GridSystem {
         geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
         position.needsUpdate = true;
 
+        // Re-seat procedurally scattered decoration pieces onto the NOW
+        // smoothed surface: they were placed at the flat tile height, but
+        // smoothing pulls shoreline/edge rims down (and craters sink the
+        // middle), leaving trees hovering over the real surface.
+        const decorator = hexGroup.userData.decorator;
+        if (decorator?.userData?.proceduralDecoration) {
+            geometry.computeBoundingSphere();
+            for (const piece of decorator.children) {
+                const surfaceY = this.surfaceHeightAt(
+                    hexGroup,
+                    decorator.position.x + piece.position.x,
+                    decorator.position.z + piece.position.z
+                );
+                if (surfaceY !== null) piece.position.y = surfaceY - decorator.position.y;
+            }
+        }
+
         // Check if tile has road and create it if needed
         const tile = getGameState().map.getTile(q, r);
         if (tile?.hasRoad) {
             RoadSystem.createRoad(hexGroup);
         }
+    }
+
+    // Rendered surface height at a world (x, z), from a downward raycast
+    // against the hex's visible mesh. null when the point misses the hex
+    // (e.g. jittered rim vertices pushed the edge away).
+    static surfaceHeightAt(hexGroup: any, worldX: number, worldZ: number): number | null {
+        const hexMesh = hexGroup.children.find(
+            (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+        );
+        if (!hexMesh) return null;
+        // Before the first render, matrixWorld is still identity -- the
+        // raycast would miss every hex except the one at the origin.
+        hexMesh.updateWorldMatrix(true, false);
+        const raycaster = new THREE.Raycaster(
+            new THREE.Vector3(worldX, 100, worldZ),
+            new THREE.Vector3(0, -1, 0)
+        );
+        const hits = raycaster.intersectObject(hexMesh, false);
+        return hits.length > 0 ? hits[0].point.y : null;
     }
 
     static smoothTerrain() {
