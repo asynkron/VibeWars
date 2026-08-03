@@ -2,6 +2,7 @@ import { group } from '../../render';
 import { VisualizationSystem } from './VisualizationSystem';
 import { UnitSystem } from './UnitSystem';
 import { GridSystem } from './GridSystem';
+import { applyTrackSurface } from './DecalShaders';
 import { VISUAL_OFFSETS } from '../../constants';
 import { getGameState } from '../../systems/gameStateStore';
 
@@ -10,38 +11,15 @@ class FootprintSystem {
     static trackTextures: Record<string, any> = {};
     static trackTexturePromises: Record<string, any> = {};
 
-    static async initialize() {
-        // Get all unique footprint textures from unit types
-        const texturePaths = new Set<any>();
-        Object.values(UnitSystem.unitTypes).forEach((unitType: any) => {
-            if (unitType.footprintTexture) {
-                texturePaths.add(unitType.footprintTexture);
-            }
-        });
+    // Nothing to load any more: the track is generated in the fragment
+    // shader (DecalShaders.applyTrackSurface) instead of being sampled
+    // from tracksN.png. Kept so game.ts's start-up sequence is unchanged.
+    static async initialize() {}
 
-        // Load each unique texture
-        const loadPromises = Array.from(texturePaths).map((texturePath: any) => {
-            return new Promise((resolve, reject) => {
-                const loader = new THREE.TextureLoader();
-                loader.load(
-                    texturePath,
-                    (texture: any) => {
-                        this.trackTextures[texturePath] = texture;
-                        resolve(texture);
-                    },
-                    undefined,
-                    (err: any) => reject(err)
-                );
-            });
-        });
-
-        // Wait for all textures to load
-        await Promise.all(loadPromises);
-    }
-
+    // Still the switch for whether a unit leaves tracks at all -- only the
+    // configured path is no longer loaded as an image.
     static getFootprintTexture(unitType: string) {
-        const texturePath = (UnitSystem.unitTypes as any)[unitType]?.footprintTexture;
-        return texturePath ? this.trackTextures[texturePath] : null;
+        return (UnitSystem.unitTypes as any)[unitType]?.footprintTexture ?? null;
     }
 
     static createFootprint(hex: any, direction: number = 0, unitType: string | null = null) {
@@ -59,16 +37,16 @@ class FootprintSystem {
         const footprints = group.getObjectByName("footprints") || new THREE.Group();
         footprints.name = "footprints";
 
-        // Create the footprint mesh using the shared helper
+        // Create the footprint mesh using the shared helper. No texture:
+        // the track is generated in the fragment shader from the heading.
         const footprintMesh = VisualizationSystem.createTexturedHexGeometry(
             hex,
-            this.getFootprintTexture(unitType),
+            null,
             {
                 heightOffset: VISUAL_OFFSETS.FOOTPRINT_OFFSET,
                 color: '#ffffff',
                 opacity: 0.4,
                 renderOrder: 25,  // Between highlights (-1) and paths (50)
-                textureRotation: Math.PI - direction,
                 materialType: 'MeshStandardMaterial',  // Use standard material for lighting
                 receiveShadow: true,  // Enable shadow receiving
                 castShadow: false,  // Enable shadow casting
@@ -80,6 +58,8 @@ class FootprintSystem {
         );
 
         if (!footprintMesh) return null;
+
+        applyTrackSurface(footprintMesh.material, direction);
 
         // Create a group for this footprint
         const footprintGroup = new THREE.Group();

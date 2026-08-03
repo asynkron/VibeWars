@@ -120,3 +120,58 @@ export function applyRoadSurface(material: any, direction: number): void {
     };
     material.customProgramCacheKey = () => 'road-surface';
 }
+
+// The track a vehicle leaves, built the same way the road is: HALF a tile,
+// running from the tile centre out to one edge along the given direction.
+// Nothing is drawn behind the centre.
+const TRACK_FRAGMENT = /* glsl */ `
+    {
+        vec2 p = vDecalLocal / uHexRadius;
+        vec2 wp = vDecalWorld;
+        vec2 d = decalHeading(uDirection);
+
+        float along = dot(p, d);
+        float across = abs(dot(p, vec2(-d.y, d.x)));
+
+        // Two ruts a track-width apart -- across is unsigned, so one band
+        // measured from the centreline gives both at once. Its edges are
+        // chewed up by noise sampled in WORLD space, so the wobble carries
+        // across the tile border into the next print.
+        float wob = (groundFbm(wp * 4.0) - 0.5) * 0.06;
+        float rut = smoothstep(0.10, 0.02, abs(across - 0.20 + wob));
+
+        // Tread bars stamped along the rut.
+        float bars = 0.5 + 0.5 * sin(along * 28.0 + groundNoise(wp * 5.0) * 3.0);
+        rut *= 0.55 + 0.45 * smoothstep(0.25, 0.75, bars);
+
+        // The half: from the tile centre outward, then easing off at the
+        // rim so it does not cut off squarely on the hex border.
+        rut *= smoothstep(-0.02, 0.08, along) * smoothstep(1.12, 0.85, along);
+
+        diffuseColor.rgb = mix(vec3(0.30, 0.16, 0.07), vec3(0.46, 0.28, 0.13), groundNoise(wp * 20.0));
+        // diffuseColor.a already carries the material's opacity, which
+        // FootprintSystem winds down each turn -- so the print fades.
+        diffuseColor.a *= rut;
+    }
+`;
+
+// `direction` is the unit's heading, the value the PNG version fed to
+// textureRotation.
+export function applyTrackSurface(material: any, direction: number): void {
+    material.onBeforeCompile = (shader: any) => {
+        shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
+        shader.uniforms.uDirection = { value: direction };
+
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\n' + DECAL_VERTEX_DECL)
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + DECAL_VERTEX_BODY);
+
+        shader.fragmentShader = shader.fragmentShader
+            .replace(
+                '#include <common>',
+                '#include <common>\n' + DECAL_FRAGMENT_DECL + '\n' + NOISE_GLSL_BASE + HEADING_GLSL
+            )
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + TRACK_FRAGMENT);
+    };
+    material.customProgramCacheKey = () => 'track-surface';
+}
