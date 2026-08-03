@@ -17,17 +17,42 @@
 //     never deducted movement points).
 
 import { HexCoord } from '../../shared/hexengine/HexCoord';
-import { SimState } from './SimState';
+import { UnitSystem } from '../../shared/hexengine/UnitSystem';
+import { SimState, SimUnit } from './SimState';
 import { simDijkstra } from './SimPathfinding';
 import { resolveAttack, mulberry32 } from './resolveAttack';
 
-export type GeneKind = 'moveTowards' | 'moveAway' | 'moveRandom' | 'attack' | 'idle';
+export type GeneKind = 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'attack' | 'idle';
 
 export interface Gene {
     kind: GeneKind;
     unitIndex: number;
-    targetIndex?: number; // enemy unit index for moveTowards/moveAway/attack
-    seed: number;         // drives scatter + random-move picks
+    targetIndex?: number;   // enemy unit index for moveTowards/moveAway/attack
+    buildingIndex?: number; // building index for moveToBuilding
+    seed: number;           // drives scatter + random-move picks
+}
+
+function unitCanCapture(unit: SimUnit): boolean {
+    return !!UnitSystem.unitTypesRecord[unit.type]?.canCapture;
+}
+
+// A building this unit's side could take: still standing and not already
+// owned by them. (Whether it still holds a prize is invisible here -- the
+// score layer decides how much a capture is worth.)
+export function nearestCapturableBuildingIndex(state: SimState, unitIndex: number): number | null {
+    const unit = state.getUnit(unitIndex);
+    if (!unit) return null;
+    let best: number | null = null;
+    let bestDist = Infinity;
+    for (const [i, building] of state.liveBuildings()) {
+        if (building.ownerIndex === unit.playerIndex) continue;
+        const dist = HexCoord.getDistance(unit.q, unit.r, building.q, building.r);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+        }
+    }
+    return best;
 }
 
 export function nearestEnemyIndex(state: SimState, unitIndex: number): number | null {
@@ -54,6 +79,22 @@ function resolveTargetIndex(state: SimState, unitIndex: number, gene: Gene): num
         if (target && target.playerIndex !== unit.playerIndex) return gene.targetIndex;
     }
     return nearestEnemyIndex(state, unitIndex);
+}
+
+// The single write path for simulated movement: records the move and
+// derives the capture fact when a canCapture unit ends up on a building
+// its side doesn't own. Mirrors the live rule (BuildingSystem.tryCapture
+// hooked into UnitSystem.move) so sim and reality agree on when captures
+// happen. No unit is spawned here -- the factory's content is hidden, so
+// the sim only records the capture and lets score.ts value it.
+function recordMove(state: SimState, unitIndex: number, toQ: number, toR: number, moveSpent: number): void {
+    state.record({ type: 'unitMoved', unitIndex, toQ, toR, moveSpent });
+    const unit = state.getUnit(unitIndex);
+    if (!unit || !unitCanCapture(unit)) return;
+    const found = state.getBuildingAt(toQ, toR);
+    if (found && found[1].ownerIndex !== unit.playerIndex) {
+        state.record({ type: 'buildingCaptured', buildingIndex: found[0], playerIndex: unit.playerIndex });
+    }
 }
 
 // Apply one gene to the branch, recording events. Returns true if any
@@ -127,7 +168,43 @@ export function applyGene(state: SimState, gene: Gene): boolean {
 
             if (bestKey === null) return false; // nothing strictly better than staying
             const [toQ, toR] = bestKey.split(',').map(Number);
-            state.record({ type: 'unitMoved', unitIndex: gene.unitIndex, toQ, toR, moveSpent: bestCost });
+            recordMove(state, gene.unitIndex, toQ, toR, bestCost);
+            return true;
+        }
+
+        case 'moveToBuilding': {
+            if (unit.move <= 0 || !unitCanCapture(unit)) return false;
+            // Explicit building if it's still capturable, else the nearest.
+            let buildingIndex = gene.buildingIndex ?? null;
+            if (buildingIndex !== null) {
+                const b = state.getBuilding(buildingIndex);
+                if (!b || b.destroyed || b.ownerIndex === unit.playerIndex) buildingIndex = null;
+            }
+            if (buildingIndex === null) buildingIndex = nearestCapturableBuildingIndex(state, gene.unitIndex);
+            if (buildingIndex === null) return false;
+            const building = state.getBuilding(buildingIndex)!;
+
+            // Same best-reachable-hex logic as moveTowards, aimed at the
+            // building tile -- which, unlike an enemy's hex, is itself
+            // enterable, so "reach it exactly" (the capture) wins outright.
+            const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
+            let bestKey: string | null = null;
+            let bestDist = HexCoord.getDistance(unit.q, unit.r, building.q, building.r);
+            let bestCost = Infinity;
+            for (const key of reachable) {
+                const [q, r] = key.split(',').map(Number);
+                if (q === unit.q && r === unit.r) continue;
+                const dist = HexCoord.getDistance(q, r, building.q, building.r);
+                const cost = distances.get(key)!;
+                if (dist < bestDist || (dist === bestDist && cost < bestCost && bestKey !== null)) {
+                    bestDist = dist;
+                    bestCost = cost;
+                    bestKey = key;
+                }
+            }
+            if (bestKey === null) return false;
+            const [toQ, toR] = bestKey.split(',').map(Number);
+            recordMove(state, gene.unitIndex, toQ, toR, bestCost);
             return true;
         }
 
@@ -139,17 +216,18 @@ export function applyGene(state: SimState, gene: Gene): boolean {
             const rng = mulberry32(gene.seed);
             const key = options[Math.floor(rng() * options.length)];
             const [toQ, toR] = key.split(',').map(Number);
-            state.record({ type: 'unitMoved', unitIndex: gene.unitIndex, toQ, toR, moveSpent: distances.get(key)! });
+            recordMove(state, gene.unitIndex, toQ, toR, distances.get(key)!);
             return true;
         }
     }
 }
 
 const KIND_WEIGHTS: Array<[GeneKind, number]> = [
-    ['attack', 0.35],
-    ['moveTowards', 0.30],
+    ['attack', 0.30],
+    ['moveTowards', 0.25],
     ['moveRandom', 0.15],
     ['moveAway', 0.10],
+    ['moveToBuilding', 0.10],
     ['idle', 0.10],
 ];
 
@@ -169,6 +247,13 @@ export function randomGene(state: SimState, unitIndex: number, rng: () => number
     for (const [k, weight] of KIND_WEIGHTS) {
         if (roll < weight) { kind = k; break; }
         roll -= weight;
+    }
+    // moveToBuilding only makes sense for capture-capable units with a
+    // capturable building on the map; otherwise redirect the roll to
+    // plain aggression (which the no-enemies fallback below may in turn
+    // downgrade to moveRandom).
+    if (kind === 'moveToBuilding' && (!unit || !unitCanCapture(unit) || nearestCapturableBuildingIndex(state, unitIndex) === null)) {
+        kind = 'moveTowards';
     }
     if (enemies.length === 0 && (kind === 'attack' || kind === 'moveTowards' || kind === 'moveAway')) {
         kind = 'moveRandom';

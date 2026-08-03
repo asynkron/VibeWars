@@ -1,7 +1,7 @@
 import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { SimState } from './SimState';
-import { applyGene, randomGene, nearestEnemyIndex } from './SimCommands';
+import { applyGene, randomGene, nearestEnemyIndex, nearestCapturableBuildingIndex } from './SimCommands';
 import { mulberry32 } from './resolveAttack';
 import { HexCoord } from '../../shared/hexengine/HexCoord';
 
@@ -15,10 +15,11 @@ function makeUnit(patch: any = {}) {
     };
 }
 
-function makeState(units: any[]): SimState {
+function makeState(units: any[], buildings: any[] = []): SimState {
     return SimState.snapshot({
         map: { cols: 8, rows: 8, getTile: () => grass() },
         units,
+        buildings,
     });
 }
 
@@ -154,6 +155,104 @@ describe('movement genes', () => {
         expect(applyGene(state, { kind: 'moveTowards', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(false);
         expect(applyGene(state, { kind: 'idle', unitIndex: 1, seed: 1 })).toBe(false);
         expect(state.events.length).toBe(logLength);
+    });
+});
+
+describe('building capture in the sim', () => {
+    const factoryAt = (q: number, r: number, patch: any = {}) =>
+        ({ type: 'factory', q, r, ownerIndex: null, hiddenUnitType: 'Sabre', ...patch });
+
+    it('moveToBuilding walks infantry onto the factory and derives buildingCaptured', () => {
+        // Pike (canCapture, move 2) two tiles from a neutral factory.
+        const state = makeState(
+            [makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 1, move: 2 })],
+            [factoryAt(4, 2)],
+        );
+        const acted = applyGene(state, { kind: 'moveToBuilding', unitIndex: 0, seed: 1 });
+        expect(acted).toBe(true);
+        expect(state.getUnit(0)).toMatchObject({ q: 4, r: 2 });
+        expect(state.events).toEqual([
+            { type: 'unitMoved', unitIndex: 0, toQ: 4, toR: 2, moveSpent: 2 },
+            { type: 'buildingCaptured', buildingIndex: 0, playerIndex: 1 },
+        ]);
+        expect(state.getBuilding(0)).toMatchObject({ ownerIndex: 1, hasHiddenUnit: false, yieldedTo: 1 });
+    });
+
+    it('any movement gene derives the capture when infantry lands on a building', () => {
+        // moveTowards an enemy that happens to sit past the factory tile.
+        const state = makeState(
+            [
+                makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 1, move: 2 }),
+                makeUnit({ q: 6, r: 2, playerIndex: 0 }),
+            ],
+            [factoryAt(4, 2)],
+        );
+        applyGene(state, { kind: 'moveTowards', unitIndex: 0, targetIndex: 1, seed: 1 });
+        expect(state.getUnit(0)).toMatchObject({ q: 4, r: 2 });
+        expect(state.events.some((e) => e.type === 'buildingCaptured')).toBe(true);
+    });
+
+    it('non-capture units never trigger captures and reject moveToBuilding', () => {
+        // Bulwark (tank, no canCapture) driving over the factory tile.
+        const state = makeState(
+            [makeUnit({ type: 'Bulwark', q: 2, r: 2, playerIndex: 1, move: 2 })],
+            [factoryAt(4, 2)],
+        );
+        expect(applyGene(state, { kind: 'moveToBuilding', unitIndex: 0, seed: 1 })).toBe(false);
+
+        applyGene(state, { kind: 'moveRandom', unitIndex: 0, seed: 4 });
+        expect(state.events.some((e) => e.type === 'buildingCaptured')).toBe(false);
+        expect(state.getBuilding(0)!.ownerIndex).toBeNull();
+    });
+
+    it('moving onto an already-owned building does not re-capture it', () => {
+        const state = makeState(
+            [makeUnit({ type: 'Pike', q: 3, r: 2, playerIndex: 1, move: 2 })],
+            [factoryAt(4, 2, { ownerIndex: 1, hiddenUnitType: null })],
+        );
+        // Own building -> not a moveToBuilding target...
+        expect(applyGene(state, { kind: 'moveToBuilding', unitIndex: 0, seed: 1 })).toBe(false);
+        // ...and walking onto it records no capture.
+        applyGene(state, { kind: 'moveRandom', unitIndex: 0, seed: 8 });
+        expect(state.events.every((e) => e.type !== 'buildingCaptured')).toBe(true);
+    });
+
+    it('nearestCapturableBuildingIndex skips own and destroyed buildings', () => {
+        const state = makeState(
+            [makeUnit({ type: 'Pike', q: 0, r: 0, playerIndex: 1 })],
+            [
+                factoryAt(1, 0, { ownerIndex: 1 }),   // own -- skip
+                factoryAt(2, 0),                       // nearest capturable
+                factoryAt(5, 0, { ownerIndex: 0 }),   // enemy-owned -- capturable too, but farther
+            ],
+        );
+        expect(nearestCapturableBuildingIndex(state, 0)).toBe(1);
+
+        state.record({ type: 'terrainModified', q: 2, r: 0, delta: -1 });
+        expect(state.getBuilding(1)!.destroyed).toBe(true);
+        expect(nearestCapturableBuildingIndex(state, 0)).toBe(2);
+    });
+
+    it('randomGene never emits moveToBuilding for units that cannot capture', () => {
+        const state = makeState(
+            [makeUnit({ type: 'Bulwark', playerIndex: 1 }), makeUnit({ q: 6, r: 6, playerIndex: 0 })],
+            [factoryAt(4, 2)],
+        );
+        const rng = mulberry32(1);
+        for (let i = 0; i < 200; i++) {
+            expect(randomGene(state, 0, rng).kind).not.toBe('moveToBuilding');
+        }
+    });
+
+    it('randomGene does emit moveToBuilding for infantry when a factory is up for grabs', () => {
+        const state = makeState(
+            [makeUnit({ type: 'Pike', playerIndex: 1 }), makeUnit({ q: 6, r: 6, playerIndex: 0 })],
+            [factoryAt(4, 2)],
+        );
+        const rng = mulberry32(1);
+        const kinds = new Set<string>();
+        for (let i = 0; i < 200; i++) kinds.add(randomGene(state, 0, rng).kind);
+        expect(kinds.has('moveToBuilding')).toBe(true);
     });
 });
 

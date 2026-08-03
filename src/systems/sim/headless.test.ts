@@ -11,12 +11,12 @@ describe('stateFromProvider', () => {
     it('builds the full mirrored setup as pure sim state', () => {
         const state = stateFromProvider(mirror8MapProvider);
         expect(state.cols).toBe(8);
-        expect(state.unitCount).toBe(8); // 4 per side
+        expect(state.unitCount).toBe(10); // 5 per side (incl. the Pike infantry)
         // Both sides present, mirrored rows.
         const [p0, p1] = [[...state.liveUnits()].filter(([, u]) => u.playerIndex === 0),
                           [...state.liveUnits()].filter(([, u]) => u.playerIndex === 1)];
-        expect(p0.length).toBe(4);
-        expect(p1.length).toBe(4);
+        expect(p0.length).toBe(5);
+        expect(p1.length).toBe(5);
         p0.forEach(([, u]) => expect(u.r).toBe(7));
         p1.forEach(([, u]) => expect(u.r).toBe(0));
     });

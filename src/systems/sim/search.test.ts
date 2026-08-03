@@ -15,10 +15,11 @@ function makeUnit(patch: any = {}) {
     };
 }
 
-function makeState(units: any[]): SimState {
+function makeState(units: any[], buildings: any[] = []): SimState {
     return SimState.snapshot({
         map: { cols: 8, rows: 8, getTile: () => grass() },
         units,
+        buildings,
     });
 }
 
@@ -42,6 +43,35 @@ describe('scoreState', () => {
         const before = scoreState(state, 1);
         state.record({ type: 'unitMoved', unitIndex: 0, toQ: 2, toR: 2, moveSpent: 2 });
         expect(scoreState(state, 1)).toBeGreaterThan(before);
+    });
+
+    it('rewards owning buildings and (heavily) opening a factory', () => {
+        const factory = { type: 'factory', q: 4, r: 4, ownerIndex: null, hiddenUnitType: 'Sabre' };
+        const state = makeState(
+            [makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 1 }), makeUnit({ q: 7, r: 7, playerIndex: 0 })],
+            [factory],
+        );
+        const neutralMine = scoreState(state, 1);
+        const neutralTheirs = scoreState(state, 0);
+        state.record({ type: 'buildingCaptured', buildingIndex: 0, playerIndex: 1 });
+        // Ownership + yield credit dwarfs the aggression-scale terms.
+        expect(scoreState(state, 1) - neutralMine).toBeGreaterThan(100);
+        // Symmetric: the enemy's evaluation drops by roughly as much.
+        expect(neutralTheirs - scoreState(state, 0)).toBeGreaterThan(100);
+    });
+
+    it('pulls capture-capable units toward open factories', () => {
+        const factory = { type: 'factory', q: 6, r: 2, ownerIndex: null, hiddenUnitType: 'Sabre' };
+        const build = (q: number) => makeState(
+            [makeUnit({ type: 'Pike', q, r: 2, playerIndex: 1 }), makeUnit({ q: 0, r: 7, playerIndex: 0 })],
+            [factory],
+        );
+        // Same distance to the enemy anchor... close enough; the building
+        // pull must make the nearer-to-factory position score higher than
+        // the pull-difference-free case would.
+        const far = scoreState(build(1), 1);
+        const near = scoreState(build(5), 1);
+        expect(near).toBeGreaterThan(far);
     });
 });
 
@@ -100,6 +130,21 @@ describe('planTurn', () => {
         const halberd = replayed.getUnit(1)!;
         // Not parked inside the AA's direct-fire zone at end of turn.
         expect(HexCoord.getDistance(shrike.q, shrike.r, halberd.q, halberd.r)).toBeGreaterThan(2);
+    });
+
+    it('captures a reachable neutral factory (the AI weighs buildings into strategy)', () => {
+        // A lone Pike with a neutral factory two tiles away and the enemy
+        // far off: opening the factory (+ownership +yield credit) beats
+        // every other use of the turn, so the winning plan must capture.
+        const snapshot = makeState(
+            [
+                makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 1, move: 2, minRange: 1, maxRange: 1 }),
+                makeUnit({ q: 7, r: 7, playerIndex: 0 }),
+            ],
+            [{ type: 'factory', q: 4, r: 2, ownerIndex: null, hiddenUnitType: 'Sabre' }],
+        );
+        const result = planTurn(snapshot, 1, { population: 24, rounds: 4, seed: 9 });
+        expect(result.events.some((e) => e.type === 'buildingCaptured' && e.playerIndex === 1)).toBe(true);
     });
 
     it('is deterministic given the seed', () => {
