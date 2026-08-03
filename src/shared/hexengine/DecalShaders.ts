@@ -55,8 +55,11 @@ const ROAD_FRAGMENT = /* glsl */ `
         // The half itself, plus the cap that ties it to the other halves
         // on this tile. Not 'half' -- reserved word once three compiles
         // this as GLSL ES 3.00 on a WebGL2 context.
-        float arm = smoothstep(0.30, 0.19, across) * smoothstep(-0.02, 0.08, along);
-        float road = max(arm, smoothstep(0.27, 0.15, length(p)));
+        // The ramps are deliberately wide: the alpha threshold below only
+        // has this gradient to fade across, so a steep mask leaves a hard
+        // rim however soft the threshold is.
+        float arm = smoothstep(0.36, 0.14, across) * smoothstep(-0.02, 0.10, along);
+        float road = max(arm, smoothstep(0.33, 0.11, length(p)));
 
         // Crushed aggregate: a mottled base with grit on top of it, rather
         // than one flat swatch of grey. This is most of what stops it
@@ -85,9 +88,13 @@ const ROAD_FRAGMENT = /* glsl */ `
         surface = mix(surface, vec3(0.50, 0.41, 0.30) * (0.8 + 0.4 * grit), shoulder * 0.75);
 
         diffuseColor.rgb = surface;
-        // Alpha, not a hard rim: the edge dissolves into the terrain over
-        // a noisy threshold so there is no cut-out silhouette.
-        diffuseColor.a *= smoothstep(0.06, 0.34, road + (groundNoise(wp * 10.0) - 0.5) * 0.20);
+        // Alpha, not a hard rim: the edge dissolves into the terrain over a
+        // wide noisy threshold, so the road thins out into the dirt instead
+        // of ending on a cut-out silhouette. Two noise scales -- a coarse
+        // one that makes the verge wander, a fine one that breaks the last
+        // of it into grit.
+        float verge = (groundFbm(wp * 6.0) - 0.5) * 0.26 + (groundNoise(wp * 26.0) - 0.5) * 0.12;
+        diffuseColor.a *= smoothstep(0.02, 0.62, road + verge);
     }
 `;
 
@@ -148,7 +155,9 @@ const TRACK_FRAGMENT = /* glsl */ `
         // rim so it does not cut off squarely on the hex border.
         rut *= smoothstep(-0.02, 0.08, along) * smoothstep(1.12, 0.85, along);
 
-        diffuseColor.rgb = mix(vec3(0.30, 0.16, 0.07), vec3(0.46, 0.28, 0.13), groundNoise(wp * 20.0));
+        // Dark turned earth. Raising the alpha alone only washes the grass
+        // out; the mark has to be darker than the ground to read as a rut.
+        diffuseColor.rgb = mix(vec3(0.18, 0.09, 0.03), vec3(0.34, 0.19, 0.08), groundNoise(wp * 20.0));
         // diffuseColor.a already carries the material's opacity, which
         // FootprintSystem winds down each turn -- so the print fades.
         diffuseColor.a *= rut;

@@ -6,6 +6,11 @@ import { applyTrackSurface } from './DecalShaders';
 import { VISUAL_OFFSETS } from '../../constants';
 import { getGameState } from '../../systems/gameStateStore';
 
+// How strong a fresh print is, and the value its per-turn fade counts down
+// from. Shared by createFootprint and update() so the two cannot drift.
+const TRACK_STRENGTH = 0.75;
+const TRACK_LIFESPAN = 3;
+
 class FootprintSystem {
     static footprints: any[] = [];
     static trackTextures: Record<string, any> = {};
@@ -45,7 +50,7 @@ class FootprintSystem {
             {
                 heightOffset: VISUAL_OFFSETS.FOOTPRINT_OFFSET,
                 color: '#ffffff',
-                opacity: 0.4,
+                opacity: TRACK_STRENGTH,
                 renderOrder: 25,  // Between highlights (-1) and paths (50)
                 materialType: 'MeshStandardMaterial',  // Use standard material for lighting
                 receiveShadow: true,  // Enable shadow receiving
@@ -77,7 +82,7 @@ class FootprintSystem {
         }
 
         // Initialize the lifespan and add to footprints array so it can be updated later
-        footprintGroup.userData.turnsLeftToLive = 3;
+        footprintGroup.userData.turnsLeftToLive = TRACK_LIFESPAN;
         this.footprints.push(footprintGroup);
 
         return footprintGroup;
@@ -115,9 +120,8 @@ class FootprintSystem {
             footprint.userData.turnsLeftToLive--;
 
             // Update opacity based on remaining turns
-            const maxTurns = 3; // Initial lifespan
             const currentTurns = footprint.userData.turnsLeftToLive;
-            const opacity = (currentTurns / maxTurns) * 0.4; // Start at 0.4 opacity
+            const opacity = (currentTurns / TRACK_LIFESPAN) * TRACK_STRENGTH;
 
             // Update opacity for all meshes in the footprint group
             footprint.traverse((child: any) => {
