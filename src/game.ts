@@ -527,6 +527,53 @@ function showStartMenu() {
     document.body.appendChild(overlay);
 }
 
+// Small "AI thinking" panel with a progress bar, driven by the search's
+// progress ticks (AIController dispatches vibewars:aiprogress). Shown
+// while done < total, hidden when the search completes.
+function ensureAiThinkingPanel(): { panel: HTMLDivElement; bar: HTMLDivElement; label: HTMLDivElement } {
+    let panel = document.getElementById('ai-thinking-panel') as HTMLDivElement | null;
+    if (panel) {
+        return {
+            panel,
+            bar: document.getElementById('ai-thinking-bar') as HTMLDivElement,
+            label: document.getElementById('ai-thinking-label') as HTMLDivElement,
+        };
+    }
+    panel = document.createElement('div');
+    panel.id = 'ai-thinking-panel';
+    panel.style.cssText =
+        'position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:90;display:none;' +
+        'padding:10px 18px;font-family:Arial,sans-serif;color:#fff;text-align:center;' +
+        'background:rgba(10,15,30,0.85);border:1px solid #4CAF50;border-radius:8px;min-width:220px;';
+    const label = document.createElement('div');
+    label.id = 'ai-thinking-label';
+    label.style.cssText = 'font-size:13px;margin-bottom:6px;letter-spacing:0.5px;';
+    label.textContent = 'AI thinking…';
+    const track = document.createElement('div');
+    track.style.cssText = 'height:8px;background:rgba(255,255,255,0.15);border-radius:4px;overflow:hidden;';
+    const bar = document.createElement('div');
+    bar.id = 'ai-thinking-bar';
+    bar.style.cssText = 'height:100%;width:0%;background:#4CAF50;transition:width 0.15s;';
+    track.appendChild(bar);
+    panel.appendChild(label);
+    panel.appendChild(track);
+    document.body.appendChild(panel);
+    return { panel, bar, label };
+}
+
+window.addEventListener('vibewars:aiprogress', ((event: CustomEvent) => {
+    const { done, total, playerIndex } = event.detail ?? {};
+    const { panel, bar, label } = ensureAiThinkingPanel();
+    if (typeof done !== 'number' || typeof total !== 'number' || done >= total) {
+        panel.style.display = 'none';
+        bar.style.width = '0%';
+        return;
+    }
+    label.textContent = `AI ${typeof playerIndex === 'number' ? playerIndex + 1 : ''} thinking…`;
+    bar.style.width = `${Math.round((done / total) * 100)}%`;
+    panel.style.display = 'block';
+}) as EventListener);
+
 // Victory banner, raised by GameState when one side runs out of units.
 window.addEventListener('vibewars:gameover', ((event: CustomEvent) => {
     const banner = document.createElement('div');

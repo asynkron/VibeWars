@@ -18,12 +18,25 @@
 // applyResolvedOutcome derives the same deaths from the same damage.
 
 import { SimState } from '../sim/SimState';
-import { planTurn } from '../sim/search';
+import { planTurnAsync } from '../sim/search';
 import { UnitSystem } from '../../shared/hexengine/UnitSystem';
 import { PathfindingSystem } from '../../shared/hexengine/PathfindingSystem';
 import type { GameUnit, ResolvedAttackOutcome } from '../../types';
 
 const ACTION_PAUSE_MS = 300;
+
+// Live search budget: broad hillclimb + 6 finalists deep-checked 4 plies
+// into the future with real (small) opponent searches. Roughly 10-15s of
+// thinking per turn -- the progress panel makes the wait legible. The
+// headless simulate batches pass their own smaller budgets.
+const LIVE_PLAN_OPTIONS = {
+    population: 32,
+    rounds: 5,
+    finalists: 6,
+    deepPlies: 4,
+    replyPopulation: 10,
+    replyRounds: 2,
+};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -44,7 +57,17 @@ export class AIController {
         const liveRefs: GameUnit[] = [...gameState.units];
 
         const seed = Math.floor(Math.random() * 0x7fffffff);
-        const { events } = planTurn(snapshot, playerIndex, { seed });
+        const reportProgress = (done: number, total: number) =>
+            window.dispatchEvent(new CustomEvent('vibewars:aiprogress', {
+                detail: { done, total, playerIndex },
+            }));
+        const { events } = await planTurnAsync(
+            snapshot,
+            playerIndex,
+            { ...LIVE_PLAN_OPTIONS, seed },
+            (p) => reportProgress(p.done, p.total)
+        );
+        reportProgress(1, 1); // thinking done -- hide the panel
 
         const isAlive = (unit: GameUnit | undefined): unit is GameUnit =>
             unit !== undefined && gameState.units.includes(unit);

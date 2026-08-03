@@ -1,7 +1,7 @@
 import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { SimState } from './SimState';
-import { applyGene, randomGene, nearestEnemyIndex, nearestCapturableBuildingIndex } from './SimCommands';
+import { applyGene, randomGene, nearestEnemyIndex, nearestCapturableBuildingIndex, sweepAttacks } from './SimCommands';
 import { mulberry32 } from './resolveAttack';
 import { HexCoord } from '../../shared/hexengine/HexCoord';
 
@@ -253,6 +253,49 @@ describe('building capture in the sim', () => {
         const kinds = new Set<string>();
         for (let i = 0; i < 200; i++) kinds.add(randomGene(state, 0, rng).kind);
         expect(kinds.has('moveToBuilding')).toBe(true);
+    });
+});
+
+describe('sweepAttacks', () => {
+    it('fires every unit with a legal shot, preferring kills', () => {
+        const neighbors = HexCoord.getNeighbors(2, 2);
+        const state = makeState([
+            makeUnit({ playerIndex: 1, q: 2, r: 2 }),                                        // Bulwark, expected 5 dmg
+            makeUnit({ type: 'Pike', q: neighbors[0].q, r: neighbors[0].r, playerIndex: 0, hp: 2, maxHp: 2 }), // killable
+            makeUnit({ q: neighbors[1].q, r: neighbors[1].r, playerIndex: 0, hp: 10 }),      // survivable
+        ]);
+        expect(sweepAttacks(state, 1)).toBe(true);
+        // The kill was chosen over chip damage on the full-hp tank.
+        expect(state.events.some((e) => e.type === 'unitDied' && e.unitIndex === 1)).toBe(true);
+        expect(state.getUnit(0)!.hasAttacked).toBe(true);
+        // Idempotent: everyone has fired, a second sweep does nothing.
+        expect(sweepAttacks(state, 1)).toBe(false);
+    });
+
+    it('does nothing when no shot is legal and never fires net-negative barrages', () => {
+        // No enemy in range.
+        const idle = makeState([
+            makeUnit({ playerIndex: 1, q: 0, r: 0 }),
+            makeUnit({ q: 7, r: 7, playerIndex: 0 }),
+        ]);
+        expect(sweepAttacks(idle, 1)).toBe(false);
+        expect(idle.events).toEqual([]);
+
+        // A Kestrel barrage whose splash would maul its own Bulwark next to
+        // the 1hp target: enemy value 5+100(kill) vs own splash 2*1.5 --
+        // still positive, so it fires; but if the OWN unit is the 2hp one
+        // and the enemy is worth little, the net goes negative and the
+        // sweep must hold fire.
+        const neighbor = HexCoord.getNeighbors(4, 2)[0];
+        const holdFire = makeState([
+            makeUnit({ type: 'Kestrel', q: 2, r: 2, playerIndex: 1, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Pike', q: 4, r: 2, playerIndex: 0, hp: 1, maxHp: 4 }),
+            // Own nearly-dead Bulwark parked in the splash zone.
+            makeUnit({ q: neighbor.q, r: neighbor.r, playerIndex: 1, hp: 2, maxHp: 10 }),
+        ]);
+        sweepAttacks(holdFire, 1);
+        // Whatever it decided, it must never have killed its own tank.
+        expect(holdFire.getUnit(2)).not.toBeNull();
     });
 });
 

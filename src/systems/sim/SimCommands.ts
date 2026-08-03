@@ -20,7 +20,7 @@ import { HexCoord } from '../../shared/hexengine/HexCoord';
 import { UnitSystem } from '../../shared/hexengine/UnitSystem';
 import { SimState, SimUnit } from './SimState';
 import { simDijkstra } from './SimPathfinding';
-import { resolveAttack, mulberry32 } from './resolveAttack';
+import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
 
 export type GeneKind = 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'attack' | 'idle';
 
@@ -220,6 +220,60 @@ export function applyGene(state: SimState, gene: Gene): boolean {
             return true;
         }
     }
+}
+
+// Fire every unit of `playerIndex` that can still attack. Attacks carry no
+// in-turn downside (there is no return fire), so any plan that leaves a
+// legal, net-positive shot on the table is strictly worse than the same
+// plan plus that shot -- the classic "moved into range but forgot to
+// shoot" blunder. Run after a plan's genes, both in evaluation and on the
+// executed winner, so simulation and reality agree.
+//
+// Target choice per unit: resolve every legal shot (splash and friendly
+// fire included) and take the highest NET value -- enemy damage plus kill
+// bonuses, minus 1.5x any damage to own units; skip the unit entirely if
+// nothing nets positive (e.g. a barrage that would mostly hit friends).
+// Deterministic: the resolve seed derives from the acting/target indices,
+// and firing replays the exact resolution just scored.
+export function sweepAttacks(state: SimState, playerIndex: number): boolean {
+    let fired = false;
+    const shooters = [...state.liveUnits()]
+        .filter(([, u]) => u.playerIndex === playerIndex && !u.hasAttacked)
+        .map(([i]) => i);
+
+    for (const unitIndex of shooters) {
+        const unit = state.getUnit(unitIndex);
+        if (!unit || unit.hasAttacked) continue;
+
+        let bestTarget = -1;
+        let bestValue = 0; // only fire if strictly net-positive
+        for (const [enemyIndex, enemy] of state.liveUnits()) {
+            if (enemy.playerIndex === playerIndex) continue;
+            const dist = HexCoord.getDistance(unit.q, unit.r, enemy.q, enemy.r);
+            if (dist < unit.minRange || dist > unit.maxRange) continue;
+
+            const seed = combineSeed(0x5eed, unitIndex, enemyIndex);
+            const resolved = resolveAttack(state, unitIndex, enemyIndex, seed);
+            if (!resolved) continue;
+            let value = 0;
+            for (const hit of resolved.hits) {
+                const victim = state.getUnit(hit.unitIndex);
+                if (!victim) continue;
+                const worth = hit.damage + (hit.damage >= victim.hp ? 100 : 0);
+                value += victim.playerIndex === playerIndex ? -1.5 * worth : worth;
+            }
+            if (value > bestValue) {
+                bestValue = value;
+                bestTarget = enemyIndex;
+            }
+        }
+
+        if (bestTarget >= 0) {
+            const seed = combineSeed(0x5eed, unitIndex, bestTarget);
+            fired = applyGene(state, { kind: 'attack', unitIndex, targetIndex: bestTarget, seed }) || fired;
+        }
+    }
+    return fired;
 }
 
 const KIND_WEIGHTS: Array<[GeneKind, number]> = [
