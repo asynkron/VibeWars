@@ -5,6 +5,7 @@ import { VisualizationSystem } from './VisualizationSystem';
 import { PathfindingSystem } from './PathfindingSystem';
 import { setSelectedUnit } from '../../game';
 import { AudioSystem } from './AudioSystem';
+import { BuildingSystem } from './BuildingSystem';
 import { ModelSystem } from './ModelSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
@@ -825,6 +826,10 @@ class UnitSystem {
 
                     // After the last movement step, recalculate highlights with a small delay
                     if (index === path.length - 1) {
+                        // Capture check at the final resting tile: every
+                        // persistent move (player or AI replay) ends here,
+                        // so this one hook covers all captures.
+                        BuildingSystem.tryCapture(unit);
                         setTimeout(() => {
                             VisualizationSystem.clearHighlights();
                             this.highlightMoveRange(unit);

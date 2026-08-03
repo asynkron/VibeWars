@@ -3,7 +3,7 @@ import { UnitSystem } from '../shared/hexengine/UnitSystem';
 import { GameMap } from '../shared/hexengine/MapSystem';
 import { AIController } from './ai/AIController';
 import { selectedMapProvider } from './maps/mapRegistry';
-import type { GameUnit, GamePlayer, PlayerController } from '../types';
+import type { Building, GameUnit, GamePlayer, PlayerController } from '../types';
 
 class GameState {
     static readonly CPU_TURN_PAUSE_MS = 400;
@@ -14,6 +14,9 @@ class GameState {
     map: GameMap;
     players: GamePlayer[];
     units: GameUnit[];
+    // Factories etc. -- populated by BuildingSystem.initializeBuildings
+    // from the map provider's authored spawns.
+    buildings: Building[] = [];
     currentTurn: number;
     gameOver: boolean;
     turnCount = 0;
@@ -149,64 +152,38 @@ class GameState {
         return this.units.filter(unit => unit.playerIndex === playerIndex);
     }
 
+    // Create a unit -- visual and game-logic record -- at (q, r). Used
+    // both for the initial rosters and for mid-game spawns (a captured
+    // factory yielding its hidden unit). Returns the GameUnit, or null if
+    // the visual couldn't be created (unknown type).
+    spawnUnit(type: string, q: number, r: number, playerIndex: number): GameUnit | null {
+        const visual = UnitSystem.createUnit(type, q, r, playerIndex);
+        if (!visual) return null;
+        const config = UnitSystem.unitTypesRecord[type];
+        const unit: GameUnit = {
+            type,
+            q,
+            r,
+            playerIndex,
+            hp: config.hp,
+            maxHp: config.maxHp,
+            move: config.move,
+            attack: config.attack,
+            minRange: config.minRange,
+            maxRange: config.maxRange,
+            hasAttacked: false,
+            visualUnit: visual,
+        };
+        this.units.push(unit);
+        return unit;
+    }
+
     initializeUnits(): void {
         // Starting units come from the selected map's provider, so each
         // map owns its own (possibly mirrored) lineup.
         const { player: playerStartingUnits, cpu: aiStartingUnits } = selectedMapProvider().spawns;
-
-        // Create player units
-        playerStartingUnits.forEach(unitData => {
-            const unit = UnitSystem.createUnit(
-                unitData.type,
-                unitData.q,
-                unitData.r,
-                0  // playerIndex
-            );
-            if (unit) {
-                // Add to flat units array
-                this.units.push({
-                    type: unitData.type,
-                    q: unitData.q,
-                    r: unitData.r,
-                    playerIndex: 0,
-                    hp: UnitSystem.unitTypesRecord[unitData.type].hp,
-                    maxHp: UnitSystem.unitTypesRecord[unitData.type].maxHp,
-                    move: UnitSystem.unitTypesRecord[unitData.type].move,
-                    attack: UnitSystem.unitTypesRecord[unitData.type].attack,
-                    minRange: UnitSystem.unitTypesRecord[unitData.type].minRange,
-                    maxRange: UnitSystem.unitTypesRecord[unitData.type].maxRange,
-                    hasAttacked: false,
-                    visualUnit: unit  // Reference to the 3D unit for visualization
-                });
-            }
-        });
-
-        // Create AI units
-        aiStartingUnits.forEach(unitData => {
-            const unit = UnitSystem.createUnit(
-                unitData.type,
-                unitData.q,
-                unitData.r,
-                1  // playerIndex
-            );
-            if (unit) {
-                // Add to flat units array
-                this.units.push({
-                    type: unitData.type,
-                    q: unitData.q,
-                    r: unitData.r,
-                    playerIndex: 1,
-                    hp: UnitSystem.unitTypesRecord[unitData.type].hp,
-                    maxHp: UnitSystem.unitTypesRecord[unitData.type].maxHp,
-                    move: UnitSystem.unitTypesRecord[unitData.type].move,
-                    attack: UnitSystem.unitTypesRecord[unitData.type].attack,
-                    minRange: UnitSystem.unitTypesRecord[unitData.type].minRange,
-                    maxRange: UnitSystem.unitTypesRecord[unitData.type].maxRange,
-                    hasAttacked: false,
-                    visualUnit: unit  // Reference to the 3D unit for visualization
-                });
-            }
-        });
+        playerStartingUnits.forEach((unitData) => this.spawnUnit(unitData.type, unitData.q, unitData.r, 0));
+        aiStartingUnits.forEach((unitData) => this.spawnUnit(unitData.type, unitData.q, unitData.r, 1));
     }
 
     clone(): GameState {

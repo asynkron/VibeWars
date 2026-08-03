@@ -2,6 +2,7 @@
  * GridSystem.js - Manages the hex grid and provides grid-related utilities.
  */
 import { group, miniMapScene, renderer } from '../../render';
+import { BuildingSystem } from './BuildingSystem';
 import { ModelSystem } from './ModelSystem';
 import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
@@ -696,6 +697,9 @@ class GridSystem {
 
         if (newHeight <= waterHeight) {
             this.convertHexToWater(hex, tile);
+            // The decorator (a factory, possibly) is gone -- keep the
+            // building bookkeeping in step with the visuals.
+            BuildingSystem.onTileSunk(coord.q, coord.r);
         } else {
             tile.height = newHeight;
             hex.userData.height = newHeight;

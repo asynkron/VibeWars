@@ -36,7 +36,7 @@ export interface CpuTurnStats {
 }
 
 export class AIController {
-    static async runCpuTurn(gameState: { map: any; units: GameUnit[] }, playerIndex: number = 1): Promise<CpuTurnStats> {
+    static async runCpuTurn(gameState: { map: any; units: GameUnit[]; buildings?: any[] }, playerIndex: number = 1): Promise<CpuTurnStats> {
         const stats: CpuTurnStats = { moves: 0, attacks: 0 };
         const snapshot = SimState.snapshot(gameState);
         // Parallel to the snapshot's unit indices, by construction: snapshot
@@ -94,6 +94,15 @@ export class AIController {
                     await UnitSystem.attack(attacker, primaryDefender, outcome);
                     await sleep(ACTION_PAUSE_MS);
                 }
+                continue;
+            }
+
+            if (event.type === 'buildingCaptured') {
+                // Deliberately NOT executed: the live capture hook in
+                // UnitSystem.move()'s finalizeStep (BuildingSystem.tryCapture)
+                // already fired when the replayed unitMoved above landed on
+                // the building -- executing this too would double-capture.
+                i++;
                 continue;
             }
 

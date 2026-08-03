@@ -18,6 +18,7 @@ import { PathIndicatorSystem } from './shared/hexengine/PathIndicatorSystem';
 import { FootprintSystem } from './shared/hexengine/FootprintSystem';
 import { PathfindingSystem } from './shared/hexengine/PathfindingSystem';
 import { UnitSystem } from './shared/hexengine/UnitSystem';
+import { BuildingSystem } from './shared/hexengine/BuildingSystem';
 import { AudioSystem } from './shared/hexengine/AudioSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
@@ -448,11 +449,14 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     GridSystem.smoothTerrain();
 
 
-    // Load unit models before initializing units
-    await UnitSystem.loadUnitModels();
+    // Load unit + building models before initializing units/buildings
+    await Promise.all([UnitSystem.loadUnitModels(), BuildingSystem.loadBuildingModels()]);
 
     // Initialize units using gameState
     gameState.initializeUnits();
+
+    // Place the map's buildings (factories) once the map + models exist
+    BuildingSystem.initializeBuildings(gameState);
 
     // Full resync: UnitSystem.setPosition() updates the own-unit markers as
     // each unit is created, but GameState.initializeUnits() only pushes a
