@@ -77,7 +77,12 @@ const GROUND_FRAGMENT = /* glsl */ `
             ground *= 0.70 + 0.34 * floorPatches;
             ground = mix(ground, ground * vec3(1.05, 0.85, 0.55), litter * 0.25);
         } else if (uTerrainKind < 3.5) {
-            // MOUNTAIN: rocky detail + slope striations...
+            // MOUNTAIN: a GENTLE pull toward gray granite (the raw palette
+            // tan reads as sand on the lower slopes; a strong pull turned
+            // the whole map murky, so keep it subtle), then rocky detail +
+            // slope striations...
+            float rockLum = dot(ground, vec3(0.299, 0.587, 0.114));
+            ground = mix(ground, vec3(rockLum) * vec3(0.92, 0.94, 0.98), 0.35);
             float rock = groundFbm(gp * 5.0);
             float striation = groundNoise(vec2(gp.x * 1.6 + vGroundWorldPos.y * 3.0, gp.y * 1.6));
             ground *= 0.74 + 0.34 * rock + 0.12 * striation;
