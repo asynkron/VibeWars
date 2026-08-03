@@ -19,6 +19,7 @@
 // same wave phase the water foams with.
 
 import { TerrainSystem } from './TerrainSystem';
+import { MAP_CONFIG } from '../../constants';
 
 const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN']);
 
@@ -48,6 +49,35 @@ const NOISE_GLSL_CORE = /* glsl */ `
             amplitude *= 0.5;
         }
         return value;
+    }
+
+    // --- Shoreline geometry ------------------------------------------
+    // Every tile carries a flag per hex edge saying whether that edge
+    // borders the other element (painted by GridSystem.paintShoreEdges).
+    // Distance to one such edge, in hex radii: 0 ON the edge, growing
+    // toward the tile centre. A hexagon's edge e faces the direction
+    // (e + 0.5) * 60 degrees and sits one apothem (cos 30) out from the
+    // centre, so the signed distance is just that minus the projection.
+    // Edges that border nothing return a large number so min() skips them.
+    float shoreEdgeDistance(vec2 local, float borders, float edgeIndex) {
+        if (borders < 0.5) return 10.0;
+        float th = (edgeIndex + 0.5) * 1.0471975512;
+        return 0.8660254 - dot(local, vec2(cos(th), sin(th)));
+    }
+
+    // How far up the beach (or out to sea) this fragment is, 1 right at
+    // the waterline and 0 once it is width hex radii away. Measuring
+    // real distance to the real edges is what makes the band follow the
+    // WHOLE coast -- a per-vertex signal can only pin values at corners,
+    // so it thins out between them and drops edges entirely.
+    float shoreBand(vec2 local, vec3 edgesA, vec3 edgesB, float width) {
+        float d = shoreEdgeDistance(local, edgesA.x, 0.0);
+        d = min(d, shoreEdgeDistance(local, edgesA.y, 1.0));
+        d = min(d, shoreEdgeDistance(local, edgesA.z, 2.0));
+        d = min(d, shoreEdgeDistance(local, edgesB.x, 3.0));
+        d = min(d, shoreEdgeDistance(local, edgesB.y, 4.0));
+        d = min(d, shoreEdgeDistance(local, edgesB.z, 5.0));
+        return clamp(1.0 - d / width, 0.0, 1.0);
     }
 
     // Shoreline surge phase, 0 = drawn back, 1 = wave at its peak. Both
@@ -111,27 +141,28 @@ const GROUND_FRAGMENT = /* glsl */ `
         band *= clamp(vLum / max(uPaletteLum, 0.001), 0.35, 1.05);
 
         // ---- Beach: the LAND half of the water's shore foam ----
-        // vShore is this corner's water-adjacency, painted by smoothHexTile
-        // with the exact rule the water side uses for its foam (fraction of
-        // the corner's two neighbouring hexes that are the other element),
-        // and it falls off to 0 at the tile centre -- so it reads as "how
-        // far down the beach am I". Both sides therefore light up the SAME
-        // corner points, and the wash meets the foam at the waterline.
-        if (vShore > 0.001) {
+        // shore is 1 at the waterline and falls to 0 a fixed distance
+        // inland, measured against this tile's water-facing edges -- so it
+        // reads as "how far up the beach am I". The water shader derives
+        // its foam from the same function against its land-facing edges,
+        // so the two bands meet along the whole shared edge.
+        float shore = shoreBand(vTileLocal / uHexRadius, vShoreA, vShoreB, 0.38);
+        if (shore > 0.001) {
             float lap = shoreLap(gp, uTime);
 
-            // Permanently damp sand along the whole waterline: darker and
-            // cooler, no white. This starts BELOW the foam window so the
-            // half-strength corners (a single shared land/water edge) still
-            // read as wet even where no sheet reaches them.
-            float wet = smoothstep(0.30, 0.85, vShore + (groundFbm(gp * 3.0) - 0.5) * 0.12);
+            // Permanently damp sand: the strip the waves keep reaching,
+            // darker and cooler, no white. Its edge wobbles with noise so
+            // it does not read as a clean offset of the coastline.
+            float wet = smoothstep(0.30, 0.85, shore + (groundFbm(gp * 3.0) - 0.5) * 0.12);
             band *= mix(vec3(1.0), vec3(0.60, 0.65, 0.72), wet * 0.9);
 
             // The sheet surges: a high lap pushes the water further UP the
-            // beach, i.e. down to a lower vShore. Its retracted position
-            // (0.98) leaves only the waterline itself wet.
-            float reach = mix(0.98, 0.56, lap);
-            float sheet = smoothstep(reach, reach + 0.16, vShore);
+            // beach, i.e. down to a lower shore. Even fully drawn back it
+            // stops at 0.92 rather than 1.0, so a thin lip of water always
+            // sits against the waterline -- a shore that empties completely
+            // between waves reads as the effect switching off.
+            float reach = mix(0.92, 0.62, lap);
+            float sheet = smoothstep(reach, min(reach + 0.12, 1.0), shore);
 
             // What runs up the sand is WATER, not foam: a film carrying the
             // sea's own blue with the sand showing through it, so the beach
@@ -144,12 +175,13 @@ const GROUND_FRAGMENT = /* glsl */ `
             // of its run, with the blue trailing back down to the sea
             // behind it. front is 0 at the leading edge and grows
             // seaward, so the surf band sits just inside the water's reach.
-            float front = vShore - reach;
+            float front = shore - reach;
             float caps = shoreCaps(gp, uTime);
             float surf = smoothstep(0.13, 0.02, front) * smoothstep(-0.05, 0.015, front);
             // Cut by the same churn the water foams with, so the edge
             // scatters instead of tracing a clean contour around the tile.
-            surf *= smoothstep(0.30, 0.70, caps + 0.30) * smoothstep(0.12, 0.45, lap);
+            // The surge only dims the surf to half -- it never puts it out.
+            surf *= smoothstep(0.30, 0.70, caps + 0.30) * mix(0.5, 1.0, smoothstep(0.0, 0.45, lap));
             band = mix(band, vec3(0.95, 0.98, 1.0), clamp(surf, 0.0, 0.80));
         }
 
@@ -158,52 +190,70 @@ const GROUND_FRAGMENT = /* glsl */ `
 `;
 
 // Animated water surface: drifting ripple shimmer across all water, and
-// white lapping foam at the shorelines. The foam MASK comes from the
-// existing vertex colors -- smoothHexTile paints land-adjacent rim
-// vertices with WATER_FOAM_COLOR (higher green than deep water), and the
-// interpolated gradient across each triangle gives a soft shore band the
-// animation plays inside. uTime is driven per frame by
+// white lapping foam at the shorelines. The foam band is measured from
+// the tile's LAND-facing edges (shoreBand over the aShoreA/aShoreB flags
+// GridSystem paints), the mirror of what the ground shader does with its
+// water-facing ones -- so foam covers every shared edge and stops dead at
+// a water-to-water seam. uTime is driven per frame by
 // GridSystem.animateWater via material.userData.shader.
 const WATER_FRAGMENT = /* glsl */ `
     {
+        // Water-side foam is currently OFF so the beach can be judged on
+        // its own. Set back to 1.0 to bring the surf on the water back.
+        const float WATER_FOAM_STRENGTH = 0.0;
+
         vec2 wp = vGroundWorldPos.xz;
 
-        // Shore foam MASK first, from the raw vertex-color gradient (the
-        // land-adjacent rims are painted a green-heavier foam color) --
-        // sampled BEFORE the ripple modulation so the shimmer can't push
-        // open water over the threshold. The window sits ABOVE the
-        // half-strength corners (one land + one water neighbor), so only
-        // true shore edges foam -- not the seam between two water tiles.
-        float foamMask = smoothstep(0.36, 0.43, diffuseColor.g);
+        // 1 hard against the land, falling off out to sea.
+        float shore = shoreBand(vTileLocal / uHexRadius, vShoreA, vShoreB, 0.40);
 
         // Two drifting ripple layers shimmering across the whole surface.
         float ripple1 = groundNoise(wp * 3.0 + vec2(uTime * 0.35, uTime * 0.22));
         float ripple2 = groundNoise(wp * 6.5 - vec2(uTime * 0.28, uTime * 0.41));
         diffuseColor.rgb *= 0.86 + 0.14 * ripple1 + 0.08 * ripple2;
-        // Lapping: the foam edge surges in and out. Same shoreLap/shoreCaps
-        // the ground shader runs on the sand just across the waterline, so
-        // this crest and the sheet washing up the beach are one wave.
+
+        // Lapping: the foam breathes in and out with the same shoreLap the
+        // ground shader runs on the sand just across the waterline, so this
+        // crest and the sheet washing up the beach are one wave. A wave at
+        // its peak drags foam further out to sea (a lower shore).
         float lap = shoreLap(wp, uTime);
         float caps = shoreCaps(wp, uTime);
-        float foam = foamMask * (0.25 + 0.75 * lap) * smoothstep(0.55, 0.85, caps + foamMask * 0.25);
+        float foamMask = smoothstep(mix(0.58, 0.24, lap), 1.0, shore);
+        // Breathes in strength as well as width, so a drawn-back wave
+        // leaves the shallows blue -- but never below a residual trim, so
+        // there is always some surf against the land.
+        float foam = foamMask * (0.40 + 0.60 * lap) * smoothstep(0.45, 0.82, caps + foamMask * 0.35);
+        foam *= WATER_FOAM_STRENGTH;
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), clamp(foam, 0.0, 0.7));
     }
 `;
 
+// Wiring both terrain shaders share: world position for the noise, and
+// the tile-local position + per-edge shore flags the shoreline is
+// measured from. Tile-local IS the raw vertex position -- the geometry is
+// built around the origin and the mesh is translated into place -- so no
+// tile-centre uniform is needed.
+const SHORE_VERTEX_DECL =
+    ' varying vec3 vGroundWorldPos;\n attribute vec3 aShoreA;\n attribute vec3 aShoreB;\n' +
+    ' varying vec3 vShoreA;\n varying vec3 vShoreB;\n varying vec2 vTileLocal;';
+
+const SHORE_VERTEX_BODY =
+    ' vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n' +
+    ' vShoreA = aShoreA;\n vShoreB = aShoreB;\n vTileLocal = position.xz;';
+
+const SHORE_FRAGMENT_DECL =
+    ' varying vec3 vGroundWorldPos;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
+    ' varying vec2 vTileLocal;\n uniform float uHexRadius;\n uniform float uTime;';
+
 export function applyWaterSurface(material: any): void {
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uTime = { value: 0 };
+        shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\n varying vec3 vGroundWorldPos;')
-            .replace(
-                '#include <begin_vertex>',
-                '#include <begin_vertex>\n vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;'
-            );
+            .replace('#include <common>', '#include <common>\n' + SHORE_VERTEX_DECL)
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SHORE_VERTEX_BODY);
         shader.fragmentShader = shader.fragmentShader
-            .replace(
-                '#include <common>',
-                '#include <common>\n varying vec3 vGroundWorldPos;\n uniform float uTime;\n' + NOISE_GLSL_CORE
-            )
+            .replace('#include <common>', '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' + NOISE_GLSL_CORE)
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + WATER_FRAGMENT);
         // Expose the shader so animateWater can drive uTime each frame.
         material.userData.shader = shader;
@@ -232,26 +282,19 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uSnowStart = { value: 2.4 };
         shader.uniforms.uSnowFull = { value: 3.6 };
         shader.uniforms.uTime = { value: 0 };
+        shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
 
         shader.vertexShader = shader.vertexShader
-            .replace(
-                '#include <common>',
-                '#include <common>\n varying vec3 vGroundWorldPos;\n' +
-                ' attribute float aShore;\n varying float vShore;'
-            )
-            .replace(
-                '#include <begin_vertex>',
-                '#include <begin_vertex>\n vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n' +
-                ' vShore = aShore;'
-            );
+            .replace('#include <common>', '#include <common>\n' + SHORE_VERTEX_DECL)
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SHORE_VERTEX_BODY);
 
         shader.fragmentShader = shader.fragmentShader
             .replace(
                 '#include <common>',
-                '#include <common>\n varying vec3 vGroundWorldPos;\n varying float vShore;\n' +
+                '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
                 ' uniform vec3 uRockColor;\n uniform vec3 uWaterColor;\n uniform float uPaletteLum;\n' +
-                ' uniform float uSnowStart;\n uniform float uSnowFull;\n uniform float uTime;\n' + NOISE_GLSL_CORE
+                ' uniform float uSnowStart;\n uniform float uSnowFull;\n' + NOISE_GLSL_CORE
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT);
         // Expose the shader so animateWater can drive uTime each frame --

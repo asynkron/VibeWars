@@ -10,7 +10,7 @@ import { TerrainSystem } from './TerrainSystem';
 import { applyProceduralGround, applyWaterSurface } from './TerrainShader';
 import { createProceduralDecoration } from './ProceduralDecorations';
 import { addColorVariation, getVertexOffsets } from './utils';
-import { MAP_CONFIG, WATER_FOAM_COLOR, CRATER_COLOR } from '../../constants';
+import { MAP_CONFIG, CRATER_COLOR } from '../../constants';
 import { getGameState, getGameStateOrNull } from '../../systems/gameStateStore';
 import { selectedMapProvider } from '../../systems/maps/mapRegistry';
 import type { GameUnit } from '../../types';
@@ -106,13 +106,12 @@ class GridSystem {
         geometry.setIndex(indices);
         geometry.computeVertexNormals();
         this.applyVertexColors(geometry, vertices);
-        // Per-vertex shoreline signal for the ground shader's beach wash.
-        // Zero everywhere until smoothHexTile fills in the corners that
-        // touch water -- so inland tiles simply never wash.
-        geometry.setAttribute(
-            'aShore',
-            new THREE.Float32BufferAttribute(new Float32Array(vertices.length / 3), 1)
-        );
+        // Shoreline flags, one per hex edge, split over two vec3 attributes
+        // (edges 0-2 and 3-5). Constant across the tile and zero until
+        // paintShoreEdges fills them in, so inland tiles never wash.
+        const edgeCount = vertices.length / 3;
+        geometry.setAttribute('aShoreA', new THREE.Float32BufferAttribute(new Float32Array(edgeCount * 3), 3));
+        geometry.setAttribute('aShoreB', new THREE.Float32BufferAttribute(new Float32Array(edgeCount * 3), 3));
         return geometry;
     }
 
@@ -411,6 +410,42 @@ class GridSystem {
         return this.getHexNeighborsCoords(q, r).map(([nq, nr]) => this.findHex(nq, nr));
     }
 
+    // Marks which of a tile's six edges border the OTHER element -- water
+    // for a land tile, land for a water tile. This is what both terrain
+    // shaders build their shoreline from.
+    //
+    // Doing it per EDGE rather than per corner is the whole point: a corner
+    // is shared by two edges, so a corner value cannot say "foam along this
+    // edge but not that one". Marking corners meant an edge whose two ends
+    // each also touch open water fell below the threshold and got no
+    // shoreline at all, which is why stretches of coast came out bare.
+    //
+    // Edge e spans corners e and e+1, and faces neighbors[5 - e]: the
+    // neighbour those two corners share (see vertexNeighbors below, where
+    // corner e is bounded by neighbours 5-e and 6-e).
+    static paintShoreEdges(geometry: any, neighbors: any[], type: string) {
+        const edgesA = geometry.attributes.aShoreA;
+        const edgesB = geometry.attributes.aShoreB;
+        if (!edgesA || !edgesB) return;
+
+        const flags = [];
+        for (let e = 0; e < 6; e++) {
+            const neighbor = neighbors[5 - e];
+            const neighborIsWater = !!neighbor && neighbor.userData.type === 'water';
+            const bordersOther = type === 'water' ? !!neighbor && !neighborIsWater : neighborIsWater;
+            flags.push(bordersOther ? 1 : 0);
+        }
+
+        // Same value on every vertex: the flags describe the TILE, and the
+        // fragment shader measures its own distance to those edges.
+        for (let v = 0; v < edgesA.count; v++) {
+            edgesA.setXYZ(v, flags[0], flags[1], flags[2]);
+            edgesB.setXYZ(v, flags[3], flags[4], flags[5]);
+        }
+        edgesA.needsUpdate = true;
+        edgesB.needsUpdate = true;
+    }
+
     static smoothHexTile(hexGroup: any) {
         const hexMesh = hexGroup.children.find(
             (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
@@ -427,11 +462,16 @@ class GridSystem {
         // ground up -- instead of a tilted surface leaving the building
         // half in the air. (Authored building spawns are static provider
         // data, so this is known before buildings are initialized.)
+        const neighbors = this.getHexNeighbors(q, r);
+        // Shoreline signal first: it is about which EDGES border the other
+        // element, which holds for building tiles too -- a harbour tile
+        // skips the rim smoothing below but still has a beach.
+        this.paintShoreEdges(geometry, neighbors, type);
+
         const buildings = selectedMapProvider().buildings ?? [];
         if (buildings.some((b) => b.q === q && b.r === r)) return;
 
         // Smooth non-water hexes based on neighbors
-        const neighbors = this.getHexNeighbors(q, r);
         const currentCenter = this.getWorldCoordinatesWithHeight(q, r, currentHeight);
         const vertexNeighbors = [
             [neighbors[0], neighbors[5]],
@@ -504,37 +544,12 @@ class GridSystem {
 
             const colors = geometry.attributes.color;
             if (type === 'water') {
-                // Foam STRENGTH = fraction of this corner's two adjacent
-                // hexes that are land (0, 1/2, 1). The shader only foams
-                // near full strength, so the shared edge between two
-                // water tiles -- whose corners each touch one land hex
-                // and one water hex (strength 1/2) -- stays calm instead
-                // of drawing a foam line across open water.
-                const landCount = vertexNeighbors[i].filter((n: any) => n && n.userData.type !== 'water').length;
-                const strength = landCount / 2;
-                const foamColor = new THREE.Color(WATER_FOAM_COLOR);
-                colors.setXYZ(
-                    vertexIndex,
-                    currentColor.r + (foamColor.r - currentColor.r) * strength,
-                    currentColor.g + (foamColor.g - currentColor.g) * strength,
-                    currentColor.b + (foamColor.b - currentColor.b) * strength
-                );
+                // Flat water colour: the foam is no longer a rim tint
+                // painted per corner but a real band the shader measures
+                // from the tile's land-facing EDGES (see paintShoreEdges).
+                colors.setXYZ(vertexIndex, currentColor.r, currentColor.g, currentColor.b);
             } else {
                 colors.setXYZ(vertexIndex, avgR, avgG, avgB);
-                // Land half of the shoreline, by the MIRROR of the rule
-                // above: the fraction of this corner's two adjacent hexes
-                // that are water. Both elements therefore mark the same
-                // corner points, so the foam on the water and the sheet
-                // washing up the sand meet as a single wave instead of two
-                // effects that stop at the waterline.
-                const shore = geometry.attributes.aShore;
-                if (shore) {
-                    const waterCount = vertexNeighbors[i].filter(
-                        (n: any) => n && n.userData.type === 'water'
-                    ).length;
-                    shore.setX(vertexIndex, waterCount / 2);
-                    shore.needsUpdate = true;
-                }
             }
             colors.needsUpdate = true;
 
