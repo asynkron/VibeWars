@@ -40,6 +40,7 @@ describe.skipIf(MATCHES <= 0)('AI vs AI balance report', () => {
                 `match ${String(match + 1).padStart(2)} | seed ${1000 + match} | ` +
                 `${result.winner === -1 ? 'draw    ' : `P${result.winner} wins `} | ` +
                 `${String(result.turns).padStart(3)} turns | ${result.reason} | ` +
+                `captures P0=${result.captures[0]} P1=${result.captures[1]} | ` +
                 `survivors P0=[${result.survivors[0]}] P1=[${result.survivors[1]}]`
             );
         }

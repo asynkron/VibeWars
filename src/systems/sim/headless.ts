@@ -15,9 +15,10 @@
 //
 // Deterministic given `seed`: per-turn plan seeds derive from it.
 
-import { SimState } from './SimState';
+import { SimState, SimUnit } from './SimState';
 import { planTurn, PlanTurnOptions } from './search';
 import { combineSeed } from './resolveAttack';
+import { HexCoord } from '../../shared/hexengine/HexCoord';
 import { UnitSystem } from '../../shared/hexengine/UnitSystem';
 import type { MapProvider, StartingUnit } from '../maps/MapProvider';
 
@@ -37,6 +38,8 @@ export interface HeadlessMatchResult {
     turns: number;
     hpTotals: [number, number];
     survivors: [string[], string[]];
+    // Factory captures per side (ownership flips, including re-captures).
+    captures: [number, number];
 }
 
 function spawnToSimUnit(spawn: StartingUnit, playerIndex: number) {
@@ -71,6 +74,7 @@ export function stateFromProvider(provider: MapProvider): SimState {
             getTile: (q: number, r: number) => tiles[q][r],
         },
         units,
+        buildings: provider.buildings ?? [],
     });
 }
 
@@ -86,6 +90,28 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
     let state = stateFromProvider(provider);
     let idleTurns = 0;
     let noCombatTurns = 0;
+    const captures: [number, number] = [0, 0];
+
+    // The factories' hidden prizes, tracked HERE rather than in SimState
+    // (which deliberately can't see unit types -- the search must not
+    // cheat). When a capture opens a factory, the prize unit materializes
+    // on a free neighboring tile at the start of the next turn, mirroring
+    // BuildingSystem.yieldHiddenUnit in the live game.
+    const prizes: Array<string | null> = (provider.buildings ?? []).map((b) => b.hiddenUnitType);
+    const pendingSpawns: SimUnit[] = [];
+
+    const freeYieldTile = (buildingIndex: number, type: string): { q: number; r: number } | null => {
+        const building = state.getBuilding(buildingIndex)!;
+        const config = UnitSystem.unitTypesRecord[type];
+        for (const c of HexCoord.getNeighbors(building.q, building.r)) {
+            const tile = state.getTile(c.q, c.r);
+            if (!tile || config.terrainCosts[tile.type] == null) continue;
+            if (state.getUnitAt(c.q, c.r) || state.getBuildingAt(c.q, c.r)) continue;
+            if (pendingSpawns.some((u) => u.q === c.q && u.r === c.r)) continue;
+            return c;
+        }
+        return null;
+    };
 
     const sideTotals = (): [number, number] => {
         const totals: [number, number] = [0, 0];
@@ -109,6 +135,7 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
         turns,
         hpTotals: sideTotals(),
         survivors: survivors(),
+        captures: [...captures],
     });
 
     const finishOnPoints = (reason: string, turns: number): HeadlessMatchResult => {
@@ -132,14 +159,40 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
         if (idleTurns >= stalemateIdleTurns) return finishOnPoints('stalemate -- no side can act', turn);
         if (noCombatTurns >= stalemateNoCombatTurns) return finishOnPoints('stalemate -- no combat', turn);
 
-        // Play one turn: reset the side, snapshot, search, apply.
+        // Play one turn: reset the side, snapshot, search, apply. Any
+        // prize unit yielded last turn joins the fresh snapshot here
+        // (condense can't add units, so the spawn rides in via a manual
+        // re-snapshot of the condensed state).
         state.record({ type: 'turnStarted', playerIndex: side });
-        const snapshot = state.condense();
+        let snapshot = state.condense();
+        if (pendingSpawns.length > 0) {
+            snapshot = SimState.snapshot({
+                map: {
+                    cols: snapshot.cols,
+                    rows: snapshot.rows,
+                    getTile: (q: number, r: number) => snapshot.getTile(q, r),
+                },
+                units: [...[...snapshot.liveUnits()].map(([, u]) => ({ ...u })), ...pendingSpawns],
+                buildings: Array.from({ length: snapshot.buildingCount }, (_, i) => snapshot.getBuilding(i)),
+            });
+            pendingSpawns.length = 0;
+        }
         const { events } = planTurn(snapshot, side, { ...plan, seed: combineSeed(seed, turn) });
-        for (const event of events) snapshot.record(event);
-        // The condensed snapshot (with this turn's events applied) becomes
-        // the canonical state -- indices in the events refer to it.
-        state = snapshot;
+        state = snapshot; // canonical from here; events' indices refer to it
+        for (const event of events) {
+            state.record(event);
+            if (event.type === 'buildingCaptured') {
+                captures[event.playerIndex]++;
+                const prize = prizes[event.buildingIndex];
+                if (prize) {
+                    prizes[event.buildingIndex] = null;
+                    const spot = freeYieldTile(event.buildingIndex, prize);
+                    if (spot) {
+                        pendingSpawns.push({ ...spawnToSimUnit({ type: prize, ...spot }, event.playerIndex) });
+                    }
+                }
+            }
+        }
 
         idleTurns = events.length === 0 ? idleTurns + 1 : 0;
         noCombatTurns = events.some((e) => e.type === 'unitAttacked') ? 0 : noCombatTurns + 1;
