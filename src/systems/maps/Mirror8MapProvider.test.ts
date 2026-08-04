@@ -13,15 +13,22 @@ describe('mirror8MapProvider', () => {
         tiles.forEach((col) => expect(col.length).toBe(rows));
     });
 
-    it('is exactly north/south mirrored: type, height, and roads', () => {
+    it('is exactly half-turn symmetric: type, height, and roads', () => {
+        // It used to assert a north/south MIRROR, and that was the bug: a
+        // vertical mirror is not a symmetry of an odd-q offset hex grid,
+        // because which six hexes touch a tile depends on its column's
+        // parity. The grid looked mirrored while the adjacency graph was
+        // not, and the two sides paid different move costs to the same pair
+        // of factories -- 6 against 5 for the contested one. The half turn
+        // is a real rotation of the plane, so it is a real isometry.
         const tiles = mirror8MapProvider.generate();
         for (let q = 0; q < cols; q++) {
-            for (let r = 0; r < rows / 2; r++) {
-                const north = tiles[q][r];
-                const south = tiles[q][rows - 1 - r];
-                expect(south.type).toBe(north.type);
-                expect(south.height).toBe(north.height);
-                expect(south.hasRoad).toBe(north.hasRoad);
+            for (let r = 0; r < rows; r++) {
+                const here = tiles[q][r];
+                const across = tiles[cols - 1 - q][rows - 1 - r];
+                expect(across.type).toBe(here.type);
+                expect(across.height).toBe(here.height);
+                expect(across.hasRoad).toBe(here.hasRoad);
             }
         }
     });
@@ -48,15 +55,17 @@ describe('mirror8MapProvider', () => {
         expect(tiles[3].some((t) => t.hasRoad)).toBe(false);
     });
 
-    it('spawns identical mirrored rosters on grass back rows', () => {
+    it('spawns identical rotated rosters on grass back rows', () => {
         const tiles = mirror8MapProvider.generate();
         const { player, cpu } = mirror8MapProvider.spawns;
 
         expect(player.length).toBe(cpu.length);
         for (let i = 0; i < player.length; i++) {
-            // Same type, same column, mirrored row.
+            // Same type, and each unit is its opposite number's half-turn
+            // image: BOTH coordinates flip, so the CPU's columns run the
+            // other way.
             expect(cpu[i].type).toBe(player[i].type);
-            expect(cpu[i].q).toBe(player[i].q);
+            expect(cpu[i].q).toBe(cols - 1 - player[i].q);
             expect(cpu[i].r).toBe(rows - 1 - player[i].r);
             // Both stand on grass, inside the map.
             expect(tiles[player[i].q][player[i].r].type).toBe('GRASS');
@@ -75,14 +84,14 @@ describe('mirror8MapProvider', () => {
         expect(player.length).toBe(5);
     });
 
-    it('has two mirrored neutral factories with the same hidden unit, on sand fords', () => {
+    it('has two rotated neutral factories with the same hidden unit, on sand fords', () => {
         const tiles = mirror8MapProvider.generate();
         const buildings = mirror8MapProvider.buildings!;
         expect(buildings.length).toBe(2);
 
         const [north, south] = [...buildings].sort((a, b) => a.r - b.r);
-        // Mirrored across the center line, same column.
-        expect(south.q).toBe(north.q);
+        // Each the other's half-turn image, so the column flips too.
+        expect(south.q).toBe(cols - 1 - north.q);
         expect(south.r).toBe(rows - 1 - north.r);
         // Same prize on both sides.
         expect(south.hiddenUnitType).toBe(north.hiddenUnitType);

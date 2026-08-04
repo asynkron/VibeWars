@@ -4,11 +4,44 @@
 
 import { MAP_KEY, MAP_CONFIG } from '../../constants';
 import { MapProvider } from './MapProvider';
+import { ford10MapProvider } from './Ford10MapProvider';
 import { mirror8MapProvider } from './Mirror8MapProvider';
-import { perlinMapProvider } from './PerlinMapProvider';
 import { rotor12x18MapProvider } from './Rotor12x18MapProvider';
+import {
+    randomLargeMapProvider,
+    randomMediumMapProvider,
+    randomSmallMapProvider,
+} from './PerlinMapProvider';
 
-const providers: MapProvider[] = [rotor12x18MapProvider, mirror8MapProvider, perlinMapProvider];
+// The authored maps: hand-drawn, symmetric, and identical on every load.
+// These are the competitive ones, and the fairness battery in
+// authoredMaps.test.ts runs over exactly this list -- adding a map here is
+// what subjects it to the tests, which is the point.
+export const AUTHORED_PROVIDERS: MapProvider[] = [
+    mirror8MapProvider,
+    rotor12x18MapProvider,
+    ford10MapProvider,
+];
+
+// The random maps: one perlin generator, three sizes. Not symmetric and
+// different every load, so the fairness battery does not apply to them.
+export const RANDOM_PROVIDERS: MapProvider[] = [
+    randomSmallMapProvider,
+    randomMediumMapProvider,
+    randomLargeMapProvider,
+];
+
+// Default first: selectedMapProvider() falls back to providers[0] when the
+// URL asks for a key nobody registered.
+const providers: MapProvider[] = [
+    rotor12x18MapProvider,
+    ...AUTHORED_PROVIDERS.filter((p) => p !== rotor12x18MapProvider),
+    ...RANDOM_PROVIDERS,
+];
+
+export function allMapProviders(): MapProvider[] {
+    return providers;
+}
 
 export function getMapProvider(key: string): MapProvider | undefined {
     return providers.find((p) => p.key === key);

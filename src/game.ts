@@ -25,12 +25,12 @@ import { GridSystem } from './shared/hexengine/GridSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
-import { MAP_CONFIG } from './constants';
+import { MAP_CONFIG, MAP_KEY, START_MODE } from './constants';
 import { initViewToolbar } from './systems/viewToolbar';
 import { renderFrame } from './render';
 import { LightPool } from './shared/hexengine/LightPool';
 import { setGameState, getGameState } from './systems/gameStateStore';
-import { selectedMapProvider } from './systems/maps/mapRegistry';
+import { AUTHORED_PROVIDERS, RANDOM_PROVIDERS, selectedMapProvider } from './systems/maps/mapRegistry';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
 
 // Game Data
@@ -515,45 +515,144 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     gameState.start();
 }
 
-// Pre-game start menu: pick who controls each side, then boot the game.
+// The three ways a match can be driven, keyed by the string that rides in
+// the URL. Same set the menu offers and the boot path reads.
+const MATCH_MODES: Record<string, { label: string; controllers: [PlayerController, PlayerController] }> = {
+    'human-cpu': { label: 'Human vs AI', controllers: ['human', 'cpu'] },
+    'cpu-cpu': { label: 'AI vs AI', controllers: ['cpu', 'cpu'] },
+    'human-human': { label: 'Human vs Human', controllers: ['human', 'human'] },
+};
+
+// Pre-game start menu: pick a map and who controls each side.
+//
+// Picking a map RELOADS THE PAGE rather than rebuilding the scene in place.
+// That is not laziness: MAP_CONFIG.ROWS/COLS are read at module scope by
+// render.ts and half the engine while modules are still evaluating, so the
+// grid size is fixed before any menu can run. Choosing the map and the mode
+// in one click, and carrying both in the URL, makes that exactly one reload
+// -- and leaves every match linkable, which is how ?map= was already used.
 function showStartMenu() {
     const overlay = document.createElement('div');
     overlay.id = 'start-menu';
     overlay.style.cssText =
         'position:absolute;inset:0;background:#0a0f1e;display:flex;flex-direction:column;' +
-        'align-items:center;justify-content:center;gap:14px;z-index:100;font-family:Arial,sans-serif;';
+        'align-items:center;justify-content:center;gap:14px;z-index:100;font-family:Arial,sans-serif;' +
+        'overflow-y:auto;padding:40px 20px;box-sizing:border-box;';
 
     const title = document.createElement('h1');
     title.textContent = 'VibeWars';
     title.style.cssText = 'color:#fff;font-size:44px;margin:0 0 4px 0;';
     overlay.appendChild(title);
 
-    const subtitle = document.createElement('div');
-    subtitle.textContent = 'Choose match type';
-    subtitle.style.cssText = 'color:#8fa3c8;font-size:16px;margin-bottom:14px;';
-    overlay.appendChild(subtitle);
+    const heading = (text: string) => {
+        const element = document.createElement('div');
+        element.textContent = text;
+        element.style.cssText =
+            'color:#8fa3c8;font-size:13px;letter-spacing:1.5px;text-transform:uppercase;margin:14px 0 2px 0;';
+        overlay.appendChild(element);
+    };
 
-    const modes: Array<{ label: string; controllers: [PlayerController, PlayerController] }> = [
-        { label: 'Human vs AI', controllers: ['human', 'cpu'] },
-        { label: 'AI vs AI', controllers: ['cpu', 'cpu'] },
-        { label: 'Human vs Human', controllers: ['human', 'human'] },
+    // --- Map ---------------------------------------------------------
+    heading('Map');
+
+    let chosenMap = MAP_KEY;
+
+    const mapGrid = document.createElement('div');
+    mapGrid.style.cssText =
+        'display:grid;grid-template-columns:repeat(2, minmax(0, 210px));gap:8px;justify-content:center;';
+    overlay.appendChild(mapGrid);
+
+    const mapButtons: Array<{ key: string; element: HTMLButtonElement }> = [];
+    const paintMapButtons = () => {
+        for (const { key, element } of mapButtons) {
+            const chosen = key === chosenMap;
+            element.style.borderColor = chosen ? '#4CAF50' : '#2b3a55';
+            element.style.background = chosen ? '#1b3a24' : '#141c30';
+            element.style.color = chosen ? '#dff5e3' : '#9fb2d0';
+        }
+    };
+
+    // Authored maps first, numbered the way they get talked about, then the
+    // random ones. Every number in the notes is read off the provider --
+    // size from rows/cols, roster from the spawn list -- rather than parsed
+    // back out of its display name, so the menu cannot drift from the map.
+    const sideNote = (provider: { rows: number; cols: number; spawns: { cpu: unknown[] } }) =>
+        `${provider.cols}×${provider.rows} · ${provider.spawns.cpu.length} a side`;
+
+    const entries: Array<{ key: string; label: string; note: string }> = [
+        ...AUTHORED_PROVIDERS.map((provider, index) => ({
+            key: provider.key,
+            label: `Mirror ${index + 1} — ${provider.name}`,
+            note: sideNote(provider),
+        })),
+        ...RANDOM_PROVIDERS.map((provider) => ({
+            key: provider.key,
+            label: provider.name,
+            note: sideNote(provider),
+        })),
     ];
-    for (const mode of modes) {
+
+    for (const entry of entries) {
         const button = document.createElement('button');
-        button.textContent = mode.label;
+        button.style.cssText =
+            'padding:10px 12px;font-size:15px;border:2px solid #2b3a55;border-radius:6px;cursor:pointer;' +
+            'background:#141c30;color:#9fb2d0;text-align:left;line-height:1.35;font-family:inherit;';
+        const name = document.createElement('div');
+        name.textContent = entry.label;
+        name.style.cssText = 'font-weight:bold;';
+        const note = document.createElement('div');
+        note.textContent = entry.note;
+        note.style.cssText = 'font-size:12px;opacity:0.75;';
+        button.appendChild(name);
+        button.appendChild(note);
+        button.addEventListener('click', () => {
+            chosenMap = entry.key;
+            paintMapButtons();
+        });
+        mapGrid.appendChild(button);
+        mapButtons.push({ key: entry.key, element: button });
+    }
+    paintMapButtons();
+
+    // --- Mode --------------------------------------------------------
+    heading('Match type');
+
+    for (const [mode, { label }] of Object.entries(MATCH_MODES)) {
+        const button = document.createElement('button');
+        button.textContent = label;
         button.style.cssText =
             'padding:14px 40px;font-size:20px;background-color:#4CAF50;color:white;border:none;' +
-            'border-radius:6px;cursor:pointer;min-width:280px;';
+            'border-radius:6px;cursor:pointer;min-width:280px;font-family:inherit;';
         button.addEventListener('click', () => {
-            overlay.remove();
-            initGame(mode.controllers).catch(error => {
-                console.error("Error initializing game:", error);
-            });
+            if (chosenMap === MAP_KEY) {
+                // Already on the right map, so no reload is needed and the
+                // menu can hand straight over. This is the common path:
+                // start, pick a mode, play.
+                overlay.remove();
+                initGame(MATCH_MODES[mode].controllers).catch(error => {
+                    console.error("Error initializing game:", error);
+                });
+                return;
+            }
+            window.location.search = `?map=${encodeURIComponent(chosenMap)}&mode=${encodeURIComponent(mode)}`;
         });
         overlay.appendChild(button);
     }
 
     document.body.appendChild(overlay);
+}
+
+// Boot straight into a match when the URL already names one -- which is what
+// the menu's own map buttons navigate to, and what makes a match linkable.
+function bootFromUrlOrShowMenu() {
+    const mode = START_MODE && MATCH_MODES[START_MODE];
+    if (mode) {
+        initGame(mode.controllers).catch(error => {
+            console.error("Error initializing game:", error);
+        });
+        return;
+    }
+    showStartMenu();
 }
 
 // Small "AI thinking" panel with a progress bar, driven by the search's
@@ -617,7 +716,7 @@ window.addEventListener('vibewars:gameover', ((event: CustomEvent) => {
 }) as EventListener);
 
 window.onload = () => {
-    showStartMenu();
+    bootFromUrlOrShowMenu();
 };
 
 // Dev-only debug handle: the codebase deliberately keeps modules off

@@ -6,22 +6,36 @@
 // import cycle. mapRegistry.selectedMapProvider() asserts this table
 // stays in sync with the providers.
 const MAP_SIZES: Record<string, { rows: number; cols: number }> = {
-    rotor12x18: { rows: 18, cols: 12 },
+    // Authored, symmetric, deterministic -- the competitive maps.
     mirror8: { rows: 8, cols: 8 },
+    rotor12x18: { rows: 18, cols: 12 },
+    // Random, perlin-generated. One generator, three sizes.
+    random20: { rows: 20, cols: 20 },
+    random30: { rows: 30, cols: 30 },
     random50: { rows: 50, cols: 50 },
 };
 
 const DEFAULT_MAP_KEY = 'rotor12x18';
 
+function urlParam(name: string): string | null {
+    if (typeof window === 'undefined' || !window.location?.search) return null;
+    return new URLSearchParams(window.location.search).get(name);
+}
+
 function pickMapKey(): string {
-    if (typeof window !== 'undefined' && window.location?.search) {
-        const requested = new URLSearchParams(window.location.search).get('map');
-        if (requested && MAP_SIZES[requested]) return requested;
-    }
+    const requested = urlParam('map');
+    if (requested && MAP_SIZES[requested]) return requested;
     return DEFAULT_MAP_KEY;
 }
 
 const MAP_KEY = pickMapKey();
+
+// The start menu navigates to ?map=<key>&mode=<mode> rather than booting in
+// place, because MAP_CONFIG.ROWS/COLS below are read at MODULE SCOPE by
+// render.ts and others -- the grid size is fixed before any menu can run,
+// so changing maps means a fresh load. `mode` riding along on the same
+// navigation is what lets that be one click and one reload rather than two.
+const START_MODE = urlParam('mode');
 
 // Map and camera constants
 const MAP_CONFIG = {
@@ -46,11 +60,40 @@ const MAP_CONFIG = {
     }
 };
 
-// Terrain generation constants
+// Terrain generation constants for the random (perlin) maps. Read only by
+// PerlinMapProvider.
+//
+// HEIGHT_SCALE AND VALLEY_OFFSET USED TO BE 8 AND 2.2, AND THAT PUT THE
+// WHOLE MAP ON THE WRONG SCALE. A tile's height is
+//
+//     terrain base + noise * HEIGHT_SCALE + variation - VALLEY_OFFSET
+//
+// so at 8 the noise term alone spanned eight units, and every land tile
+// landed somewhere between 1.9 and 12 -- while the terrain table the rest of
+// the engine is built around puts sand at 0.70, grass at 0.90-1.20, forest
+// at 1.10-1.70 and mountain at 1.60. The random map was living an order of
+// magnitude above every other map, and two things read world height
+// directly:
+//
+//   THE GROUND SHADER picks its look from world Y -- sand, grass, forest,
+//   rock, snow -- with rock from 1.60 and snow from 3.20. Every land tile on
+//   the map was past the rock band, so the whole thing rendered as granite
+//   and snowcap. It was not mountainous terrain: on a 50x50 map only 74
+//   tiles of 2500 are actually MOUNTAIN, and 1150 are grass. It was grass,
+//   painted as rock.
+//
+//   THE SHORELINE snaps a land tile's water-facing corners down to the
+//   waterline so the beach meets the water. From 1.9-12 that is a two to
+//   twelve unit cliff around every lake -- the "craters".
+//
+// 1.2 and 0.6 put the noise term in the same range as the authored maps'
+// relief, so the same shader bands and the same shoreline rule produce the
+// same look they were designed for. The generator itself is untouched: same
+// noise, same scale, same terrain thresholds, same map.
 const TERRAIN_CONFIG = {
     PERLIN_SCALE: 10,
-    VALLEY_OFFSET: 2.2, // Offset to create valleys in terrain height
-    HEIGHT_SCALE: 8     // Maximum height variation scale
+    VALLEY_OFFSET: 0.6, // Offset to create valleys in terrain height
+    HEIGHT_SCALE: 1.2   // Maximum height variation scale
 };
 
 // Player definitions
@@ -95,6 +138,6 @@ const DEBUG_SETTINGS = {
 const CRATER_COLOR = '#3A2B1B';
 
 export {
-    MAP_CONFIG, MAP_KEY, TERRAIN_CONFIG, players, HIGHLIGHT_COLORS, VISUAL_COLORS,
+    MAP_CONFIG, MAP_KEY, MAP_SIZES, START_MODE, TERRAIN_CONFIG, players, HIGHLIGHT_COLORS, VISUAL_COLORS,
     VISUAL_OFFSETS, DEBUG_SETTINGS, CRATER_COLOR,
 };
