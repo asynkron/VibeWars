@@ -5,6 +5,7 @@ import { AudioSystem } from './AudioSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
+import { LightPool } from './LightPool';
 import { MAP_CONFIG, HIGHLIGHT_COLORS, VISUAL_OFFSETS } from '../../constants';
 import { getGameStateOrNull } from '../../systems/gameStateStore';
 
@@ -34,8 +35,10 @@ class VisualizationSystem {
         if (!object) return;
 
         if (object instanceof THREE.Group) {
-            // Dispose all children first
-            object.children.forEach((child: any) => this.disposeObject(child));
+            // Over a COPY: disposing a child removes it from this array, and
+            // releasing a pooled light re-parents it out, so iterating the
+            // live array would skip every other entry.
+            [...object.children].forEach((child: any) => this.disposeObject(child));
             // Remove from parent if it has one
             if (object.parent) {
                 object.parent.remove(object);
@@ -65,8 +68,14 @@ class VisualizationSystem {
             return;
         }
 
-        // Handle lights
+        // Handle lights. A POOLED one is lent, not owned: removing it from
+        // the scene would change the light count and trigger the very
+        // multi-second recompile the pool exists to avoid.
         if (object instanceof THREE.Light) {
+            if (LightPool.owns(object)) {
+                LightPool.release(object);
+                return;
+            }
             if (object.parent) {
                 object.parent.remove(object);
             }
@@ -810,13 +819,11 @@ class VisualizationSystem {
                 projectile.add(object);
 
                 // Main intense light for sharp shadows
-                const mainLight = new THREE.PointLight(0xff0000, 10, 8);
-                mainLight.castShadow = true;
-                mainLight.shadow.mapSize.width = 512;
-                mainLight.shadow.mapSize.height = 512;
-                mainLight.shadow.camera.near = 0.1;
-                mainLight.shadow.camera.far = 10;
-                projectile.add(mainLight);
+                // Borrowed, not created -- see LightPool. It no longer casts:
+                // a shadow-casting POINT light renders the whole scene six
+                // times for its cube map, every frame the explosion lives.
+                const mainLight = LightPool.claim(0xff0000, 10, 8);
+                if (mainLight) projectile.add(mainLight);
 
                 // Calculate start and end positions
                 const startCoord = new HexCoord(startHex.userData.q, startHex.userData.r);
@@ -943,13 +950,11 @@ class VisualizationSystem {
         projectile.castShadow = true;
 
         // Main intense light for sharp shadows
-        const mainLight = new THREE.PointLight(0xff0000, 10, 8);
-        mainLight.castShadow = true;
-        mainLight.shadow.mapSize.width = 512;
-        mainLight.shadow.mapSize.height = 512;
-        mainLight.shadow.camera.near = 0.1;
-        mainLight.shadow.camera.far = 10;
-        projectile.add(mainLight);
+        // Borrowed, not created -- see LightPool. It no longer casts:
+        // a shadow-casting POINT light renders the whole scene six
+        // times for its cube map, every frame the explosion lives.
+        const mainLight = LightPool.claim(0xff0000, 10, 8);
+        if (mainLight) projectile.add(mainLight);
 
         // Calculate start and end positions
         const startCoord = new HexCoord(startHex.userData.q, startHex.userData.r);
@@ -1264,13 +1269,12 @@ class VisualizationSystem {
         laser.setRotationFromQuaternion(quaternion);
 
         // Add intense white light along the beam
-        const mainLight = new THREE.PointLight(0xffffff, 15, 6);
-        mainLight.castShadow = true;
-        laser.add(mainLight);
+        const mainLight = LightPool.claim(0xffffff, 15, 6);
+        if (mainLight) laser.add(mainLight);
 
         // Add blue tinted light for effect
-        const blueLight = new THREE.PointLight(0x4444ff, 8, 8);
-        laser.add(blueLight);
+        const blueLight = LightPool.claim(0x4444ff, 8, 8);
+        if (blueLight) laser.add(blueLight);
 
         scene.add(laser);
 
@@ -1306,7 +1310,13 @@ class VisualizationSystem {
             if (progress < 1) {
                 requestAnimationFrame(animate);
             } else {
-                // Clean up
+                // Clean up. The lights are BORROWED: hand them back before
+                // the laser goes, or they leave the scene with it and the
+                // light count changes -- which is the multi-second recompile
+                // the pool exists to prevent. This path does not go through
+                // disposeObject, so it has to say so itself.
+                LightPool.release(mainLight);
+                LightPool.release(blueLight);
                 scene.remove(laser);
                 laserGeometry.dispose();
                 laserMaterial.dispose();
@@ -1348,9 +1358,8 @@ class VisualizationSystem {
         flash.setRotationFromQuaternion(aim);
         group.add(flash);
 
-        const flashLight = new THREE.PointLight(0xffc070, 14, 7);
-        flashLight.position.copy(flash.position);
-        group.add(flashLight);
+        const flashLight = LightPool.claim(0xffc070, 14, 7);
+        if (flashLight) { flashLight.position.copy(flash.position); group.add(flashLight); }
 
         // The round itself: a short stretched streak, not a missile.
         const tracerLength = Math.min(1.1, distance * 0.35);
@@ -1362,8 +1371,8 @@ class VisualizationSystem {
         tracer.setRotationFromQuaternion(aim);
         group.add(tracer);
 
-        const tracerLight = new THREE.PointLight(0xffb050, 6, 4);
-        group.add(tracerLight);
+        const tracerLight = LightPool.claim(0xffb050, 6, 4);
+        if (tracerLight) group.add(tracerLight);
 
         // Flat and fast: no arc, and gone in a quarter second.
         const flightDuration = 260;
@@ -1401,9 +1410,8 @@ class VisualizationSystem {
                 impact.position.copy(endPos);
                 group.add(impact);
 
-                impactLight = new THREE.PointLight(0xffa040, 16, 8);
-                impactLight.position.copy(endPos);
-                group.add(impactLight);
+                impactLight = LightPool.claim(0xffa040, 16, 8);
+                if (impactLight) { impactLight.position.copy(endPos); group.add(impactLight); }
             }
 
             if (impact) {
@@ -1418,6 +1426,10 @@ class VisualizationSystem {
                 return;
             }
 
+            // Borrowed lights back first -- see the laser teardown above.
+            LightPool.release(flashLight);
+            LightPool.release(tracerLight);
+            LightPool.release(impactLight);
             scene.remove(group);
             flashGeometry.dispose();
             flashMaterial.dispose();

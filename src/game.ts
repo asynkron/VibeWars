@@ -28,6 +28,7 @@ import { getHexIntersects } from './shared/hexengine/utils';
 import { MAP_CONFIG } from './constants';
 import { initViewToolbar } from './systems/viewToolbar';
 import { renderFrame } from './render';
+import { LightPool } from './shared/hexengine/LightPool';
 import { setGameState, getGameState } from './systems/gameStateStore';
 import { selectedMapProvider } from './systems/maps/mapRegistry';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
@@ -489,6 +490,11 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     camera.lookAt(mapCenterX, 0, mapCenterZ);
 
     // Start animation
+    // BEFORE the first frame. The pool's lights have to be present for the
+    // initial shader compile, or adding them later costs the very stall
+    // they exist to remove.
+    LightPool.init(group);
+
     animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup);
 
     // A hook for driving single frames by hand, so the renderer stays
