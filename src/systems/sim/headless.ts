@@ -57,11 +57,54 @@ export interface HeadlessMatchResult {
     // only comparable if they thought for comparable time, so the runner
     // measures it rather than assuming equal budgets buy equal cost.
     planMs: [number, number];
+    // A hash of every event the match produced, in order. The fields above
+    // summarise the OUTCOME; this fingerprints the whole PLAY -- every
+    // move, every shot, every crater, in the sequence they happened.
+    //
+    // It exists to make a refactor provable. A change that is supposed to
+    // leave behaviour alone leaves this digest alone; anything else is a
+    // behaviour change, whether or not it was meant to be one. Two matches
+    // can end 6-3 on turn 22 by completely different routes, so the
+    // summary fields cannot do this job.
+    eventDigest: string;
 }
 
 // Both node and the browser have performance.now(); Date.now() is the
 // fallback so the runner never throws on a bare runtime.
 const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+// A rolling FNV-1a over every event the match produces, folded in turn by
+// turn.
+//
+// ROLLING BECAUSE THE LOG DOES NOT SURVIVE THE TURN. runHeadlessMatch
+// condenses after every turn -- that is the whole point of condense(), and
+// the reason a long match does not carry a growing log -- so the final
+// state's `events` holds only the LAST turn. Hashing it at the end gave 8
+// events for a nineteen-turn match and 0 for a stalemate, which would have
+// been a fixture that passed no matter what changed underneath it.
+//
+// Not cryptographic and does not need to be: it is compared against a value
+// committed from this same code, so its only job is that different play
+// produces a different string. Hashed rather than stored whole because a
+// match runs to thousands of events, and the point is a fixture a human can
+// read in a diff and a machine can compare exactly.
+class EventDigest {
+    private hash = 0x811c9dc5;
+    private count = 0;
+
+    add(events: readonly unknown[]): void {
+        const text = JSON.stringify(events);
+        for (let i = 0; i < text.length; i++) {
+            this.hash ^= text.charCodeAt(i);
+            this.hash = Math.imul(this.hash, 0x01000193);
+        }
+        this.count += events.length;
+    }
+
+    toString(): string {
+        return `${(this.hash >>> 0).toString(16).padStart(8, '0')}:${this.count}`;
+    }
+}
 
 function spawnToSimUnit(spawn: StartingUnit, playerIndex: number) {
     const stats = UnitSystem.unitTypesRecord[spawn.type];
@@ -118,6 +161,7 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
     let noCombatTurns = 0;
     const captures: [number, number] = [0, 0];
     const planMs: [number, number] = [0, 0];
+    const digest = new EventDigest();
 
     // The factories' hidden prizes, tracked HERE rather than in SimState
     // (which deliberately can't see unit types -- the search must not
@@ -179,6 +223,7 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
         captures: [...captures],
         engineIds: [seats[0].id, seats[1].id],
         planMs: [...planMs],
+        eventDigest: digest.toString(),
     });
 
     const finishOnPoints = (reason: string, turns: number): HeadlessMatchResult => {
@@ -224,6 +269,9 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
         const { events } = seats[side].planTurn(snapshot, side, combineSeed(seed, turn));
         planMs[side] += now() - startedAt;
         state = snapshot; // canonical from here; events' indices refer to it
+        // Folded in before they are applied, and before the next turn
+        // condenses them away.
+        digest.add(events);
         for (const event of events) {
             state.record(event);
             if (event.type === 'buildingCaptured') {

@@ -155,9 +155,17 @@ export class AIController {
                 const primaryDefender = liveRefs[event.defenderIndex];
                 const outcome: ResolvedAttackOutcome = { damages: [], impacts: [] };
 
+                // Grouped on the attacker AND the skill, not the attacker
+                // alone. No unit uses two skills in one turn today, so the
+                // two are equivalent -- but the moment a skill exists that
+                // does not spend the action, a unit's second use would be
+                // swallowed into the first outcome and replayed as one
+                // attack. Cheap now, invisible later.
+                const skillId = (event as any).skillId;
                 while (i < events.length) {
                     const e = events[i];
-                    if (e.type === 'unitAttacked' && e.attackerIndex === attackerIndex) {
+                    if (e.type === 'unitAttacked' && e.attackerIndex === attackerIndex
+                        && (e as any).skillId === skillId) {
                         const victim = liveRefs[e.defenderIndex];
                         if (victim) outcome.damages.push({ unit: victim, damage: e.damage });
                         i++;
@@ -202,8 +210,19 @@ export class AIController {
                 continue;
             }
 
-            // Stray unitDied/terrainModified outside an attack group -- the
-            // gene layer never produces these, but skip defensively.
+            // Anything this loop has no arm for. The gene layer produces
+            // none of these today, but a silently skipped event is a plan
+            // the AI searched and the live game did not play -- the exact
+            // divergence the resolve-first design exists to prevent, and
+            // the one failure here that leaves no trace at all. Say so.
+            //
+            // Warned rather than thrown: a half-executed turn is worse
+            // than a turn missing one action, and this is the fallback
+            // arm, so anything reaching it is already unexpected.
+            console.warn(
+                `AI replay: no handler for event "${(event as any).type}" -- skipped. ` +
+                'The simulation planned something the live game cannot execute.'
+            );
             i++;
         }
 
