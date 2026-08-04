@@ -18,7 +18,8 @@
 // applyResolvedOutcome derives the same deaths from the same damage.
 
 import { SimState } from '../sim/SimState';
-import { planTurnAsync } from '../sim/search';
+import { AIEngine } from '../sim/ai/AIEngine';
+import { DEFAULT_ENGINE, getEngine, ENGINES } from '../sim/ai/engineRegistry';
 import { UnitSystem } from '../../shared/hexengine/UnitSystem';
 import { PathfindingSystem } from '../../shared/hexengine/PathfindingSystem';
 import type { GameUnit, ResolvedAttackOutcome } from '../../types';
@@ -29,7 +30,12 @@ const ACTION_PAUSE_MS = 300;
 // into the future with real (small) opponent searches. Roughly 10-15s of
 // thinking per turn -- the progress panel makes the wait legible. The
 // headless simulate batches pass their own smaller budgets.
-const LIVE_PLAN_OPTIONS = {
+//
+// This is a BUDGET, not a personality: it says how hard to think, never
+// what to think. Which engine plays is chosen separately below, so
+// swapping engines can't accidentally change the think time and a budget
+// change can't accidentally change how the AI values the board.
+const LIVE_BUDGET = {
     population: 32,
     rounds: 5,
     finalists: 6,
@@ -37,6 +43,30 @@ const LIVE_PLAN_OPTIONS = {
     replyPopulation: 10,
     replyRounds: 2,
 };
+
+// ?ai=wolfpack picks a variant for BOTH CPU sides; ?ai=baseline:wolfpack
+// gives each side its own, so an AI-vs-AI game in the browser is a visible
+// version of what the headless tournament measures.
+function enginesFromQuery(): [AIEngine, AIEngine] {
+    const fallback: [AIEngine, AIEngine] = [DEFAULT_ENGINE, DEFAULT_ENGINE];
+    if (typeof window === 'undefined' || !window.location?.search) return fallback;
+    const requested = new URLSearchParams(window.location.search).get('ai');
+    if (!requested) return fallback;
+
+    const parts = requested.split(':');
+    const picked = (parts.length === 2 ? parts : [requested, requested]).map((id) => {
+        const engine = getEngine(id.trim());
+        if (!engine) {
+            console.warn(`Unknown AI engine "${id}" -- known: ${ENGINES.map((e) => e.id).join(', ')}. Using ${DEFAULT_ENGINE.id}.`);
+        }
+        return engine ?? DEFAULT_ENGINE;
+    });
+    return [picked[0], picked[1]];
+}
+
+// Resolved once: re-reading the query string mid-game could silently swap
+// engines between turns.
+const LIVE_ENGINES: [AIEngine, AIEngine] = enginesFromQuery().map((e) => e.withBudget(LIVE_BUDGET)) as [AIEngine, AIEngine];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -61,10 +91,11 @@ export class AIController {
             window.dispatchEvent(new CustomEvent('vibewars:aiprogress', {
                 detail: { done, total, playerIndex },
             }));
-        const { events } = await planTurnAsync(
+        const engine = LIVE_ENGINES[playerIndex] ?? LIVE_ENGINES[1];
+        const { events } = await engine.planTurnAsync(
             snapshot,
             playerIndex,
-            { ...LIVE_PLAN_OPTIONS, seed },
+            seed,
             (p) => reportProgress(p.done, p.total)
         );
         reportProgress(1, 1); // thinking done -- hide the panel

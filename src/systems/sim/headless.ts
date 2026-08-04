@@ -13,10 +13,15 @@
 //     prolonged no-combat play, or a turn cap -- decided on points
 //     (total remaining hp), same rules as GameState.
 //
-// Deterministic given `seed`: per-turn plan seeds derive from it.
+// Deterministic given `seed` and the pair of engines: per-turn plan seeds
+// derive from the seed. The one exception is `planMs`, which is wall-clock
+// and therefore varies run to run -- it is reported for compute-parity
+// checks between engines, not as part of the match outcome.
 
 import { SimState, SimUnit } from './SimState';
-import { planTurn, PlanTurnOptions } from './search';
+import { PlanTurnOptions } from './search';
+import { AIEngine } from './ai/AIEngine';
+import { DEFAULT_ENGINE } from './ai/engineRegistry';
 import { combineSeed } from './resolveAttack';
 import { HexCoord } from '../../shared/hexengine/HexCoord';
 import { UnitSystem } from '../../shared/hexengine/UnitSystem';
@@ -28,7 +33,12 @@ export interface HeadlessMatchOptions {
     maxTurns?: number;
     stalemateIdleTurns?: number;
     stalemateNoCombatTurns?: number;
-    // Search budget per turn; defaults to planTurn's own defaults.
+    // Who plays each seat, indexed by playerIndex. Defaults to the shipped
+    // engine on both sides -- the self-play case this runner was built for.
+    engines?: readonly [AIEngine, AIEngine];
+    // Search BUDGET override, applied on top of both engines. Kept separate
+    // from the engines themselves so a cheap batch run can't accidentally
+    // change what an engine believes -- only how long it gets to think.
     plan?: Omit<PlanTurnOptions, 'seed'>;
 }
 
@@ -40,7 +50,18 @@ export interface HeadlessMatchResult {
     survivors: [string[], string[]];
     // Factory captures per side (ownership flips, including re-captures).
     captures: [number, number];
+    // Which engine held each seat, so a result row is self-describing even
+    // after the matches have been shuffled into a report.
+    engineIds: [string, string];
+    // Wall-clock milliseconds each side spent planning. Two engines are
+    // only comparable if they thought for comparable time, so the runner
+    // measures it rather than assuming equal budgets buy equal cost.
+    planMs: [number, number];
 }
+
+// Both node and the browser have performance.now(); Date.now() is the
+// fallback so the runner never throws on a bare runtime.
+const now = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 function spawnToSimUnit(spawn: StartingUnit, playerIndex: number) {
     const stats = UnitSystem.unitTypesRecord[spawn.type];
@@ -84,13 +105,19 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
         maxTurns = 200,
         stalemateIdleTurns = 4,
         stalemateNoCombatTurns = 40,
+        engines = [DEFAULT_ENGINE, DEFAULT_ENGINE],
         plan = {},
     } = options;
+
+    // The budget override is folded in once, here, so every turn of the
+    // match is planned by exactly the same two engine instances.
+    const seats: [AIEngine, AIEngine] = [engines[0].withBudget(plan), engines[1].withBudget(plan)];
 
     let state = stateFromProvider(provider);
     let idleTurns = 0;
     let noCombatTurns = 0;
     const captures: [number, number] = [0, 0];
+    const planMs: [number, number] = [0, 0];
 
     // The factories' hidden prizes, tracked HERE rather than in SimState
     // (which deliberately can't see unit types -- the search must not
@@ -136,6 +163,8 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
         hpTotals: sideTotals(),
         survivors: survivors(),
         captures: [...captures],
+        engineIds: [seats[0].id, seats[1].id],
+        planMs: [...planMs],
     });
 
     const finishOnPoints = (reason: string, turns: number): HeadlessMatchResult => {
@@ -177,7 +206,9 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
             });
             pendingSpawns.length = 0;
         }
-        const { events } = planTurn(snapshot, side, { ...plan, seed: combineSeed(seed, turn) });
+        const startedAt = now();
+        const { events } = seats[side].planTurn(snapshot, side, combineSeed(seed, turn));
+        planMs[side] += now() - startedAt;
         state = snapshot; // canonical from here; events' indices refer to it
         for (const event of events) {
             state.record(event);

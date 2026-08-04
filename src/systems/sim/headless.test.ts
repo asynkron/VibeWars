@@ -1,6 +1,6 @@
 import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
-import { runHeadlessMatch, stateFromProvider } from './headless';
+import { runHeadlessMatch, stateFromProvider, HeadlessMatchResult } from './headless';
 import { mirror8MapProvider } from '../maps/Mirror8MapProvider';
 
 // Small search budget keeps these fast; the point is the loop mechanics,
@@ -38,8 +38,12 @@ describe('runHeadlessMatch', () => {
     });
 
     it('is deterministic given the seed', () => {
+        // planMs is wall-clock: it is reported so two engines can be checked
+        // for compute parity, and it is the one field that legitimately
+        // differs between two identical runs. Everything else must match.
+        const strip = ({ planMs, ...rest }: HeadlessMatchResult) => rest;
         const a = runHeadlessMatch(mirror8MapProvider, { seed: 7, plan: FAST });
         const b = runHeadlessMatch(mirror8MapProvider, { seed: 7, plan: FAST });
-        expect(b).toEqual(a);
+        expect(strip(b)).toEqual(strip(a));
     }, 30_000);
 });
