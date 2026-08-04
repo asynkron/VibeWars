@@ -6,8 +6,10 @@
 import { AIEngine } from './AIEngine';
 import { baselineEngine } from './engines/baseline';
 import { wolfpackEngine } from './engines/wolfpack';
+import { gambitEngine } from './engines/gambit';
+import { feintEngine } from './engines/feint';
 
-export const ENGINES: readonly AIEngine[] = [baselineEngine, wolfpackEngine];
+export const ENGINES: readonly AIEngine[] = [baselineEngine, wolfpackEngine, gambitEngine, feintEngine];
 
 // What the live game plays unless told otherwise.
 export const DEFAULT_ENGINE: AIEngine = baselineEngine;

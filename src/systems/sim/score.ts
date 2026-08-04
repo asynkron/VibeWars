@@ -55,6 +55,12 @@ export interface ScoreWeights {
     // aggression gradient -- a capture is worth a unit, closing with the
     // enemy is worth a tiebreak.
     capturePull: number;
+    // Optional multiplier on a unit's whole material value, by type. A
+    // missing entry is 1.0, which is what the flat model always did: every
+    // unit worth unitBase + hp*hpWeight regardless of what it is good at.
+    // An engine that thinks a fast one-shotting helicopter is worth more
+    // than an equally-healthy infantryman says so here.
+    typeValue?: Readonly<Record<string, number>>;
 }
 
 export const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
@@ -78,7 +84,8 @@ export function scoreState(
     const enemies: SimUnit[] = [];
 
     for (const [, unit] of state.liveUnits()) {
-        const value = weights.unitBase + unit.hp * weights.hpWeight;
+        const value = (weights.unitBase + unit.hp * weights.hpWeight)
+            * (weights.typeValue?.[unit.type] ?? 1);
         if (unit.playerIndex === playerIndex) {
             score += value;
             own.push(unit);

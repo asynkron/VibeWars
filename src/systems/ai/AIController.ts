@@ -42,6 +42,13 @@ const LIVE_BUDGET = {
     deepPlies: 4,
     replyPopulation: 10,
     replyRounds: 2,
+    // A beam planner reads none of the above, so it needs its own live
+    // dial or it would play the batch-sized search in a game where there
+    // is time to think. WIDTH only: handing over a whole beam object here
+    // would also hand over its depth, which would silently turn a
+    // deliberately shallow engine into a deep one the moment it was
+    // selected for a live game.
+    beamChildCounts: [160, 120, 60, 40, 32],
 };
 
 // ?ai=wolfpack picks a variant for BOTH CPU sides; ?ai=baseline:wolfpack
@@ -64,9 +71,20 @@ function enginesFromQuery(): [AIEngine, AIEngine] {
     return [picked[0], picked[1]];
 }
 
-// Resolved once: re-reading the query string mid-game could silently swap
-// engines between turns.
-const LIVE_ENGINES: [AIEngine, AIEngine] = enginesFromQuery().map((e) => e.withBudget(LIVE_BUDGET)) as [AIEngine, AIEngine];
+// Resolved once, but on FIRST USE rather than at module load: reading the
+// registry at load time makes this file order-sensitive, and any import
+// path that reaches AIController before the engine modules have finished
+// initialising crashes the whole game at startup with an undefined engine.
+// Caching after the first call still guarantees the query string is read
+// once, so engines cannot silently change between turns.
+let liveEngines: [AIEngine, AIEngine] | null = null;
+function getLiveEngines(): [AIEngine, AIEngine] {
+    if (!liveEngines) {
+        const [a, b] = enginesFromQuery();
+        liveEngines = [a.withBudget(LIVE_BUDGET), b.withBudget(LIVE_BUDGET)];
+    }
+    return liveEngines;
+}
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -91,7 +109,8 @@ export class AIController {
             window.dispatchEvent(new CustomEvent('vibewars:aiprogress', {
                 detail: { done, total, playerIndex },
             }));
-        const engine = LIVE_ENGINES[playerIndex] ?? LIVE_ENGINES[1];
+        const engines = getLiveEngines();
+        const engine = engines[playerIndex] ?? engines[1];
         const { events } = await engine.planTurnAsync(
             snapshot,
             playerIndex,

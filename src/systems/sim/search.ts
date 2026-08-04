@@ -105,6 +105,19 @@ export interface PlanTurnOptions {
     // maxPlanLength is not given outright.
     maxGenesPerUnit?: number;
     mutation?: MutationRates;
+
+    // Settings for an engine-supplied planner rather than this hillclimb.
+    // They live in the same bundle so an engine stays one option object and
+    // withBudget keeps working; the hillclimb simply never reads them.
+    // Typed loosely here to keep search.ts from depending on the planners
+    // that depend on it -- each planner narrows its own.
+    beam?: any;
+    // How WIDE a beam planner searches, overridable by a budget while the
+    // engine keeps everything else about its beam. Depth and the beam's
+    // keep-counts are what an engine believes; width is what it can afford.
+    // Folding the whole beam object into a budget instead would let
+    // LIVE_BUDGET silently hand a shallow engine someone else's depth.
+    beamChildCounts?: number[];
 }
 
 export interface TurnPlanResult {
@@ -174,7 +187,7 @@ function shuffleWith<T>(rng: () => number, items: T[]): T[] {
 // genes per unit, freely ordered. (The attack sweep now guarantees
 // trailing shots, so generation 0 no longer needs explicit attack genes
 // appended -- but a few random attack genes still arise via KIND_WEIGHTS.)
-function randomPlanFor(
+export function randomPlanFor(
     state: SimState,
     playerIndex: number,
     rng: () => number,
@@ -226,7 +239,7 @@ function bestReply(
 // The search core as a generator: yields progress ticks between units of
 // work so drivers can either run it to completion synchronously
 // (planTurn) or yield to the event loop between ticks (planTurnAsync).
-function* planTurnGen(
+export function* planTurnGen(
     snapshot: SimState,
     playerIndex: number,
     options: PlanTurnOptions
@@ -432,24 +445,32 @@ function* planTurnGen(
     return { events: best.branch.events, score: bestDeep, genes: best.genes };
 }
 
-export function planTurn(snapshot: SimState, playerIndex: number, options: PlanTurnOptions = {}): TurnPlanResult {
-    const gen = planTurnGen(snapshot, playerIndex, options);
+// A whole-turn search algorithm, written as a generator so it can be run
+// either synchronously or with yields to the event loop. Engines may bring
+// their own -- see AIEngine's `planner` -- which is how a genuinely
+// different search (a beam tree, say) plugs in beside this hillclimb
+// without either having to know about the other.
+export type Planner = (
+    snapshot: SimState,
+    playerIndex: number,
+    options: PlanTurnOptions
+) => Generator<PlanProgress, TurnPlanResult>;
+
+// Run a planner to completion on this tick.
+export function drivePlanner(gen: Generator<PlanProgress, TurnPlanResult>): TurnPlanResult {
     let step = gen.next();
     while (!step.done) step = gen.next();
     return step.value;
 }
 
-// Async driver: identical result to planTurn (same generator, same
-// seeds), but yields to the event loop between work units and reports
-// progress -- so the page can animate an "AI thinking" bar while the
-// search runs on the main thread.
-export async function planTurnAsync(
-    snapshot: SimState,
-    playerIndex: number,
-    options: PlanTurnOptions = {},
+// Identical result to drivePlanner (same generator, same seeds), but
+// yields to the event loop between work units and reports progress -- so
+// the page can animate an "AI thinking" bar while the search runs on the
+// main thread.
+export async function drivePlannerAsync(
+    gen: Generator<PlanProgress, TurnPlanResult>,
     onProgress?: (progress: PlanProgress) => void
 ): Promise<TurnPlanResult> {
-    const gen = planTurnGen(snapshot, playerIndex, options);
     let step = gen.next();
     while (!step.done) {
         onProgress?.(step.value);
@@ -457,4 +478,17 @@ export async function planTurnAsync(
         step = gen.next();
     }
     return step.value;
+}
+
+export function planTurn(snapshot: SimState, playerIndex: number, options: PlanTurnOptions = {}): TurnPlanResult {
+    return drivePlanner(planTurnGen(snapshot, playerIndex, options));
+}
+
+export async function planTurnAsync(
+    snapshot: SimState,
+    playerIndex: number,
+    options: PlanTurnOptions = {},
+    onProgress?: (progress: PlanProgress) => void
+): Promise<TurnPlanResult> {
+    return drivePlannerAsync(planTurnGen(snapshot, playerIndex, options), onProgress);
 }

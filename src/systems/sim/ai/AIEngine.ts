@@ -19,9 +19,11 @@ import { SimState } from '../SimState';
 import {
     PlanTurnOptions,
     PlanProgress,
+    Planner,
     TurnPlanResult,
-    planTurn,
-    planTurnAsync,
+    planTurnGen,
+    drivePlanner,
+    drivePlannerAsync,
 } from '../search';
 
 // Everything except the seed, which is per-turn rather than per-engine.
@@ -36,6 +38,11 @@ export interface EngineDefinition {
     // a result table explains itself.
     notes: string;
     options: EngineOptions;
+    // The search algorithm itself. Defaults to search.ts's hillclimb; an
+    // engine may bring a different one (a beam tree, say) and still be a
+    // drop-in for the live game and the tournament, because everything
+    // downstream only ever sees planTurn/planTurnAsync.
+    planner?: Planner;
 }
 
 export interface AIEngine {
@@ -63,15 +70,25 @@ export interface AIEngine {
 }
 
 export function createEngine(definition: EngineDefinition): AIEngine {
-    const { id, name, notes, options } = definition;
+    const { id, name, notes, options, planner } = definition;
+    // Resolved when a turn is planned, NOT when this runs. Engine modules
+    // call createEngine at module scope, and reading planTurnGen here makes
+    // that call order-sensitive: any import path that reaches an engine
+    // while search.ts is still initialising throws on the binding. Looking
+    // it up lazily costs nothing and removes the hazard.
+    const plan = (snapshot: SimState, playerIndex: number, seed: number) =>
+        (planner ?? planTurnGen)(snapshot, playerIndex, { ...options, seed });
+
     return {
         id,
         name,
         notes,
         options,
-        planTurn: (snapshot, playerIndex, seed) => planTurn(snapshot, playerIndex, { ...options, seed }),
+        planTurn: (snapshot, playerIndex, seed) => drivePlanner(plan(snapshot, playerIndex, seed)),
         planTurnAsync: (snapshot, playerIndex, seed, onProgress) =>
-            planTurnAsync(snapshot, playerIndex, { ...options, seed }, onProgress),
-        withBudget: (budget) => createEngine({ id, name, notes, options: { ...options, ...budget } }),
+            drivePlannerAsync(plan(snapshot, playerIndex, seed), onProgress),
+        // The budget rides along; the ALGORITHM does not change, because a
+        // cheaper budget must never turn one engine into another.
+        withBudget: (budget) => createEngine({ id, name, notes, planner, options: { ...options, ...budget } }),
     };
 }
