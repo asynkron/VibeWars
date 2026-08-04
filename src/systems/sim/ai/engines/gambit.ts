@@ -44,12 +44,16 @@
 
 import { createEngine } from '../AIEngine';
 import { beamPlanGen } from '../planners/beam';
+import { beamPlanParallel } from '../planners/beamParallel';
 
 export const gambitEngine = createEngine({
     id: 'gambit',
     name: 'Gambit',
     notes: 'Beam tree five turns deep that keeps its worst-looking moves alive, plus per-type unit worth.',
     planner: beamPlanGen,
+    // Same search, fanned out across workers, for the live game only.
+    // Proven to return the identical plan -- see beamParallel.test.ts.
+    asyncPlanner: beamPlanParallel,
     options: {
         // --- The beam, in HeroesOfBlazor's own proportions: 7 best plus 4
         // --- sacrifices kept per own node, one reply per opponent node.

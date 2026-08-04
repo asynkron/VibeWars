@@ -456,6 +456,18 @@ export type Planner = (
     options: PlanTurnOptions
 ) => Generator<PlanProgress, TurnPlanResult>;
 
+// A planner that cannot run synchronously -- because it waits on workers.
+// An engine may supply one alongside its generator: the generator serves
+// planTurn (headless batches, tournaments, tests), the async one serves
+// planTurnAsync (the live game). They are required to produce the same
+// plan, which beamParallel.test.ts checks event for event.
+export type AsyncPlanner = (
+    snapshot: SimState,
+    playerIndex: number,
+    options: PlanTurnOptions,
+    onProgress?: (progress: PlanProgress) => void
+) => Promise<TurnPlanResult>;
+
 // Run a planner to completion on this tick.
 export function drivePlanner(gen: Generator<PlanProgress, TurnPlanResult>): TurnPlanResult {
     let step = gen.next();

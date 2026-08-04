@@ -20,6 +20,7 @@ import {
     PlanTurnOptions,
     PlanProgress,
     Planner,
+    AsyncPlanner,
     TurnPlanResult,
     planTurnGen,
     drivePlanner,
@@ -43,6 +44,11 @@ export interface EngineDefinition {
     // drop-in for the live game and the tournament, because everything
     // downstream only ever sees planTurn/planTurnAsync.
     planner?: Planner;
+    // Used by planTurnAsync only. The live game gets this; headless
+    // batches, tournaments and tests keep the synchronous generator, so a
+    // worker pool is never spun up to play a thousand matches in node.
+    // The two must agree -- see AsyncPlanner.
+    asyncPlanner?: AsyncPlanner;
 }
 
 export interface AIEngine {
@@ -70,7 +76,7 @@ export interface AIEngine {
 }
 
 export function createEngine(definition: EngineDefinition): AIEngine {
-    const { id, name, notes, options, planner } = definition;
+    const { id, name, notes, options, planner, asyncPlanner } = definition;
     // Resolved when a turn is planned, NOT when this runs. Engine modules
     // call createEngine at module scope, and reading planTurnGen here makes
     // that call order-sensitive: any import path that reaches an engine
@@ -86,9 +92,11 @@ export function createEngine(definition: EngineDefinition): AIEngine {
         options,
         planTurn: (snapshot, playerIndex, seed) => drivePlanner(plan(snapshot, playerIndex, seed)),
         planTurnAsync: (snapshot, playerIndex, seed, onProgress) =>
-            drivePlannerAsync(plan(snapshot, playerIndex, seed), onProgress),
+            asyncPlanner
+                ? asyncPlanner(snapshot, playerIndex, { ...options, seed }, onProgress)
+                : drivePlannerAsync(plan(snapshot, playerIndex, seed), onProgress),
         // The budget rides along; the ALGORITHM does not change, because a
         // cheaper budget must never turn one engine into another.
-        withBudget: (budget) => createEngine({ id, name, notes, planner, options: { ...options, ...budget } }),
+        withBudget: (budget) => createEngine({ id, name, notes, planner, asyncPlanner, options: { ...options, ...budget } }),
     };
 }

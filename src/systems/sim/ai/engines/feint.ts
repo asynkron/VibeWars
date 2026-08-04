@@ -36,6 +36,7 @@
 
 import { createEngine } from '../AIEngine';
 import { beamPlanGen } from '../planners/beam';
+import { beamPlanParallel } from '../planners/beamParallel';
 import { gambitEngine } from './gambit';
 
 export const feintEngine = createEngine({
@@ -43,6 +44,7 @@ export const feintEngine = createEngine({
     name: 'Feint',
     notes: 'Gambit at depth 3 instead of 5 -- the ablation that asks whether the win is the search shape or the search volume.',
     planner: beamPlanGen,
+    asyncPlanner: beamPlanParallel,
     options: {
         ...gambitEngine.options,
         beam: {
