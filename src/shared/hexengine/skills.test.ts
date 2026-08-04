@@ -3,7 +3,10 @@
 import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { UNIT_TYPES, unitTypesRecord, skillsFor, primarySkill, skillById } from './unitStats';
-import { NO_COOLDOWNS, chargeSkill, isReady, tickCooldowns, type SkillDef } from './skills';
+import {
+    NO_COOLDOWNS, chargeSkill, isReady, tickCooldowns, skillReady, inSkillRange, skillAccepts,
+    PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef,
+} from './skills';
 
 const TYPES = Object.keys(UNIT_TYPES);
 
@@ -115,5 +118,60 @@ describe('cooldowns', () => {
         const snapshot = { ...before };
         tickCooldowns(before);
         expect(before).toEqual(snapshot);
+    });
+});
+
+describe('who a skill may be pointed at', () => {
+    const caster = { playerIndex: 0, hasAttacked: false, cooldowns: NO_COOLDOWNS };
+    const ally = (over = {}) => ({ playerIndex: 0, hp: 4, maxHp: 10, unitClass: 'tank', ...over });
+    const enemy = (over = {}) => ({ playerIndex: 1, hp: 4, maxHp: 10, unitClass: 'tank', ...over });
+
+    it('lets an attack hit an enemy and nothing else', () => {
+        const attack = primarySkill('Bulwark')!;
+        expect(skillAccepts(attack, caster, enemy())).toBe(true);
+        expect(skillAccepts(attack, caster, ally())).toBe(false);
+        expect(skillAccepts(attack, caster, null)).toBe(false);
+    });
+
+    it('lets Repair reach a damaged mechanical ally only', () => {
+        expect(skillAccepts(PIKE_REPAIR, caster, ally())).toBe(true);
+        expect(skillAccepts(PIKE_REPAIR, caster, ally({ hp: 10 })), 'full health').toBe(false);
+        expect(skillAccepts(PIKE_REPAIR, caster, ally({ unitClass: 'infantry' })), 'infantry').toBe(false);
+        expect(skillAccepts(PIKE_REPAIR, caster, enemy()), 'enemy').toBe(false);
+        expect(skillAccepts(PIKE_REPAIR, caster, null), 'empty hex').toBe(false);
+    });
+
+    it('lets Load reach friendly infantry only', () => {
+        expect(skillAccepts(DROVER_LOAD, caster, ally({ unitClass: 'infantry' }))).toBe(true);
+        expect(skillAccepts(DROVER_LOAD, caster, ally({ unitClass: 'tank' }))).toBe(false);
+        expect(skillAccepts(DROVER_LOAD, caster, enemy({ unitClass: 'infantry' }))).toBe(false);
+    });
+
+    it('lets Unload reach an empty hex only', () => {
+        expect(skillAccepts(DROVER_UNLOAD, caster, null)).toBe(true);
+        expect(skillAccepts(DROVER_UNLOAD, caster, ally())).toBe(false);
+        expect(skillAccepts(DROVER_UNLOAD, caster, enemy())).toBe(false);
+    });
+
+    it('refuses a charged skill', () => {
+        const charged = { ...caster, cooldowns: chargeSkill(NO_COOLDOWNS, PIKE_REPAIR) };
+        expect(skillReady(charged, PIKE_REPAIR)).toBe(false);
+        expect(skillReady(caster, PIKE_REPAIR)).toBe(true);
+    });
+
+    it('refuses a skill that costs the action once the action is spent', () => {
+        const spent = { ...caster, hasAttacked: true };
+        expect(skillReady(spent, PIKE_REPAIR)).toBe(false);
+        // ...but Unload does not cost the action, so it may follow anything.
+        expect(skillReady(spent, DROVER_UNLOAD)).toBe(true);
+    });
+
+    it('holds every skill to its own range', () => {
+        expect(inSkillRange(PIKE_REPAIR, 1)).toBe(true);
+        expect(inSkillRange(PIKE_REPAIR, 0)).toBe(false);
+        expect(inSkillRange(PIKE_REPAIR, 2)).toBe(false);
+        const artillery = primarySkill('Kestrel')!;
+        expect(inSkillRange(artillery, 1)).toBe(false);
+        expect(inSkillRange(artillery, 3)).toBe(true);
     });
 });

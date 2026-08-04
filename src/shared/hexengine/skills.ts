@@ -272,3 +272,61 @@ export const DROVER_UNLOAD: SkillDef = {
     endsMovement: false,
     effect: { kind: 'unload' },
 };
+
+// ---------------------------------------------------------------------
+// Legality
+// ---------------------------------------------------------------------
+
+// The minimum a caster and a target must satisfy, as a pure function of
+// plain data.
+//
+// Extracted rather than left inline in the click handler for two reasons.
+// The first is that the click handler lives in game.ts, which imports the
+// renderer, so nothing in it can be tested -- and "the UI only offers legal
+// options" is exactly the assumption the reference makes and exactly why
+// its AnimateSpellCast validates nothing at all. The second is that the
+// same rules are needed in three places: the player's click, the gene's
+// guard, and the target highlight. Three copies of a rule is three rules.
+export interface SkillCaster {
+    playerIndex: number;
+    hasAttacked: boolean;
+    cooldowns?: Cooldowns;
+}
+
+export interface SkillTargetUnit {
+    playerIndex: number;
+    hp: number;
+    maxHp: number;
+    unitClass: string;
+}
+
+export function skillReady(caster: SkillCaster, skill: SkillDef): boolean {
+    if (!isReady(caster.cooldowns, skill.id)) return false;
+    // A skill that costs the action needs the action still unspent. One
+    // that does not -- Unload -- may follow anything.
+    return !(skill.spendsAction && caster.hasAttacked);
+}
+
+export function inSkillRange(skill: SkillDef, distance: number): boolean {
+    return distance >= skill.minRange && distance <= skill.maxRange;
+}
+
+// Whether a unit standing at the target hex is a legal target. `null` means
+// the hex is empty, which only an emptyHex skill accepts.
+export function skillAccepts(skill: SkillDef, caster: SkillCaster, target: SkillTargetUnit | null): boolean {
+    switch (skill.target.kind) {
+        case 'emptyHex':
+            return target === null;
+        case 'enemyUnit':
+            return !!target && target.playerIndex !== caster.playerIndex;
+        case 'allyUnit': {
+            if (!target || target.playerIndex !== caster.playerIndex) return false;
+            // The check that makes "heal a full-health ally" unsayable
+            // rather than merely unlikely -- see PIKE_REPAIR.
+            if (skill.target.onlyDamaged && target.hp >= target.maxHp) return false;
+            const classes = skill.target.classes;
+            if (classes && !classes.includes(target.unitClass as never)) return false;
+            return true;
+        }
+    }
+}

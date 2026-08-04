@@ -31,6 +31,8 @@ import { renderFrame } from './render';
 import { LightPool } from './shared/hexengine/LightPool';
 import { setGameState, getGameState } from './systems/gameStateStore';
 import { AUTHORED_PROVIDERS, RANDOM_PROVIDERS, selectedMapProvider } from './systems/maps/mapRegistry';
+import { armedSkill } from './systems/skillBar';
+import { skillReady, inSkillRange, skillAccepts } from './shared/hexengine/skills';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
 
 // Game Data
@@ -261,6 +263,16 @@ function setupEventListeners(matrices: CameraMatrices) {
         if (intersects.length > 0) {
             const hexGroup = intersects[0].object.parent;
             const unitOnHex = getGameState().getUnitAt(hexGroup.userData.q, hexGroup.userData.r);
+
+            // A non-attack skill armed from the bar takes the click first.
+            // Checked BEFORE the attack path rather than after, because a
+            // Repair and an attack can both be legal against overlapping
+            // hexes and the armed skill is the player's stated intent --
+            // the reference gets this right by routing every cast through
+            // the same selected-spell field, and it is worth keeping.
+            if (selectedUnit && castArmedSkill(selectedUnit, hexGroup.userData.q, hexGroup.userData.r)) {
+                return;
+            }
 
             // Check if we're attacking a highlighted enemy unit
             if (selectedUnit && unitOnHex && unitOnHex.playerIndex !== selectedUnit.playerIndex) {
@@ -562,6 +574,60 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
 
     // Kick off the first turn (starts the AI immediately in AI-vs-AI mode)
     gameState.start();
+}
+
+// Cast whatever the skill bar has armed, if it is not the plain attack and
+// the click names a legal target for it.
+//
+// Returns whether it handled the click, so the caller can fall through to
+// the ordinary move/attack path when it did not. Legality is enforced HERE
+// as well as by what the bar offers -- the reference validates nothing in
+// AnimateSpellCast and relies entirely on the UI never presenting an
+// illegal option, which is a hope rather than a rule.
+function castArmedSkill(actor: GameUnit, q: number, r: number): boolean {
+    const skill = armedSkill();
+    if (!skill || skill.effect.kind === 'attack') return false;
+    if (!skillReady(actor, skill)) return false;
+    if (!inSkillRange(skill, UnitSystem.getHexDistance(actor.q, actor.r, q, r))) return false;
+
+    const state = getGameState();
+    const target = state.getUnitAt(q, r);
+    // The shared rule, so the click, the gene guard and the highlight
+    // cannot drift apart.
+    if (!skillAccepts(skill, actor, target
+        ? { ...target, unitClass: UnitSystem.unitTypesRecord[target.type]?.unitClass ?? '' }
+        : null)) return false;
+
+    if (skill.effect.kind === 'repair') {
+        if (!target) return false;
+        UnitSystem.repair(target, skill.effect.hp, actor);
+        UnitSystem.handleSelection(actor);
+        return true;
+    }
+
+    if (skill.effect.kind === 'load') {
+        if (!target) return false;
+        const capacity = UnitSystem.unitTypesRecord[actor.type]?.capacity ?? 0;
+        const aboard = state.units.filter((u) => u.carriedBy === actor).length;
+        if (aboard >= capacity) return false;
+        UnitSystem.loadPassenger(actor, target);
+        UnitSystem.handleSelection(actor);
+        return true;
+    }
+
+    if (skill.effect.kind === 'unload') {
+        const passenger = state.units.find((u) => u.carriedBy === actor);
+        if (!passenger) return false;
+        const tile = state.map.getTile(q, r);
+        // Passable for the CARGO, not for the carrier -- a Pike cannot be
+        // put down in a lake just because the Drover is parked beside one.
+        if (!tile || UnitSystem.unitTypesRecord[passenger.type]?.terrainCosts[tile.type] == null) return false;
+        UnitSystem.unloadPassenger(actor, passenger, q, r);
+        UnitSystem.handleSelection(actor);
+        return true;
+    }
+
+    return false;
 }
 
 // The three ways a match can be driven, keyed by the string that rides in
