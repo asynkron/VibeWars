@@ -27,6 +27,7 @@ import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
 import { MAP_CONFIG } from './constants';
 import { initViewToolbar } from './systems/viewToolbar';
+import { renderFrame } from './render';
 import { setGameState, getGameState } from './systems/gameStateStore';
 import { selectedMapProvider } from './systems/maps/mapRegistry';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
@@ -489,6 +490,12 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
 
     // Start animation
     animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup);
+
+    // A hook for driving single frames by hand, so the renderer stays
+    // measurable when requestAnimationFrame is throttled -- which a
+    // backgrounded tab always does, and which is exactly when you want to
+    // A/B two settings. Same passes, same order, no scheduler.
+    (window as any).renderFrameNow = () => renderFrame(miniMapCamera, matrices, highlightGroup);
 
     // Kick off the first turn (starts the AI immediately in AI-vs-AI mode)
     gameState.start();

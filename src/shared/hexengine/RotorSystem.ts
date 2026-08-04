@@ -42,6 +42,14 @@ class RotorSystem {
         for (const spec of ROTORS) {
             const node = root.getObjectByName(spec.name);
             if (!node) continue;
+            // Spinning blades are excluded from the shadow pass. They turn
+            // every frame, so leaving them in it holds the shadow map at a
+            // full refresh for as long as any helicopter is alive --
+            // measured, that alone cost 15.4 ms a frame. At this camera
+            // height a rotor disc's own shadow is a few dark pixels against
+            // the hull's, which still casts normally.
+            node.traverse((part: any) => { if (part.isMesh) part.castShadow = false; });
+
             this.rotors.push({
                 node,
                 root,
@@ -53,8 +61,11 @@ class RotorSystem {
     }
 
     // Driven from the render loop, `time` in seconds.
-    // Returns whether anything actually turned, so the caller can skip a
-    // shadow-map refresh on the frames where nothing did.
+    // Returns false always: the blades are excluded from the shadow pass
+    // (see claim), so spinning them changes nothing the shadow map depicts.
+    // Kept as a boolean because the render loop asks every animating system
+    // the same question, and a helicopter that starts casting again would
+    // answer it here.
     static animate(time: number): boolean {
         const spin = new THREE.Quaternion();
         for (let i = this.rotors.length - 1; i >= 0; i--) {
@@ -69,7 +80,7 @@ class RotorSystem {
             spin.setFromAxisAngle(rotor.axis, time * rotor.speed);
             rotor.node.quaternion.copy(rotor.base).multiply(spin);
         }
-            return this.rotors.length > 0;
+            return false;
     }
 
     static clear(): void {

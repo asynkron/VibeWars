@@ -228,10 +228,19 @@ function setupMinimap(mapCenterX: number, mapCenterZ: number) {
     return { miniMapCamera, mapWidth, mapHeight, highlightGroup };
 }
 
-// Animation Loop
+// Animation Loop. Scheduling only -- the frame itself is renderFrame below,
+// so it can also be driven by hand.
 function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number, mapHeight: number, highlightGroup: any) {
     requestAnimationFrame(() => animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup));
+    renderFrame(miniMapCamera, matrices, highlightGroup);
+}
 
+// One frame, start to finish. Split out from the rAF loop because a
+// backgrounded tab throttles or stops rAF entirely, which makes the
+// renderer unmeasurable exactly when you want to compare two settings.
+// Calling this in a tight loop measures the real cost of the real passes
+// with no dependency on whether anyone is looking at the canvas.
+function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGroup: any) {
     // Before any rendering, so the counters cover the whole frame rather
     // than only the last render() call.
     FrameStats.beginFrame(renderer);
@@ -338,5 +347,5 @@ export {
     scene, camera, renderer, group, miniMapScene, mapWidth, mapHeight, cameraTarget,
     initRenderer, setupCamera, getLookDirection, setCameraPosition, updateCameraPosition,
     updateCameraZoom, setupMinimap, animate, updateMiniMapHighlights,
-    getCameraHeight, setCameraHeight, resizeComposer, markShadowsDirty,
+    getCameraHeight, setCameraHeight, resizeComposer, markShadowsDirty, renderFrame,
 };
