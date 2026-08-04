@@ -32,10 +32,11 @@
 // playing well rather than against one flailing.
 
 import { SimState, GameEvent } from '../../SimState';
-import { PlanTurnOptions, PlanProgress, TurnPlanResult, randomPlanFor } from '../../search';
-import { applyGene, sweepAttacks, DEFAULT_DIALECT } from '../../SimCommands';
+import { PlanTurnOptions, PlanProgress, TurnPlanResult } from '../../search';
+import { DEFAULT_DIALECT } from '../../SimCommands';
 import { scoreState, DEFAULT_SCORE_WEIGHTS } from '../../score';
-import { mulberry32 } from '../../resolveAttack';
+import { combineSeed } from '../../resolveAttack';
+import { runSimJob } from '../simJob';
 
 export interface BeamOptions {
     // Turns played out per line. Depth 1 is pure greedy.
@@ -65,7 +66,9 @@ export const DEFAULT_BEAM: BeamOptions = {
 };
 
 interface Node {
-    state: SimState;
+    // Every event from the snapshot to this node. The child generator
+    // replays it, which is also exactly what a worker needs -- see simJob.
+    path: GameEvent[];
     // Events of the depth-0 turn this line descends from -- the only turn
     // that will actually be executed. Everything deeper is evaluation.
     rootEvents: readonly GameEvent[];
@@ -85,7 +88,6 @@ export function* beamPlanGen(
         dialect = DEFAULT_DIALECT,
         beam = DEFAULT_BEAM,
     } = options;
-    const rng = mulberry32(seed);
     // Width may be overridden by a budget; depth and the keep-counts may
     // not. See PlanTurnOptions.beamChildCounts.
     const childCounts = options.beamChildCounts ?? beam.childCounts;
@@ -100,7 +102,7 @@ export function* beamPlanGen(
     const childCountAt = (depth: number) =>
         childCounts[Math.min(depth, childCounts.length - 1)] ?? 1;
 
-    let level: Node[] = [{ state: snapshot, rootEvents: [], rootImmediate: 0 }];
+    let level: Node[] = [{ path: [], rootEvents: [], rootImmediate: 0 }];
     let best: Node | null = null;
     let bestValue = -Infinity;
 
@@ -116,40 +118,46 @@ export function* beamPlanGen(
         // since the opponent's cut takes our WORST, the survivor is
         // whichever of our opening turns went worst. The search then
         // "chooses" it, because nothing else is left to compare against.
-        const byParent: Array<Array<{ node: Node; value: number }>> = level.map(() => []);
-        for (let p = 0; p < level.length; p++) {
-            const parent = level[p];
-            for (let c = 0; c < childCount; c++) {
-                const branch = parent.state.fork();
+        // Children come from runSimJob -- the SAME function a worker calls,
+        // so the serial and parallel planners cannot compute different
+        // things. Seeds derive from (seed, depth, node, child) rather than
+        // from one shared stream, which is what lets a child be generated
+        // anywhere and still land in the same place.
+        const byParent: Array<Array<{ node: Node; value: number }>> = level.map((parent, p) => {
+            const children = runSimJob(snapshot, {
+                parentEvents: parent.path,
+                side,
+                // Always the searching side, at every depth, so one number
+                // is comparable the whole way down.
+                scoreFor: playerIndex,
                 // The snapshot arrives already reset for the side to move
                 // (the caller records turnStarted before condensing), so
-                // only the deeper turns need their own reset.
-                if (depth > 0) branch.record({ type: 'turnStarted', playerIndex: side });
+                // only deeper turns need their own reset.
+                resetTurn: depth > 0,
+                count: childCount,
+                seed: combineSeed(seed, depth, p),
+                genesPerUnit: beam.genesPerUnit,
+            }, { dialect, score: weights });
 
-                const genes = randomPlanFor(branch, side, rng, beam.genesPerUnit, dialect);
-                for (const gene of genes) applyGene(branch, gene, dialect.extras);
-                // Same rule the hillclimb uses: a plan that leaves a legal,
-                // net-positive shot unfired is strictly worse than the same
-                // plan plus that shot.
-                sweepAttacks(branch, side, dialect.sweep);
-
-                // Always scored from the SEARCHING side's perspective, at
-                // every depth -- so a single number is comparable all the
-                // way down and the leaf ranking means what it says.
-                const value = scoreState(branch, playerIndex, weights);
-                const node: Node = depth === 0
-                    ? { state: branch, rootEvents: branch.events, rootImmediate: value }
-                    : { state: branch, rootEvents: parent.rootEvents, rootImmediate: parent.rootImmediate };
-                byParent[p].push({ node, value });
-            }
-        }
+            return children.map((child) => ({
+                node: {
+                    path: [...parent.path, ...child.events],
+                    rootEvents: depth === 0 ? child.events : parent.rootEvents,
+                    rootImmediate: depth === 0 ? child.value : parent.rootImmediate,
+                } as Node,
+                value: child.value,
+                index: child.index,
+                // Whether this child's own turn did anything at all.
+                acted: child.events.length > 0,
+            }));
+        });
 
         const nextLevel: Node[] = [];
         let levelBest: { node: Node; value: number } | null = null;
 
         for (const group of byParent) {
             if (group.length === 0) continue;
-            group.sort((a, b) => b.value - a.value);
+            group.sort((a: any, b: any) => b.value - a.value || a.index - b.index);
 
             if (isOwnLevel) {
                 const top = group.slice(0, beam.keepBest);
@@ -166,7 +174,7 @@ export function* beamPlanGen(
                 // children are their best replies. Prefer replies that
                 // actually did something, mirroring HeroesOfBlazor -- an idle
                 // reply flatters our line for no reason.
-                const acting = group.filter((entry) => entry.node.state.events.length > 0);
+                const acting = group.filter((entry: any) => entry.acted);
                 const pool = acting.length > 0 ? acting : group;
                 for (const entry of pool.slice(-beam.keepOpponent)) nextLevel.push(entry.node);
             }
