@@ -255,6 +255,26 @@ function setupEventListeners(matrices: CameraMatrices) {
     }
 
     window.addEventListener('click', (event) => {
+        // A click on the UI is not a click on the map.
+        //
+        // This listener is on WINDOW, so every click in the document
+        // reaches it -- including clicks on the buttons drawn over the
+        // board. It then raycasts at the pointer and finds whatever hex
+        // happens to lie behind the button, which is almost never a legal
+        // target, so it falls through to the last branch and CLEARS THE
+        // SELECTION.
+        //
+        // That made the skill bar useless in the most confusing possible
+        // way: arming a skill deselected the unit you were arming it for,
+        // so the next click had nothing to act with and absolutely nothing
+        // happened. It was invisible in tests because the bar is tested in
+        // jsdom, where there is no raycaster and no hex behind anything.
+        //
+        // Guarding on the whole overlay rather than on the skill bar alone:
+        // every button here is drawn over the map and has the same problem,
+        // and the next one added will have it too.
+        if (isUiClick(event.target)) return;
+
         mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
@@ -576,6 +596,17 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     gameState.start();
 }
 
+// Whether a click landed on the interface rather than on the world.
+//
+// Exported because the map click handler cannot be tested -- it needs a
+// renderer, a camera and a raycaster -- and this predicate is the whole
+// rule. Keeping it inline is what let the bug ship.
+export function isUiClick(target: EventTarget | null): boolean {
+    const element = target as HTMLElement | null;
+    if (!element || typeof element.closest !== 'function') return false;
+    return !!element.closest('button, #skill-bar, #view-toolbar, #minimap-overlay, #start-menu');
+}
+
 // Cast whatever the skill bar has armed, if it is not the plain attack and
 // the click names a legal target for it.
 //
@@ -843,7 +874,7 @@ window.onload = () => {
 // window, but probing live state from the console (unit heights, tiles,
 // pathfinding) needs an entry point. Stripped from production builds.
 if ((import.meta as any).env?.DEV) {
-    (window as any).__vibewars = { getGameState, GridSystem, TerrainSystem, UnitSystem, HexCoord, castArmedSkill };
+    (window as any).__vibewars = { getGameState, GridSystem, TerrainSystem, UnitSystem, HexCoord, castArmedSkill, getSelectedUnit };
 }
 
 function createRoads(gameState: GameState) {
