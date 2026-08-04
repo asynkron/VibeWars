@@ -584,7 +584,7 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
 // as well as by what the bar offers -- the reference validates nothing in
 // AnimateSpellCast and relies entirely on the UI never presenting an
 // illegal option, which is a hope rather than a rule.
-function castArmedSkill(actor: GameUnit, q: number, r: number): boolean {
+export function castArmedSkill(actor: GameUnit, q: number, r: number): boolean {
     const skill = armedSkill();
     if (!skill || skill.effect.kind === 'attack') return false;
     if (!skillReady(actor, skill)) return false;
@@ -843,7 +843,7 @@ window.onload = () => {
 // window, but probing live state from the console (unit heights, tiles,
 // pathfinding) needs an entry point. Stripped from production builds.
 if ((import.meta as any).env?.DEV) {
-    (window as any).__vibewars = { getGameState, GridSystem, TerrainSystem, UnitSystem, HexCoord };
+    (window as any).__vibewars = { getGameState, GridSystem, TerrainSystem, UnitSystem, HexCoord, castArmedSkill };
 }
 
 function createRoads(gameState: GameState) {
