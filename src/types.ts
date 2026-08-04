@@ -148,22 +148,33 @@ export interface ResolvedAttackOutcome {
 // canCapture unit takes the tile; hiddenUnitType is nulled after that, so
 // re-captures only flip ownership. `visual` is the THREE group decorating
 // the hex (see BuildingSystem).
+// A building's model key. The forge depot is FOUR pieces on four adjacent
+// hexes -- each piece is its own building, so capture, tinting, decorator
+// transparency and tile-sinking all keep working per hex exactly as they
+// did for the single-tile factory.
+export type BuildingType = 'factory' | 'forgeDepotN' | 'forgeDepotS' | 'forgeDepotE' | 'forgeDepotW';
+
 export interface Building {
-  type: 'factory';
+  type: BuildingType;
   q: number;
   r: number;
   ownerIndex: number | null;
   hiddenUnitType: string | null;
   destroyed: boolean;
+  // Y rotation in degrees, applied to the model. The depot's southern copy
+  // is the northern one turned half a turn, so its pieces must turn with
+  // it or their joining edges would face the wrong way.
+  rotationDeg?: number;
   visual?: Object3DLike | null;
 }
 
 // A building as authored by a MapProvider -- spawn-time data only.
 export interface BuildingSpawn {
-  type: 'factory';
+  type: BuildingType;
   q: number;
   r: number;
   hiddenUnitType: string | null;
+  rotationDeg?: number;
 }
 
 // A GameMap tile, see MapSystem's Tile class.

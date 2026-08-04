@@ -34,8 +34,19 @@ const NEUTRAL_TINT = 0x888888;
 // building fills its tile without spilling over the edges into the
 // neighbours. yOffset is a per-model vertical correction on top of the
 // computed ground height.
-const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number }> = {
+// The depot pieces are HEX TILES, not buildings standing inside a hex:
+// their x spans -7.20..7.20, i.e. corner to corner of a radius-7.2 hex. To
+// make their edges actually meet they must be scaled to exactly the tile's
+// own radius -- 1/7.2 -- not to the factory's 0.12, which deliberately
+// leaves a standalone building at 86% of its tile.
+const DEPOT_SCALE = 1 / 7.2;
+
+const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number; keepOrigin?: boolean }> = {
     factory: { model: 'assets/buildings/factory-building.glb', scale: 0.12, yOffset: 0 },
+    forgeDepotN: { model: 'assets/buildings/forge-depot-tile-n.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
+    forgeDepotS: { model: 'assets/buildings/forge-depot-tile-s.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
+    forgeDepotE: { model: 'assets/buildings/forge-depot-tile-e.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
+    forgeDepotW: { model: 'assets/buildings/forge-depot-tile-w.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
 };
 
 class BuildingSystem {
@@ -68,6 +79,9 @@ class BuildingSystem {
         );
         const groundY = TerrainSystem.getHeight(hex) + BUILDING_TYPES[building.type].yOffset;
         visual.position.set(hex.userData.x, groundY, hex.userData.z);
+        if (building.rotationDeg) {
+            visual.rotation.y = (building.rotationDeg * Math.PI) / 180;
+        }
         hex.userData.decorator = visual;
         hex.add(visual);
         building.visual = visual;
@@ -88,6 +102,7 @@ class BuildingSystem {
                 r: spawn.r,
                 ownerIndex: null,
                 hiddenUnitType: spawn.hiddenUnitType,
+                rotationDeg: spawn.rotationDeg,
                 destroyed: false,
                 visual: null,
             };
