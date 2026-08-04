@@ -32,8 +32,56 @@ class AudioSystem {
         await this.loadSound('jet', 'assets/sounds/jet.wav');
         // Tank main gun: a launcher's thump, not the rocket's jet whoosh.
         await this.loadSound('cannon', 'assets/sounds/glauncher.ogg');
+        // No helicopter sample ships with the project, so the rotor is
+        // synthesised rather than loaded.
+        this.sounds.set('rotor', this.createRotorBuffer());
 
         this.initialized = true;
+    }
+
+    // Builds a looping rotor sound from scratch: the blade-pass chop, the
+    // broadband wash of the disc, and a turbine note under it.
+    //
+    // It has to loop seamlessly, so every component is given a whole number
+    // of cycles inside the buffer -- a chop rate that divides evenly into
+    // the duration, and turbine partials at exact multiples of 1/duration.
+    // Anything else clicks audibly once per loop.
+    static createRotorBuffer(): AudioBuffer {
+        const context = this.audioContext!;
+        const rate = context.sampleRate;
+        const duration = 1;                       // seconds
+        const frames = Math.floor(rate * duration);
+        const buffer = context.createBuffer(1, frames, rate);
+        const out = buffer.getChannelData(0);
+
+        const chopsPerLoop = 16;                  // whole number => seamless
+        const turbineLow = 190;                   // both integers, so they
+        const turbineHigh = 377;                  // also close the loop
+
+        // One-pole low-pass state for the wash.
+        let washState = 0;
+
+        for (let i = 0; i < frames; i++) {
+            const t = i / rate;
+
+            // Blade pass: a sharp attack that decays before the next blade.
+            const chopPhase = (t * chopsPerLoop) % 1;
+            const chop = Math.exp(-chopPhase * 7) - Math.exp(-7);
+
+            // Rotor wash: white noise smoothed into a dull roar.
+            const noise = Math.random() * 2 - 1;
+            washState += (noise - washState) * 0.06;
+
+            const turbine =
+                0.05 * Math.sin(2 * Math.PI * turbineLow * t) +
+                0.03 * Math.sin(2 * Math.PI * turbineHigh * t);
+
+            // The chop gates most of the wash, which is what makes it read
+            // as a rotor rather than as wind.
+            out[i] = (washState * (0.35 + 0.65 * chop) * 1.6 + chop * 0.22 + turbine) * 0.6;
+        }
+
+        return buffer;
     }
 
     static async loadSound(name: string, url: string) {

@@ -1,6 +1,7 @@
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
 import { GlowSystem } from './shared/hexengine/GlowSystem';
+import { RotorSystem } from './shared/hexengine/RotorSystem';
 import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
 import type { CameraMatrices } from './types';
 
@@ -217,6 +218,9 @@ function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number,
 
     // Gutter the models' energy panels on the same clock.
     GlowSystem.animate(seconds);
+
+    // Spin the helicopters' rotors.
+    RotorSystem.animate(seconds);
 
     renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
     renderer.setScissor(0, 0, window.innerWidth, window.innerHeight);

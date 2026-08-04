@@ -1,5 +1,6 @@
 // ModelSystem.js
 import { GlowSystem } from './GlowSystem';
+import { RotorSystem } from './RotorSystem';
 
 class ModelSystem {
     static models: Record<string, any> = {};  // Cache for loaded 3D models
@@ -140,11 +141,21 @@ class ModelSystem {
                 // Create offset to move model:
                 // - Center it in X and Z
                 // - Put the LOWEST VERTEX exactly at Y=0
-                const offset = new THREE.Vector3(
-                    -(vMax.x + vMin.x) / 2,
-                    -vMin.y,
-                    -(vMax.z + vMin.z) / 2
-                );
+                //
+                // keepOrigin opts out of both. Models that are pieces of a
+                // larger assembly are authored around a COMMON origin, and
+                // re-centring each piece on its own bounds pulls them apart:
+                // every piece's superstructure leans a different way, so each
+                // gets a different sideways shift, and their differing lowest
+                // vertices put them at different heights. They must keep the
+                // origin they were authored with.
+                const offset = config.keepOrigin
+                    ? new THREE.Vector3(0, 0, 0)
+                    : new THREE.Vector3(
+                        -(vMax.x + vMin.x) / 2,
+                        -vMin.y,
+                        -(vMax.z + vMin.z) / 2
+                    );
 
                 // Create a centered group
                 modelGroup.add(loadedModel);
@@ -184,6 +195,7 @@ class ModelSystem {
                 }
             });
             GlowSystem.claim(modelClone);
+            RotorSystem.claim(modelClone);
             return modelClone;
         }
 
@@ -248,6 +260,7 @@ class ModelSystem {
         // After every material swap above, so the glow claims the materials
         // that actually end up in the scene rather than ones replaced later.
         GlowSystem.claim(modelClone);
+        RotorSystem.claim(modelClone);
         return modelClone;
     }
 

@@ -366,7 +366,7 @@ class UnitSystem {
             usePlayerColor: false,
             teamColorMaterial: 'teamCamo',
             sounds: {
-                movement: null,  // No helicopter rotor sound available
+                movement: 'rotor',  // synthesised, see AudioSystem.createRotorBuffer
                 attack: 'rlauncher2'
             }
         },
