@@ -211,8 +211,13 @@ describe('engine registry', () => {
         for (const id of ids) expect(getEngine(id)!.id).toBe(id);
     });
 
-    it('defaults the live game to the shipped AI', () => {
-        expect(DEFAULT_ENGINE.id).toBe('baseline');
+    it('defaults the live game to the engine that measured best', () => {
+        // Feint: 72.5% against baseline over 80 matches AND cheaper per
+        // turn at the live budget. If this ever changes, the tournament
+        // numbers in engineRegistry.ts must change with it -- a default
+        // picked on anything but a measured result is how an AI quietly
+        // regresses.
+        expect(DEFAULT_ENGINE.id).toBe('feint');
     });
 
     it('names the alternatives when asked for one that does not exist', () => {

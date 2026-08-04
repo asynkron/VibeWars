@@ -8,28 +8,61 @@ only honest way to decide whether a tweak was an improvement.
 ```
 AIEngine.ts          the interface + createEngine + withBudget
 engineRegistry.ts    id -> engine, used by both the game and the tournament
-engines/baseline.ts  the AI as shipped -- the control
-engines/wolfpack.ts  the challenger: a copy of baseline.ts with edits
+engines/baseline.ts  the AI as originally shipped -- the control
+engines/wolfpack.ts  a challenger: baseline with different weights + a gene
+engines/gambit.ts    a challenger that changes the SEARCH, not the weights
+engines/feint.ts     gambit at depth 3 -- an ablation, and now the default
 genes/regroup.ts     a gene only wolfpack registers
+planners/beam.ts     a beam tree search, used by gambit and feint
 tournament.ts        seed pairs played from both seatings + significance test
 ```
 
-The machinery still lives in `../search.ts`, `../score.ts` and
-`../SimCommands.ts`. What moved into an engine is the **values** — which is
-exactly the part a variant needs to own.
+An engine owns **values** (how the board is scored, which genes exist, how
+plans mutate) and may also own its **search algorithm**, via `planner`. The
+machinery lives in `../search.ts`, `../score.ts`, `../SimCommands.ts` and
+`planners/`.
+
+## What the tournaments found
+
+| | vs baseline | compute |
+|---|---|---|
+| wolfpack (different weights) | 51.6% over 400 matches — **no measurable difference** | 1.07× |
+| gambit (beam, depth 5) | **71.9%**, 95% 61.2–80.5 | 9.85× |
+| feint (beam, depth 3) | **72.5%**, 95% 61.9–81.1 | 2.20× |
+
+Gambit vs Feint head to head: 58.1%, interval 47.2–68.3 — **not decisive**
+at 80 matches, so the extra two levels are not yet shown to be worth 4.4×
+the thinking time.
+
+The lesson is in the first row against the other two: seven tuned weights
+moved nothing, and changing what the search *does* moved everything. The
+beam looks five (or three) whole turns ahead and, at its own levels, keeps
+the **worst**-scoring children alongside the best — a move that looks bad
+now is exactly the move whose consequences need playing out. Neither engine
+was told anything about unit matchups; both work them out.
 
 ## Adding a variant
 
 1. Copy `engines/baseline.ts`, change the `id`, `name`, `notes` and whatever
    values the hypothesis is about. Copy the whole options block rather than
    spreading baseline's — the diff between two engine files should be
-   readable in one screen.
-2. Keep the **search budget** (`population`, `rounds`, `lookaheadPlies`,
-   `replyCandidates`, `finalists`, `deepPlies`, `replyPopulation`,
-   `replyRounds`) identical to baseline's. An engine that simply thinks
-   longer wins for an uninteresting reason, and `AIEngine.test.ts` enforces
-   this for the engines that ship.
-3. Register it in `engineRegistry.ts`.
+   readable in one screen. (An **ablation** is the exception: `feint.ts`
+   spreads gambit's options on purpose, because there the two must be
+   provably identical apart from the one value under test.)
+2. Change **one thing**, or accept that the result will not say which change
+   did it. Wolfpack changed seven and was unreadable even before it turned
+   out to be noise.
+3. Keep the **search budget** comparable, and read the tournament's compute
+   line before believing a win. An engine that simply thinks longer wins for
+   an uninteresting reason. Where a challenger deliberately spends more —
+   Gambit does — say so in its header and treat the cost as part of the
+   result.
+4. Register it in `engineRegistry.ts`.
+
+A different **search algorithm** goes in `planners/` and is attached with
+`planner:`. It receives the same `PlanTurnOptions` bundle; put its own
+settings in a namespaced field (`beam`), and let a budget override only the
+part that is genuinely a budget — width, never depth.
 
 A new **gene** goes in `genes/`, implements `GeneDefinition`, and is listed
 in the engine's `dialect.weights` and `dialect.extras`. Any movement it does
@@ -63,6 +96,11 @@ looks.
 ## Playing a variant in the browser
 
 ```
-?ai=wolfpack             both CPU sides use it
-?ai=baseline:wolfpack    one engine per side
+?ai=gambit               both CPU sides use it
+?ai=baseline:feint       one engine per side
 ```
+
+The default is **feint** — chosen on the measured result above, and cheaper
+per turn at the live budget than the engine it replaced (0.71 s against
+2.06 s), because a three-level beam does less work than a hillclimb with a
+deep finalist stage.
