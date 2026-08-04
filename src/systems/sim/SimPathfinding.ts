@@ -125,3 +125,48 @@ export function simPath(
 
     return { path, cost: distances.get(endKey)! };
 }
+
+// Cost to reach every hex FROM a given coordinate, for a given unit type.
+//
+// Unlike simDijkstra this is a field over the map rather than a unit's
+// reachable set: it ignores who is standing where (units move, and the
+// hex you are routing toward is occupied by the enemy you are routing at)
+// and it is not bounded by a movement budget. What it answers is "how far
+// is this hex from there, along ground this unit can actually cross" --
+// which is the question a movement gene needs and hex distance only
+// approximates.
+export function simCostFieldFrom(
+    state: SimState,
+    unitType: string,
+    fromQ: number,
+    fromR: number
+): Map<string, number> {
+    const field = new Map<string, number>();
+    const closed = new Set<string>();
+    const startKey = keyOf(fromQ, fromR);
+    field.set(startKey, 0);
+
+    const frontier = new PriorityQueue<string>();
+    frontier.enqueue(startKey, 0);
+
+    while (!frontier.isEmpty()) {
+        const currentKey = frontier.dequeue()!;
+        if (closed.has(currentKey)) continue;
+        closed.add(currentKey);
+        const [cq, cr] = currentKey.split(',').map(Number);
+        const currentCost = field.get(currentKey)!;
+
+        for (const n of HexCoord.getNeighbors(cq, cr)) {
+            if (n.q < 0 || n.q >= state.cols || n.r < 0 || n.r >= state.rows) continue;
+            const step = simMoveCost(state, unitType, n.q, n.r);
+            if (step == null) continue;
+            const nextKey = keyOf(n.q, n.r);
+            const next = currentCost + step;
+            if (next < (field.get(nextKey) ?? Infinity)) {
+                field.set(nextKey, next);
+                frontier.enqueue(nextKey, next);
+            }
+        }
+    }
+    return field;
+}

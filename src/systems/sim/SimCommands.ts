@@ -19,7 +19,7 @@
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
-import { simDijkstra } from './SimPathfinding';
+import { simDijkstra, simCostFieldFrom } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
 
 export type BuiltinGeneKind =
@@ -301,7 +301,48 @@ export function applyGene(
                 }
             }
 
-            if (bestKey === null) return false; // nothing strictly better than staying
+            // Nothing strictly better by hex distance. For moveAway that
+            // genuinely means stay; for moveTowards it usually means the
+            // unit is standing behind something.
+            //
+            // THE GREEDY RULE HAS A DEAD END, and it is not a corner case.
+            // A hex-distance test can only accept a step that shortens the
+            // straight line, so a unit whose route runs AROUND a ridge or a
+            // lake stops at the obstacle and never moves again -- the first
+            // step around is farther away, so it is refused, and next turn
+            // looks identical. Measured on the shipped 12x18 map, walking a
+            // single unit at a stationary enemy with this gene alone: 74 of
+            // 84 starts for a Bulwark and the same 74 for a Halberd stop
+            // dead at (5,11) and stay there; a Kestrel never arrives from
+            // any of its 84. Only Pike (crosses mountains) and Nightjar
+            // (flies) get through, because they never have to go around
+            // anything. A real route exists in every case -- for that
+            // Bulwark it costs 6.5, about four turns.
+            //
+            // So when the greedy rule finds nothing, fall back to TRUE PATH
+            // DISTANCE: a cost field from the target across ground this
+            // unit can cross, and the reachable hex that is nearest along
+            // it. Only on the fallback, because the field is a full-map
+            // dijkstra and the beam applies thousands of genes per turn --
+            // and because where the greedy rule works it is already right.
+            if (bestKey === null && gene.kind === 'moveTowards') {
+                const field = simCostFieldFrom(state, unit.type, target.q, target.r);
+                let bestField = field.get(`${unit.q},${unit.r}`) ?? Infinity;
+                for (const key of reachable) {
+                    const [q, r] = key.split(',').map(Number);
+                    if (q === unit.q && r === unit.r) continue;
+                    const value = field.get(key);
+                    if (value === undefined) continue;
+                    const cost = distances.get(key)!;
+                    if (value < bestField || (value === bestField && cost < bestCost && bestKey !== null)) {
+                        bestField = value;
+                        bestCost = cost;
+                        bestKey = key;
+                    }
+                }
+            }
+
+            if (bestKey === null) return false; // nothing better than staying
             const [toQ, toR] = bestKey.split(',').map(Number);
             recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
             return true;
@@ -375,6 +416,26 @@ export function applyGene(
                     bestKey = key;
                 }
             }
+            // Same dead end as moveTowards, and the same fallback: a
+            // capturing unit whose route to the door runs around the ridge
+            // would otherwise stop at it forever.
+            if (bestKey === null) {
+                const field = simCostFieldFrom(state, unit.type, building.q, building.r);
+                let bestField = field.get(`${unit.q},${unit.r}`) ?? Infinity;
+                for (const key of reachable) {
+                    const [q, r] = key.split(',').map(Number);
+                    if (q === unit.q && r === unit.r) continue;
+                    const value = field.get(key);
+                    if (value === undefined) continue;
+                    const cost = distances.get(key)!;
+                    if (value < bestField || (value === bestField && cost < bestCost && bestKey !== null)) {
+                        bestField = value;
+                        bestCost = cost;
+                        bestKey = key;
+                    }
+                }
+            }
+
             if (bestKey === null) return false;
             const [toQ, toR] = bestKey.split(',').map(Number);
             recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
