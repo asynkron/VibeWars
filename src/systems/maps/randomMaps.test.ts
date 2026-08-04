@@ -1,0 +1,195 @@
+// The random maps had no tests at all, for a reason worth recording: their
+// generate() calls TerrainSystem.getLerpedTerrainColor, which does real
+// arithmetic on THREE.Color's channels, and the test stub answered every
+// property with a proxy -- so merely generating one threw "Cannot convert
+// object to primitive value". The stub now carries a real Color. These are
+// the first assertions this map has ever had.
+//
+// The authored maps get authoredMaps.test.ts, which measures things only a
+// symmetric map can promise. A random map cannot promise its two sides
+// identical ground. What it CAN promise is that nothing it places is
+// stranded, unreachable or overlapping -- which is what this checks.
+
+import '../../test/threeStub';
+import { describe, it, expect } from 'vitest';
+import { RANDOM_PROVIDERS } from './mapRegistry';
+import { MAP_SIZES } from '../../constants';
+import { StartingUnit } from './MapProvider';
+import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
+import { unitTypesRecord } from '../../shared/hexengine/unitStats';
+import type { BuildingSpawn, TileLike } from '../../types';
+
+const EXPECTED = {
+    random20: { units: 3, depots: 2 },
+    random30: { units: 5, depots: 3 },
+    random50: { units: 10, depots: 7 },
+} as const;
+
+const neighbourOffsets = (q: number) => (q % 2 === 0
+    ? [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 0], [-1, -1]]
+    : [[0, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]]);
+
+function neighbours(q: number, r: number, cols: number, rows: number) {
+    return neighbourOffsets(q)
+        .map(([dq, dr]) => [q + dq, r + dr] as [number, number])
+        .filter(([nq, nr]) => nq >= 0 && nq < cols && nr >= 0 && nr < rows);
+}
+
+function stepCost(type: string, tile: TileLike): number | null {
+    const cost = unitTypesRecord[type]?.terrainCosts?.[tile.type];
+    return cost == null ? null : cost;
+}
+
+// Everything one unit type can walk to from a start.
+function reachable(tiles: TileLike[][], cols: number, rows: number, type: string, from: [number, number]) {
+    const seen = new Set<string>([`${from[0]},${from[1]}`]);
+    const queue: Array<[number, number]> = [from];
+    for (let head = 0; head < queue.length; head++) {
+        const [q, r] = queue[head];
+        for (const [nq, nr] of neighbours(q, r, cols, rows)) {
+            if (seen.has(`${nq},${nr}`)) continue;
+            if (stepCost(type, tiles[nq][nr]) == null) continue;
+            seen.add(`${nq},${nr}`);
+            queue.push([nq, nr]);
+        }
+    }
+    return seen;
+}
+
+describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s', (key, provider) => {
+    const { cols, rows } = provider;
+    const expected = EXPECTED[key as keyof typeof EXPECTED];
+    // generate() first, then read spawns and buildings -- the order every
+    // real caller uses, and the order the provider's placement depends on.
+    const tiles = provider.generate();
+    const spawns = provider.spawns;
+    const buildings = provider.buildings ?? [];
+    const groups = new Map<string, BuildingSpawn[]>();
+    for (const piece of buildings) {
+        groups.set(piece.groupId!, [...(groups.get(piece.groupId!) ?? []), piece]);
+    }
+
+    it('is the size the table promises', () => {
+        expect([MAP_SIZES[key].cols, MAP_SIZES[key].rows]).toEqual([cols, rows]);
+        expect(tiles).toHaveLength(cols);
+    });
+
+    it(`fields ${expected.units} units a side, the same on both`, () => {
+        expect(spawns.player).toHaveLength(expected.units);
+        expect(spawns.cpu).toHaveLength(expected.units);
+        const types = (units: StartingUnit[]) => units.map((u) => u.type).sort();
+        expect(types(spawns.cpu)).toEqual(types(spawns.player));
+    });
+
+    it('gives each side infantry, or the depots are scenery', () => {
+        // Only canCapture units take a building, so a roster without one
+        // makes every depot on the map unwinnable furniture. This is why
+        // Pike is third in the roster rather than fifth.
+        for (const side of [spawns.player, spawns.cpu]) {
+            expect(side.some((u) => unitTypesRecord[u.type]?.canCapture)).toBe(true);
+        }
+    });
+
+    it(`places ${expected.depots} forge depots, four pieces each`, () => {
+        expect(groups.size).toBe(expected.depots);
+        for (const [groupId, pieces] of groups) {
+            expect(pieces, groupId).toHaveLength(4);
+            expect(pieces.map((p) => p.type).sort())
+                .toEqual(['forgeDepotE', 'forgeDepotN', 'forgeDepotS', 'forgeDepotW']);
+        }
+    });
+
+    it('gives every depot exactly one door, holding exactly one prize', () => {
+        for (const [groupId, pieces] of groups) {
+            const doors = pieces.filter((p) => p.isEntrance);
+            expect(doors, groupId).toHaveLength(1);
+            expect(doors[0].type).toBe('forgeDepotS');
+            expect(pieces.filter((p) => p.hiddenUnitType).map((p) => p.type)).toEqual(['forgeDepotS']);
+        }
+    });
+
+    it('anchors every depot on an EVEN column, or it is not a diamond', () => {
+        // On odd-q offset, only an even column has (q-1,r), (q,r+1) and
+        // (q+1,r) as its south-west, south and south-east neighbours. Anchor
+        // an odd column and the four pieces do not touch as cut.
+        for (const [groupId, pieces] of groups) {
+            const north = pieces.find((p) => p.type === 'forgeDepotN')!;
+            expect(north.q % 2, `${groupId} anchor column`).toBe(0);
+            const cells = new Map(pieces.map((p) => [p.type, [p.q, p.r]]));
+            expect(cells.get('forgeDepotW')).toEqual([north.q - 1, north.r]);
+            expect(cells.get('forgeDepotE')).toEqual([north.q + 1, north.r]);
+            expect(cells.get('forgeDepotS')).toEqual([north.q, north.r + 1]);
+        }
+    });
+
+    it('stands each depot on one level platform', () => {
+        // A building tile keeps its authored height exactly -- smoothHexTile
+        // returns early for it -- so four heights is a step through the
+        // middle of the building.
+        for (const [groupId, pieces] of groups) {
+            const heights = pieces.map((p) => tiles[p.q][p.r].height);
+            for (const height of heights) expect(height, groupId).toBe(heights[0]);
+        }
+    });
+
+    it('puts nothing on ground it cannot stand on', () => {
+        for (const unit of [...spawns.player, ...spawns.cpu]) {
+            expect(stepCost(unit.type, tiles[unit.q][unit.r]), `${unit.type} at ${unit.q},${unit.r}`)
+                .not.toBeNull();
+        }
+        for (const piece of buildings) {
+            expect(TerrainSystem.isImpassable(tiles[piece.q][piece.r].type), `${piece.q},${piece.r}`)
+                .toBe(false);
+        }
+    });
+
+    it('never stacks two things on one hex', () => {
+        const keys = [...spawns.player, ...spawns.cpu, ...buildings].map((x) => `${x.q},${x.r}`);
+        expect(new Set(keys).size).toBe(keys.length);
+    });
+
+    it('keeps the depots apart', () => {
+        // Two depots that touch are one objective wearing two hats: an
+        // infantryman between both doors takes them on consecutive turns
+        // without moving.
+        for (const [a, piecesA] of groups) {
+            for (const [b, piecesB] of groups) {
+                if (a >= b) continue;
+                for (const pieceA of piecesA) {
+                    for (const [nq, nr] of neighbours(pieceA.q, pieceA.r, cols, rows)) {
+                        expect(
+                            piecesB.some((p) => p.q === nq && p.r === nr),
+                            `${a} touches ${b} at ${nq},${nr}`
+                        ).toBe(false);
+                    }
+                }
+            }
+        }
+    });
+
+    it('lets every unit reach every enemy unit and every depot door', () => {
+        // The whole point of placing on the mainland. A unit on an island is
+        // out of the match, and a depot on one can never be captured.
+        const doors = buildings.filter((p) => p.isEntrance);
+        expect(doors).toHaveLength(expected.depots);
+        for (const mine of spawns.player) {
+            const canReach = reachable(tiles, cols, rows, mine.type, [mine.q, mine.r]);
+            for (const theirs of spawns.cpu) {
+                expect(
+                    canReach.has(`${theirs.q},${theirs.r}`),
+                    `${mine.type} at ${mine.q},${mine.r} cannot reach ${theirs.type} at ${theirs.q},${theirs.r}`
+                ).toBe(true);
+            }
+        }
+        // Doors specifically, and with the capturing class, since reaching a
+        // depot with a tank proves nothing about taking it.
+        for (const side of [spawns.player, spawns.cpu]) {
+            const capturer = side.find((u) => unitTypesRecord[u.type]?.canCapture)!;
+            const canReach = reachable(tiles, cols, rows, capturer.type, [capturer.q, capturer.r]);
+            for (const door of doors) {
+                expect(canReach.has(`${door.q},${door.r}`), `no route to the door at ${door.q},${door.r}`)
+                    .toBe(true);
+            }
+        }
+    });
+});

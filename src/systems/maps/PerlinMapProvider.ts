@@ -1,5 +1,5 @@
 // The random map: perlin-noise terrain with random height variation and
-// random roads added by game.ts. Every load is different.
+// random roads added by game.ts.
 //
 // Three sizes, and THE GENERATOR IS THE SAME ONE IN ALL THREE. generate()
 // below is the original body, line for line -- same noise, same scale, same
@@ -7,30 +7,43 @@
 // differ only in how big the grid is and how many units each side starts
 // with. There is deliberately no second terrain generator in here.
 //
-// What IS new is where the units start. The old 50x50 map put eleven units
-// on one side and two on the other, all bunched in one corner on whatever
-// the noise happened to put there -- including, sometimes, open water, from
-// which a ground unit never gets out. Now both sides get the SAME roster on
-// opposite edges, the way the authored maps do it, and each unit is nudged
-// to the nearest tile it can actually stand on.
+// What IS new is what stands on it. The old 50x50 map put eleven units on
+// one side and two on the other, all bunched in one corner on whatever the
+// noise happened to put there -- including, sometimes, open water, from
+// which a ground unit never gets out -- and had no buildings at all. Now
+// both sides get the SAME roster on opposite edges, the way the authored
+// maps do it, and there are forge depots to fight over: two, three or seven
+// by size. Everything is placed on the MAINLAND, so nothing starts on an
+// island and no depot is uncapturable.
+//
+// A NOTE ON "RANDOM". perlinNoise has a fixed permutation table and is
+// sampled at fixed coordinates, so the terrain TYPE layout is the same on
+// every load -- two generations of the 20x20 map agree on all 400 tiles,
+// and that map is literally the corner of the 50x50 one. What varies per
+// load is the per-tile height jitter and the sprinkled roads. Worth knowing
+// before treating these as three different maps: they are three crops of
+// one landscape.
 
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
 import { perlinNoise } from '../../shared/hexengine/perlinNoise';
 import { TERRAIN_CONFIG } from '../../constants';
 import { MapProvider, StartingUnit, Tile } from './MapProvider';
-import type { TileLike } from '../../types';
+import type { BuildingSpawn, TileLike } from '../../types';
 
 // Rosters are PREFIXES of this list, so every size is a superset of the one
-// below it. The first three are the rock/paper/scissors triangle -- tank
-// beats AA beats air beats tank -- so even the smallest match has the whole
-// counter system in it rather than three arbitrary units. Five is exactly
-// the authored maps' roster.
+// below it, and the first FIVE are exactly the authored maps' roster.
+//
+// PIKE IS THIRD BECAUSE OF THE BASES. It is the only class that can capture,
+// so a roster without it turns every factory on the map into scenery. That
+// is what decides the order of the first three, not preference: tank, AA and
+// infantry. It costs the smallest match its aircraft, which is the right
+// trade -- air with no AA to answer it is worse than no air at all.
 const ROSTER = [
     'Bulwark',   // tank
     'Halberd',   // AA
+    'Pike',      // infantry, the only class that can capture
     'Nightjar',  // air
     'Kestrel',   // artillery
-    'Pike',      // infantry, the only class that can capture
     'Sabre',
     'Lynx',
     'Drover',
@@ -42,21 +55,53 @@ const neighbourOffsets = (q: number) => (q % 2 === 0
     ? [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 0], [-1, -1]]
     : [[0, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]]);
 
-// The nearest tile to (q, r) that a ground unit can stand on and that no
-// other unit has claimed -- a breadth-first walk outward. On a random map
-// the intended spawn hex is water or mountain often enough to matter.
-function nearestFreeGround(
-    tiles: TileLike[][], cols: number, rows: number,
-    q: number, r: number, taken: Set<string>
-): [number, number] {
+// The biggest patch of ground a walking unit can move around inside.
+//
+// Random terrain makes islands, and anything placed on one is out of the
+// match: a unit that can never reach the enemy, or a factory nobody can
+// capture. Everything below is placed on the MAINLAND only, which is the
+// same class of fault as the movement bug that stranded units against a
+// ridge -- worth designing out rather than discovering in a game.
+function mainland(tiles: TileLike[][], cols: number, rows: number): Set<string> {
+    const unvisited = new Set<string>();
+    for (let q = 0; q < cols; q++) {
+        for (let r = 0; r < rows; r++) {
+            if (!TerrainSystem.isImpassable(tiles[q]?.[r]?.type ?? 'WATER')) unvisited.add(`${q},${r}`);
+        }
+    }
+    let best = new Set<string>();
+    while (unvisited.size) {
+        const start = unvisited.values().next().value as string;
+        const component = new Set<string>([start]);
+        unvisited.delete(start);
+        const queue = [start];
+        for (let head = 0; head < queue.length; head++) {
+            const [cq, cr] = queue[head].split(',').map(Number);
+            for (const [dq, dr] of neighbourOffsets(cq)) {
+                const key = `${cq + dq},${cr + dr}`;
+                if (!unvisited.has(key)) continue;
+                unvisited.delete(key);
+                component.add(key);
+                queue.push(key);
+            }
+        }
+        if (component.size > best.size) best = component;
+    }
+    return best;
+}
+
+// The nearest hex to (q, r) that satisfies a predicate -- a breadth-first
+// walk outward. The walk itself ignores passability, because it is looking
+// for somewhere to LAND, not a route.
+function nearestWhere(
+    cols: number, rows: number, q: number, r: number,
+    accept: (q: number, r: number) => boolean
+): [number, number] | null {
     const seen = new Set<string>([`${q},${r}`]);
     const queue: Array<[number, number]> = [[q, r]];
     for (let head = 0; head < queue.length; head++) {
         const [cq, cr] = queue[head];
-        const tile = tiles[cq]?.[cr];
-        if (tile && !TerrainSystem.isImpassable(tile.type) && !taken.has(`${cq},${cr}`)) {
-            return [cq, cr];
-        }
+        if (accept(cq, cr)) return [cq, cr];
         for (const [dq, dr] of neighbourOffsets(cq)) {
             const nq = cq + dq;
             const nr = cr + dr;
@@ -66,35 +111,148 @@ function nearestFreeGround(
             queue.push([nq, nr]);
         }
     }
-    return [q, r]; // No passable ground anywhere; nothing better to say.
+    return null;
 }
 
-// Both sides' starting units: the same roster, spread along opposite edges,
-// each on ground it can stand on. The player takes the southern edge and
-// the CPU the northern, the convention every other map follows.
-function placeSpawns(
-    tiles: TileLike[][], cols: number, rows: number, perTeam: number
-): { player: StartingUnit[]; cpu: StartingUnit[] } {
+// The four hexes a forge depot occupies, given its anchor -- the N piece.
+//
+// THE ANCHOR'S COLUMN MUST BE EVEN. In odd-q offset, an even column's
+// neighbours to the south-west, south and south-east are (q-1, r), (q, r+1)
+// and (q+1, r); on an odd column they are somewhere else entirely, and the
+// four pieces stop forming a diamond. The models are cut for the diamond --
+// each one's open edges face inward, and its capped edges face out -- so a
+// wrong anchor parity does not merely look odd, it leaves edge trim buried
+// inside the building and gaps on the outside.
+function depotCells(q: number, r: number): Array<[BuildingSpawn['type'], number, number]> {
+    return [
+        ['forgeDepotN', q, r],
+        ['forgeDepotW', q - 1, r],
+        ['forgeDepotE', q + 1, r],
+        ['forgeDepotS', q, r + 1],
+    ];
+}
+
+// Where the bases want to be, before the terrain gets a say: the middle of
+// the map, in HALF-TURN-SYMMETRIC PAIRS, plus the centre itself when the
+// count is odd.
+//
+// The terrain is random, so the two sides can never face identical ground
+// and there is no point pretending otherwise. What can be made fair is the
+// LAYOUT OF THE OBJECTIVES: each pair puts one base on each side of the
+// middle at mirrored offsets, and the odd one out sits dead centre, where it
+// belongs to whoever fights for it.
+function baseTargets(cols: number, rows: number, count: number): Array<[number, number]> {
+    const centreQ = (cols - 1) / 2;
+    const centreR = (rows - 1) / 2;
+    const targets: Array<[number, number]> = [];
+    if (count % 2 === 1) targets.push([centreQ, centreR]);
+    // Offsets from the centre as a fraction of the map, so they scale with
+    // it. Spread apart in both axes: three bases in a row down the middle
+    // would make one lane the whole game.
+    const PAIRS: Array<[number, number]> = [[0.24, 0.12], [0.10, 0.30], [0.32, 0.30]];
+    for (let index = 0; index < Math.floor(count / 2); index++) {
+        const [fractionQ, fractionR] = PAIRS[index % PAIRS.length];
+        const offsetQ = fractionQ * (cols - 1);
+        const offsetR = fractionR * (rows - 1);
+        targets.push([centreQ - offsetQ, centreR - offsetR]);
+        targets.push([centreQ + offsetQ, centreR + offsetR]);
+    }
+    return targets.map(([q, r]) => [Math.round(q), Math.round(r)] as [number, number]);
+}
+
+// Both sides' starting units and the neutral bases between them, placed
+// together because they must not collide and both need the same mainland.
+function placeEverything(
+    tiles: TileLike[][], cols: number, rows: number, perTeam: number, baseCount: number
+): { spawns: { player: StartingUnit[]; cpu: StartingUnit[] }; buildings: BuildingSpawn[] } {
     const roster = ROSTER.slice(0, perTeam);
+    const open = tiles.length ? mainland(tiles, cols, rows) : new Set<string>();
     const taken = new Set<string>();
+
+    const free = (q: number, r: number) => open.has(`${q},${r}`) && !taken.has(`${q},${r}`);
+
+    // The player takes the southern edge and the CPU the northern, the
+    // convention every other map follows.
     const line = (edgeRow: number): StartingUnit[] => roster.map((type, index) => {
         // Centred on the edge rather than started from a corner, so a big
         // roster on a small map does not run off the end.
         const column = Math.floor((cols - roster.length) / 2) + index;
-        const [q, r] = nearestFreeGround(tiles, cols, rows, column, edgeRow, taken);
+        if (!open.size) return { type, q: column, r: edgeRow };
+        const [q, r] = nearestWhere(cols, rows, column, edgeRow, free) ?? [column, edgeRow];
         taken.add(`${q},${r}`);
         return { type, q, r };
     });
-    return { player: line(rows - 1), cpu: line(0) };
+    const spawns = { player: line(rows - 1), cpu: line(0) };
+
+    // A depot fits where its column is even, all four of its hexes are on
+    // the mainland and free, and none of them is off the edge.
+    const depotFits = (q: number, r: number) =>
+        q % 2 === 0 && q >= 1 && q + 1 < cols && r + 1 < rows &&
+        depotCells(q, r).every(([, cq, cr]) => free(cq, cr));
+
+    const buildings: BuildingSpawn[] = [];
+    if (open.size) {
+        for (const [targetQ, targetR] of baseTargets(cols, rows, baseCount)) {
+            const anchor = nearestWhere(cols, rows, targetQ, targetR, depotFits);
+            if (!anchor) continue; // No room left; fewer depots beats a broken one.
+            const [q, r] = anchor;
+            const groupId = `forgeDepot@${q},${r}`;
+            for (const [type, cq, cr] of depotCells(q, r)) {
+                taken.add(`${cq},${cr}`);
+                // Block the ring around each piece too. Two depots that
+                // touch are one objective wearing two hats: an infantryman
+                // standing between both doors takes them on consecutive
+                // turns without ever moving.
+                for (const [dq, dr] of neighbourOffsets(cq)) taken.add(`${cq + dq},${cr + dr}`);
+                buildings.push({
+                    type,
+                    q: cq,
+                    r: cr,
+                    // The S piece is the DOOR and holds the prize, exactly as
+                    // on the authored map: the other three are back and side
+                    // walls, so a depot has one approach worth defending
+                    // rather than four equivalent ones.
+                    hiddenUnitType: type === 'forgeDepotS' ? 'Sabre' : null,
+                    groupId,
+                    isEntrance: type === 'forgeDepotS',
+                    rotationDeg: 0,
+                });
+            }
+        }
+    }
+    return { spawns, buildings };
 }
 
-function createRandomMap(key: string, name: string, size: number, perTeam: number): MapProvider {
-    // The tiles the last generate() produced, so spawns can be placed on
-    // ground that actually exists. Both callers -- GameState and the
-    // headless harness -- generate the map and then read spawns, in that
-    // order. Before any generate() there is nothing to consult, and the raw
-    // edge coordinates are the honest answer.
-    let generated: TileLike[][] | null = null;
+// A depot's four pieces have to stand on ONE level platform. A building tile
+// keeps its authored height exactly -- GridSystem.smoothHexTile returns early
+// for it -- so on random terrain, where neighbouring tiles routinely differ,
+// four pieces on four heights meet in steps through the middle of the
+// building. Levelled to the HIGHEST of the four, so no piece is left buried.
+function levelDepotPads(tiles: TileLike[][], buildings: BuildingSpawn[]): void {
+    const byGroup = new Map<string, BuildingSpawn[]>();
+    for (const piece of buildings) {
+        if (!piece.groupId) continue;
+        byGroup.set(piece.groupId, [...(byGroup.get(piece.groupId) ?? []), piece]);
+    }
+    for (const pieces of byGroup.values()) {
+        const pad = Math.max(...pieces.map((piece) => tiles[piece.q][piece.r].height));
+        for (const piece of pieces) tiles[piece.q][piece.r].height = pad;
+    }
+}
+
+function createRandomMap(
+    key: string, name: string, size: number, perTeam: number, baseCount: number
+): MapProvider {
+    // Where everything ended up on the map generate() last produced. Both
+    // callers -- GameState and the headless harness -- generate the map and
+    // THEN read spawns and buildings, in that order, so this is always fresh
+    // by the time anyone asks. Computed once, because spawns and bases have
+    // to agree about which hexes are already claimed.
+    //
+    // Before any generate() there is no terrain to consult. The start menu
+    // does read spawns then, to show how many units a side gets, and the
+    // roster length is right even when the coordinates are placeholders.
+    let placed = placeEverything([], size, size, perTeam, baseCount);
 
     return {
         key,
@@ -104,7 +262,11 @@ function createRandomMap(key: string, name: string, size: number, perTeam: numbe
         randomRoads: 10,
 
         get spawns() {
-            return placeSpawns(generated ?? [], size, size, perTeam);
+            return placed.spawns;
+        },
+
+        get buildings() {
+            return placed.buildings;
         },
 
         generate(): TileLike[][] {
@@ -134,15 +296,17 @@ function createRandomMap(key: string, name: string, size: number, perTeam: numbe
                     tiles[q][r] = new Tile(height, terrainType, color);
                 }
             }
-            generated = tiles;
+            placed = placeEverything(tiles, size, size, perTeam, baseCount);
+            levelDepotPads(tiles, placed.buildings);
             return tiles;
         },
     };
 }
 
-export const randomSmallMapProvider = createRandomMap('random20', 'Random — Small', 20, 3);
-export const randomMediumMapProvider = createRandomMap('random30', 'Random — Medium', 30, 5);
-export const randomLargeMapProvider = createRandomMap('random50', 'Random — Large', 50, 10);
+//                                    key         name               size  units  bases
+export const randomSmallMapProvider = createRandomMap('random20', 'Random — Small', 20, 3, 2);
+export const randomMediumMapProvider = createRandomMap('random30', 'Random — Medium', 30, 5, 3);
+export const randomLargeMapProvider = createRandomMap('random50', 'Random — Large', 50, 10, 7);
 
 // The old name, so nothing that imported it has to change. It is the 50x50
 // map that key has always meant.
