@@ -37,7 +37,12 @@ const MAP_CONFIG = {
     },
     MINIMAP: {
         WIDTH: 300,
-        HEIGHT: 300
+        HEIGHT: 300,
+        // Distance from the top of the window, leaving room for the view
+        // toolbar above it. The minimap is drawn into the WebGL canvas by
+        // render.ts while its click target is a DOM overlay, so BOTH read
+        // this -- a hardcoded top in the stylesheet would drift.
+        TOP: 56
     }
 };
 

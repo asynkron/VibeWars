@@ -20,6 +20,7 @@
 
 import { TerrainSystem } from './TerrainSystem';
 import { MAP_CONFIG } from '../../constants';
+import { VIEW_UNIFORMS } from './ViewOptions';
 
 const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN']);
 
@@ -71,6 +72,27 @@ const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
         return 0.8660254 - dot(local, vec2(cos(th), sin(th)));
     }
 
+    // Distance to the nearest of the SIX hex edges, in hex radii: 0 on the
+    // border, 0.866 at the centre. Same half-plane trick as
+    // shoreEdgeDistance but with no per-edge flags, since the grid overlay
+    // wants every edge rather than only the ones facing water.
+    float hexEdgeDistance(vec2 local) {
+        float d = 10.0;
+        for (int i = 0; i < 6; i++) {
+            float th = (float(i) + 0.5) * 1.0471975512;
+            d = min(d, 0.8660254 - dot(local, vec2(cos(th), sin(th))));
+        }
+        return d;
+    }
+
+    // The grid overlay itself, as a 0..1 mask. Drawn from tile-local
+    // coordinates rather than as line geometry, so it follows the terrain
+    // over every slope and crater for free and costs no extra objects.
+    float hexGridLine(vec2 local, float enabled) {
+        if (enabled < 0.5) return 0.0;
+        return 1.0 - smoothstep(0.0, 0.05, hexEdgeDistance(local));
+    }
+
     // How far up the beach (or out to sea) this fragment is, 1 right at
     // the waterline and 0 once it is width hex radii away. Measuring
     // real distance to the real edges is what makes the band follow the
@@ -103,6 +125,11 @@ const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
         return groundNoise(p * 11.0 + vec2(t * 0.6, -t * 0.35));
     }
 `;
+
+// Colour and strength of the hex grid overlay. Dark rather than bright so
+// it reads as a drawn boundary over both snow and water.
+const GRID_COLOR = 'vec3(0.04, 0.05, 0.07)';
+const GRID_STRENGTH = '0.8';
 
 const GROUND_FRAGMENT = /* glsl */ `
     {
@@ -143,6 +170,16 @@ const GROUND_FRAGMENT = /* glsl */ `
         band = mix(band, forestC, toForest);
         band = mix(band, rockC, toRock);
         band = mix(band, snowC, toSnow);
+
+        // Texture toggle. The flat version keeps the height LADDER -- sand
+        // still reads as sand and rock as rock -- and drops only the
+        // procedural detail on top of it. Turning the bands off too would
+        // not be "textures off", it would be "terrain off".
+        vec3 flatBand = mix(uSandColor, uGrassColor, toGrass);
+        flatBand = mix(flatBand, uForestColor, toForest);
+        flatBand = mix(flatBand, vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05), toRock);
+        flatBand = mix(flatBand, vec3(0.92, 0.95, 0.99), toSnow);
+        band = mix(flatBand, band, uShowTextures);
 
         // Vertex color as a darkening signal relative to this material's
         // own palette luminance: untouched tiles pass 1.0, crater-scorched
@@ -195,6 +232,9 @@ const GROUND_FRAGMENT = /* glsl */ `
             band = mix(band, vec3(0.95, 0.98, 1.0), clamp(surf, 0.0, 0.80));
         }
 
+        // Grid last, so it draws over the beach wash rather than under it.
+        band = mix(band, ${GRID_COLOR}, hexGridLine(vTileLocal / uHexRadius, uShowGrid) * ${GRID_STRENGTH});
+
         diffuseColor.rgb = band;
     }
 `;
@@ -235,6 +275,15 @@ const WATER_FRAGMENT = /* glsl */ `
         float foam = foamMask * (0.40 + 0.60 * lap) * smoothstep(0.45, 0.82, caps + foamMask * 0.35);
         foam *= WATER_FOAM_STRENGTH;
         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.93, 0.97, 1.0), clamp(foam, 0.0, 0.7));
+
+        // Water carries the grid too -- a grid that stops at the coastline
+        // is worse than none, since the tiles you most need to count are
+        // the ones a unit cannot cross.
+        diffuseColor.rgb = mix(
+            diffuseColor.rgb,
+            ${GRID_COLOR},
+            hexGridLine(vTileLocal / uHexRadius, uShowGrid) * ${GRID_STRENGTH}
+        );
     }
 `;
 
@@ -257,7 +306,8 @@ const SHORE_VERTEX_BODY =
 const SHORE_FRAGMENT_DECL =
     ' varying vec3 vGroundWorldPos;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
     ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;\n uniform float uHexRadius;\n' +
-    ' uniform float uTime;';
+    ' uniform float uTime;\n uniform float uShowGrid;\n uniform float uShowTextures;';
+
 
 // The top face is a fan of six triangles and the terrain material is
 // flat-shaded, so every slice shades off its own plane and the tile reads
@@ -278,6 +328,10 @@ export function applyWaterSurface(material: any): void {
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
+        // The SAME uniform objects every other terrain material gets, so
+        // one toggle reaches the whole map. See ViewOptions.
+        shader.uniforms.uShowGrid = VIEW_UNIFORMS.showGrid;
+        shader.uniforms.uShowTextures = VIEW_UNIFORMS.showTextures;
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\n' + SHORE_VERTEX_DECL)
             .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SHORE_VERTEX_BODY);
@@ -316,6 +370,9 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uSnowFull = { value: 4.6 };
         shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
+        // Shared by reference across every ground material -- see ViewOptions.
+        shader.uniforms.uShowGrid = VIEW_UNIFORMS.showGrid;
+        shader.uniforms.uShowTextures = VIEW_UNIFORMS.showTextures;
 
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\n' + SHORE_VERTEX_DECL)

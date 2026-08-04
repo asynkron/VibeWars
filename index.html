@@ -19,14 +19,60 @@
             pointer-events: auto;
         }
 
+        /* Size and top offset are set from MAP_CONFIG.MINIMAP by
+           viewToolbar.ts -- render.ts draws the map itself from the same
+           constant, so a hardcoded value here would drift out of step. */
         #minimap-overlay {
             position: absolute;
-            width: 300px;
-            height: 300px;
-            top: 10px;
             right: 10px;
             pointer-events: auto;
             cursor: pointer;
+        }
+
+        #view-toolbar {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 6px;
+            padding: 5px;
+            border-radius: 7px;
+            background: rgba(14, 18, 24, 0.72);
+            backdrop-filter: blur(3px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+            pointer-events: auto;
+            user-select: none;
+        }
+
+        .view-toggle {
+            padding: 6px 12px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: #8c98a8;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+        }
+
+        .view-toggle:hover {
+            color: #dfe6ee;
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        /* On, not merely focused: the cyan matches the energy panels the
+           models glow with, so "active" reads the same across the UI. */
+        .view-toggle.is-on {
+            color: #06121a;
+            background: #40c4ff;
+            border-color: #7ad8ff;
+        }
+
+        .view-toggle.is-on:hover {
+            background: #63d1ff;
         }
 
         #end-turn-button {

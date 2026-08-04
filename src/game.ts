@@ -26,6 +26,7 @@ import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
 import { MAP_CONFIG } from './constants';
+import { initViewToolbar } from './systems/viewToolbar';
 import { setGameState, getGameState } from './systems/gameStateStore';
 import { selectedMapProvider } from './systems/maps/mapRegistry';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
@@ -55,6 +56,10 @@ let currentHighlightedHex: any = null;  // Track currently highlighted hex
 function setupEventListeners(matrices: CameraMatrices) {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+    // Before anything reads the overlay's geometry: this sizes and places
+    // it from MAP_CONFIG, and hides it outright if the minimap is toggled off.
+    initViewToolbar();
+
     const minimapOverlay = document.getElementById('minimap-overlay') as HTMLElement;
     const endTurnButton = document.getElementById('end-turn-button') as HTMLButtonElement;
 

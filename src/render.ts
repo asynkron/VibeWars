@@ -2,6 +2,7 @@ import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
 import { GlowSystem } from './shared/hexengine/GlowSystem';
 import { RotorSystem } from './shared/hexengine/RotorSystem';
+import { viewOptions } from './shared/hexengine/ViewOptions';
 import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
 import type { CameraMatrices } from './types';
 
@@ -235,6 +236,13 @@ function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number,
         renderer.render(scene, camera);
     }
 
+    // Skipping the minimap leaves nothing behind: the pass above covers the
+    // whole viewport every frame, so its corner is simply drawn over.
+    if (!viewOptions.minimap) {
+        renderer.setScissorTest(false);
+        return;
+    }
+
     // The minimap draws a second scene into the same framebuffer and relies
     // on autoClear to clear inside its scissor rect. The bloom chain's
     // passes set autoClear false and restore it -- but NOT in a finally, so
@@ -243,7 +251,8 @@ function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number,
     renderer.autoClear = true;
 
     const left = window.innerWidth - MAP_CONFIG.MINIMAP.WIDTH - 10;
-    const bottom = window.innerHeight - MAP_CONFIG.MINIMAP.HEIGHT - 10;
+    // Cleared from the top by the toolbar that sits above it.
+    const bottom = window.innerHeight - MAP_CONFIG.MINIMAP.HEIGHT - MAP_CONFIG.MINIMAP.TOP;
     renderer.setViewport(left, bottom, MAP_CONFIG.MINIMAP.WIDTH, MAP_CONFIG.MINIMAP.HEIGHT);
     renderer.setScissor(left, bottom, MAP_CONFIG.MINIMAP.WIDTH, MAP_CONFIG.MINIMAP.HEIGHT);
     renderer.setClearColor(0x111111, 1);  // Much darker background for better glow effect

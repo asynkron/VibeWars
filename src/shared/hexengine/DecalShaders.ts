@@ -12,6 +12,7 @@
 // jitter in the real rim instead of an idealised hexagon.
 
 import { NOISE_GLSL_BASE } from './TerrainShader';
+import { VIEW_UNIFORMS } from './ViewOptions';
 import { MAP_CONFIG } from '../../constants';
 
 // Tile-local position (what the decal is shaped from) AND world position
@@ -27,7 +28,7 @@ const DECAL_VERTEX_BODY =
     ' vDecalLocal = position.xz;\n vDecalWorld = (modelMatrix * vec4(position, 1.0)).xz;';
 const DECAL_FRAGMENT_DECL =
     ' varying vec2 vDecalLocal;\n varying vec2 vDecalWorld;\n uniform float uHexRadius;\n' +
-    ' uniform float uDirection;';
+    ' uniform float uDirection;\n uniform float uShowTextures;';
 
 // The direction a decal runs, as a unit vector in the ground plane.
 // Rotation 0 faces +z (see UnitSystem.getRotation), so heading θ is
@@ -95,6 +96,9 @@ const ROAD_FRAGMENT = /* glsl */ `
         // of it into grit.
         float verge = (groundFbm(wp * 6.0) - 0.5) * 0.26 + (groundNoise(wp * 26.0) - 0.5) * 0.12;
         diffuseColor.a *= smoothstep(0.02, 0.62, road + verge);
+        // Roads and tracks are textures too: the toolbar's texture
+        // toggle takes them out with the grass and the rock.
+        diffuseColor.a *= uShowTextures;
     }
 `;
 
@@ -112,6 +116,8 @@ export function applyRoadSurface(material: any, direction: number): void {
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         shader.uniforms.uDirection = { value: direction };
+        // Shared by reference with every terrain material -- see ViewOptions.
+        shader.uniforms.uShowTextures = VIEW_UNIFORMS.showTextures;
 
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\n' + DECAL_VERTEX_DECL)
@@ -161,6 +167,7 @@ const TRACK_FRAGMENT = /* glsl */ `
         // diffuseColor.a already carries the material's opacity, which
         // FootprintSystem winds down each turn -- so the print fades.
         diffuseColor.a *= rut;
+        diffuseColor.a *= uShowTextures;
     }
 `;
 
@@ -170,6 +177,8 @@ export function applyTrackSurface(material: any, direction: number): void {
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         shader.uniforms.uDirection = { value: direction };
+        // Shared by reference with every terrain material -- see ViewOptions.
+        shader.uniforms.uShowTextures = VIEW_UNIFORMS.showTextures;
 
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\n' + DECAL_VERTEX_DECL)
