@@ -17,6 +17,7 @@ import { HOLD_DOOR, holdDoorGene } from './holdDoor';
 import { menderEngine } from '../engines/mender';
 import { dredgeEngine } from '../engines/dredge';
 import { gatekeeperEngine } from '../engines/gatekeeper';
+import { sapperEngine } from '../engines/sapper';
 import { feintEngine } from '../engines/feint';
 
 const mk = (type: string, q: number, r: number, playerIndex: number, hp?: number) => {
@@ -202,5 +203,52 @@ describe('each engine is Feint plus exactly one gene', () => {
     it('gives each engine a different gene, so each benchmark asks one question', () => {
         const kinds = cases.map(([, engine]) => Object.keys(engine.options.dialect!.extras)[0]);
         expect(new Set(kinds).size).toBe(kinds.length);
+    });
+});
+
+describe('sapper carries all three, and nothing else', () => {
+    it('registers exactly the three genes', () => {
+        expect(Object.keys(sapperEngine.options.dialect!.extras).sort())
+            .toEqual([HOLD_DOOR, MEND, SINK].sort());
+    });
+
+    it('still differs from feint only in its dialect', () => {
+        const { dialect: a, ...rest } = sapperEngine.options as any;
+        const { dialect: f, ...feintRest } = feintEngine.options as any;
+        expect(rest).toEqual(feintRest);
+    });
+
+    it('leaves every purposeful weight where feint had it', () => {
+        // The whole budget comes out of moveRandom and idle, so a win here
+        // is about the genes and not about having quietly reweighted the
+        // search underneath them.
+        const weightOf = (e: any, k: string) =>
+            (e.options.dialect.weights.find(([key]: any[]) => key === k) ?? [, 0])[1];
+        for (const k of ['attack', 'moveTowards', 'standoff', 'moveAway', 'moveToBuilding']) {
+            expect(weightOf(sapperEngine, k), k).toBe(weightOf(feintEngine, k));
+        }
+        expect(weightOf(sapperEngine, 'moveRandom')).toBeLessThan(weightOf(feintEngine, 'moveRandom'));
+        expect(weightOf(sapperEngine, 'idle')).toBeLessThan(weightOf(feintEngine, 'idle'));
+    });
+
+    it('weights the niche gene lowest and the common one highest', () => {
+        // holdDoor almost never applies; mend applies to any damaged unit.
+        const weightOf = (k: string) =>
+            (sapperEngine.options.dialect!.weights.find(([key]) => key === k) ?? [, 0])[1];
+        expect(weightOf(HOLD_DOOR)).toBeLessThan(weightOf(SINK));
+        expect(weightOf(SINK)).toBeLessThan(weightOf(MEND));
+    });
+
+    it('keeps the roulette summing to one', () => {
+        const total = sapperEngine.options.dialect!.weights.reduce((sum, [, w]) => sum + w, 0);
+        expect(total).toBeCloseTo(1, 6);
+    });
+
+    it('is decomposable: each of its genes also ships alone', () => {
+        // The reason combining three at once is acceptable here. A win can
+        // be attributed afterwards instead of being a dead end.
+        const solo = [menderEngine, dredgeEngine, gatekeeperEngine]
+            .map((e) => Object.keys(e.options.dialect!.extras)[0]).sort();
+        expect(solo).toEqual(Object.keys(sapperEngine.options.dialect!.extras).sort());
     });
 });
