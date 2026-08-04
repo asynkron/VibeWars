@@ -632,9 +632,16 @@ class GridSystem {
         geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
         position.needsUpdate = true;
 
-        // Check if tile has road and create it if needed
+        // Re-lay the road over the new surface. The REMOVE is the point:
+        // smoothing runs again on every terrain deformation, and on the six
+        // neighbours too, so creating without removing stacked a fresh road
+        // group on the old one every time. One artillery attack is six
+        // rockets x seven re-smoothed tiles, which measured at +36 to +42
+        // duplicate decals -- growing without bound, with the stale copies
+        // left floating over the crater they were supposed to follow.
         const tile = getGameState().map.getTile(q, r);
         if (tile?.hasRoad) {
+            RoadSystem.removeRoadsAt(q, r);
             RoadSystem.createRoad(hexGroup);
         }
     }

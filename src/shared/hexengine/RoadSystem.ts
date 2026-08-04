@@ -148,6 +148,18 @@ class RoadSystem {
         if (roadsGroup) {
             roadsGroup.remove(road);
         }
+
+        // And free it. Roads are re-laid on every terrain deformation, so
+        // dropping the reference without disposing leaves the geometry and
+        // material on the GPU for the rest of the session. Both are built
+        // per decal today; if road materials are ever cached by direction,
+        // this must stop disposing them.
+        road.traverse((child: any) => {
+            if (!child.isMesh) return;
+            child.geometry?.dispose?.();
+            const materials = Array.isArray(child.material) ? child.material : [child.material];
+            for (const material of materials) material?.dispose?.();
+        });
     }
 
     static removeRoadsAt(q: number, r: number) {
