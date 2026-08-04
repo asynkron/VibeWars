@@ -112,11 +112,15 @@ const GROUND_FRAGMENT = /* glsl */ `
         // instead of tracing flat contour lines.
         float wob = groundFbm(gp * 2.2) - 0.5;
 
-        // Band masks up the height ladder (thresholds follow the terrain
-        // config: sand tops ~0.2, grass ~0.45, forest ~0.9, then rock).
-        float toGrass  = smoothstep(0.20, 0.34, y + wob * 0.10);
-        float toForest = smoothstep(0.44, 0.58, y + wob * 0.14);
-        float toRock   = smoothstep(0.85, 1.20, y + wob * 0.30);
+        // Band masks up the height ladder. These MUST track
+        // TerrainSystem's baseHeight/heightVariation table: the shader
+        // decides the look from world height alone, so lifting the terrain
+        // without moving these repaints grass as forest and forest as rock.
+        // Current table: sand 0.70-0.85, grass 0.90-1.20, forest 1.10-1.70,
+        // mountain 1.60-6.10.
+        float toGrass  = smoothstep(0.80, 0.94, y + wob * 0.10);
+        float toForest = smoothstep(1.04, 1.24, y + wob * 0.14);
+        float toRock   = smoothstep(1.60, 2.05, y + wob * 0.30);
         float toSnow   = smoothstep(uSnowStart, uSnowFull, y + wob * 1.2);
 
         // Per-band procedural detail, each tinted by its palette color.
@@ -308,8 +312,8 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         // running up the beach is the sea, not a blue of its own.
         shader.uniforms.uWaterColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('WATER')) };
         shader.uniforms.uPaletteLum = { value: paletteLum };
-        shader.uniforms.uSnowStart = { value: 2.4 };
-        shader.uniforms.uSnowFull = { value: 3.6 };
+        shader.uniforms.uSnowStart = { value: 3.2 };
+        shader.uniforms.uSnowFull = { value: 4.6 };
         shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
 

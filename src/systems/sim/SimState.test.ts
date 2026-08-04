@@ -76,13 +76,13 @@ describe('events', () => {
         sim.record({ type: 'terrainModified', q: 1, r: 1, delta: -0.5 });
         const sunk = sim.getTile(1, 1)!;
         expect(sunk.type).toBe('WATER');
-        // The effective water level is 0.3, not 0: WATER.baseHeight is 0,
-        // but TerrainSystem.getTerrainBaseHeight uses `|| GRASS.baseHeight`
-        // so the falsy 0 falls through to grass's 0.3. One of the
-        // deliberately-preserved || quirks from the JS->TS migration --
-        // GridSystem.modifyHexHeight behaves the same way, and SimState
-        // mirrors the real rule rather than the intended-looking one.
-        expect(sunk.height).toBe(0.3);
+        // The water level is WATER's own baseHeight, 0. It used to be
+        // grass's instead: getTerrainBaseHeight read `|| GRASS.baseHeight`,
+        // and water's falsy 0 fell through. That tied the sea to whatever
+        // grass was set to, so raising the land raised the water with it and
+        // craters flooded their tiles. Now read with ??, and SimState still
+        // mirrors GridSystem.modifyHexHeight exactly.
+        expect(sunk.height).toBe(0);
         expect(sunk.moveCost).toBe(Infinity);
     });
 
