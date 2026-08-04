@@ -14,6 +14,7 @@
 //
 // UnitSystem re-exports every name below, so nothing else had to change.
 
+import { primaryAttackSkill, type SkillDef } from './skills';
 import type { UnitTypeConfig } from '../../types';
 
 export const UNIT_TYPES = {
@@ -441,4 +442,43 @@ export function getClassModifier(attackerType: string, defenderType: string): nu
 
 export function getMovementCost(type: string, terrainType: string): number | null | undefined {
     return unitTypesRecord[type].terrainCosts[terrainType];
+}
+
+// ---------------------------------------------------------------------
+// Skills
+// ---------------------------------------------------------------------
+
+// Every skill a unit type has, in slot order. Slot 0 is always its attack,
+// derived from the damage and range fields above; anything after it is
+// authored in the type's `extraSkills`.
+//
+// Cached per type because this is read on the hot path -- the beam asks it
+// for every candidate gene of every unit at every depth -- and the answer is
+// a pure function of a table that never changes at runtime.
+const skillCache = new Map<string, readonly SkillDef[]>();
+
+export function skillsFor(type: string): readonly SkillDef[] {
+    let skills = skillCache.get(type);
+    if (!skills) {
+        const config = unitTypesRecord[type];
+        if (!config) return [];
+        skills = [
+            primaryAttackSkill(type, config),
+            ...((config.extraSkills ?? []) as readonly SkillDef[]),
+        ];
+        skillCache.set(type, skills);
+    }
+    return skills;
+}
+
+// A unit type's attack, which every unit has and which is always slot 0.
+// Named rather than spelled `skillsFor(type)[0]` at each call site, so the
+// convention lives in one place -- the reference leaves the same idea as
+// `Spells.First()` scattered through its callers.
+export function primarySkill(type: string): SkillDef | undefined {
+    return skillsFor(type)[0];
+}
+
+export function skillById(type: string, skillId: string): SkillDef | undefined {
+    return skillsFor(type).find((skill) => skill.id === skillId);
 }

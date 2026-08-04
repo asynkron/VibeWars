@@ -84,6 +84,14 @@ export interface UnitTypeConfig {
   // their bounding box (skids, ground clutter baked into the mesh, etc).
   yOffset?: number;
   attackEffect?: string;
+  // Skills BEYOND the attack every unit already has. The attack itself is
+  // derived from the fields above (see skills.primaryAttackSkill) and is
+  // always slot 0, so this list is only the extras -- Pike's Repair,
+  // Drover's Load and Unload.
+  //
+  // Typed as unknown[] here because types.ts is imported by everything and
+  // must stay dependency-free; Skills.skillsFor does the narrowing.
+  extraSkills?: readonly unknown[];
   footprintTexture?: string | null;
   terrainCosts: Record<string, number | null>;
   usePlayerColor: boolean;

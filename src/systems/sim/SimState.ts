@@ -25,6 +25,7 @@
 
 import * as TerrainSystem from '../../shared/hexengine/terrainStats';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
+import { NO_COOLDOWNS, chargeSkill, tickCooldowns, type Cooldowns } from '../../shared/hexengine/skills';
 
 export interface SimTile {
     height: number;
@@ -45,6 +46,11 @@ export interface SimUnit {
     minRange: number;
     maxRange: number;
     hasAttacked: boolean;
+    // Skill id -> turns remaining, absent meaning ready. Almost always the
+    // shared frozen empty object: every attack in the game has cooldown 0,
+    // so a record is only ever allocated for a unit that has actually used
+    // a rationed skill.
+    cooldowns: Cooldowns;
 }
 
 // A building as the simulation sees it. Deliberately does NOT carry the
@@ -77,7 +83,14 @@ export interface SimBuilding {
 // the turn snapshot; indices stay stable even after deaths.
 export type GameEvent =
     | { type: 'unitMoved'; unitIndex: number; toQ: number; toR: number; moveSpent: number }
-    | { type: 'unitAttacked'; attackerIndex: number; defenderIndex: number; damage: number }
+    // `skillId` names which of the attacker's skills fired. OPTIONAL, and
+    // that is load-bearing rather than lazy: seven test files build this
+    // event as an object literal, and the neutrality fixture hashes the
+    // event log verbatim, so an always-present field would rewrite every
+    // one of them and destroy the very comparison that proves this
+    // migration changed nothing. Omitted means the unit's primary attack,
+    // which is what every event in the game meant before skills existed.
+    | { type: 'unitAttacked'; attackerIndex: number; defenderIndex: number; damage: number; skillId?: string }
     | { type: 'unitDied'; unitIndex: number }
     | { type: 'terrainModified'; q: number; r: number; delta: number }
     // A canCapture unit ended a move on a building it doesn't own. Applies
@@ -168,6 +181,13 @@ export class SimState {
             minRange: u.minRange,
             maxRange: u.maxRange,
             hasAttacked: u.hasAttacked,
+            // THE ONE LINE THAT COVERS THREE PATHS. Every unit that ever
+            // enters a SimState comes through here: the live game's
+            // GameUnits, condense() feeding its own SimUnits back in, and
+            // the headless harness's spawns. The `??` is what lets all
+            // three keep working without an edit, and it is why a fork
+            // cannot silently lose a cooldown.
+            cooldowns: u.cooldowns ?? NO_COOLDOWNS,
         }));
         // Accepts both the live Building shape (hiddenUnitType) and an
         // already-flattened SimBuilding (hasHiddenUnit) so condense() can
@@ -260,7 +280,27 @@ export class SimState {
             case 'unitAttacked': {
                 const attacker = this.getUnit(event.attackerIndex);
                 const defender = this.getUnit(event.defenderIndex);
-                if (attacker) this.setUnit(event.attackerIndex, { ...attacker, hasAttacked: true });
+                if (attacker) {
+                    // The cooldown starts HERE, in apply(), rather than at
+                    // the command layer -- so it starts identically for a
+                    // simulated cast, a replayed one and a player's, all
+                    // three of which end up recording this same event.
+                    // The reference has two implementations of casting
+                    // (Unit.AnimateSpellCast and AIUnit.CastSpell) and
+                    // they have already drifted apart on exactly this.
+                    //
+                    // chargeSkill returns the SAME object for a
+                    // zero-cooldown skill, which is every attack in the
+                    // game, so this allocates nothing on the hot path.
+                    const skill = event.skillId
+                        ? UnitSystem.skillById(attacker.type, event.skillId)
+                        : UnitSystem.primarySkill(attacker.type);
+                    this.setUnit(event.attackerIndex, {
+                        ...attacker,
+                        hasAttacked: skill ? skill.spendsAction : true,
+                        cooldowns: skill ? chargeSkill(attacker.cooldowns, skill) : attacker.cooldowns,
+                    });
+                }
                 if (defender) this.setUnit(event.defenderIndex, { ...defender, hp: defender.hp - event.damage });
                 // Death is a separate explicit event, recorded by the
                 // command layer when it sees hp reach 0 -- apply() stays
@@ -290,6 +330,21 @@ export class SimState {
                             hp: repaired,
                             move: UnitSystem.unitTypesRecord[unit.type].move,
                             hasAttacked: false,
+                            // Cooldowns tick HERE, beside the move reset,
+                            // and only for the side whose turn started --
+                            // so a skill spent on my turn is still spent
+                            // when the opponent replies, and comes back on
+                            // my next turn, not theirs.
+                            //
+                            // This is also what makes the beam understand
+                            // cooldowns with no AI code at all: it plays
+                            // out my turn, the reply and my next turn, so
+                            // a skill spent at depth 0 is genuinely
+                            // unavailable at depth 2, and the sibling line
+                            // that held it is scored against the line that
+                            // spent it -- by the same number, with no
+                            // special case anywhere.
+                            cooldowns: tickCooldowns(unit.cooldowns),
                         });
                     }
                 }

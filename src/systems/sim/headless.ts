@@ -26,6 +26,7 @@ import { combineSeed } from './resolveAttack';
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import type { MapProvider, StartingUnit } from '../maps/MapProvider';
+import { NO_COOLDOWNS } from '../../shared/hexengine/skills';
 
 export interface HeadlessMatchOptions {
     seed?: number;
@@ -120,6 +121,7 @@ function spawnToSimUnit(spawn: StartingUnit, playerIndex: number) {
         minRange: stats.minRange,
         maxRange: stats.maxRange,
         hasAttacked: false,
+        cooldowns: NO_COOLDOWNS,
     };
 }
 
