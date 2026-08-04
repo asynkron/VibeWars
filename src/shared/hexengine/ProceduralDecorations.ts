@@ -297,6 +297,62 @@ function scatter(rng: () => number, maxRadius: number): { x: number; z: number }
     return { x: Math.cos(angle) * dist, z: Math.sin(angle) * dist };
 }
 
+// ---------------------------------------------------------------------
+// Prototype library
+//
+// Every decoration used to be built from scratch: makeConifer() allocates
+// a fresh CylinderGeometry, two or three fresh ConeGeometries and a fresh
+// MeshStandardMaterial for each, with randomised height, radius and
+// colour. Measured on the shipped map that gave 577 decoration meshes
+// backed by 577 geometries and 577 materials -- nothing shared with
+// anything.
+//
+// Instead a small set of VARIANTS per kind is built once, and each
+// placement clones one. Object3D.clone() copies the transform hierarchy
+// and SHARES geometry and material, so a hundred conifers cost the
+// geometry of however many variants there are.
+//
+// Variety survives because it moves from "every tree is unique" to three
+// cheaper sources: which variant was drawn, plus the per-placement scale
+// and rotation that were already being applied. At hex scale a repeated
+// silhouette at a different size and angle does not read as a repeat.
+//
+// tintIndividual is baked INTO each variant rather than applied per
+// placement. Applied per placement it would mutate the SHARED material,
+// tinting every instance of that variant at once -- and again on every
+// later clone, drifting the colour every time a tile was built.
+const VARIANTS_PER_KIND = 8;
+
+const library = new Map<string, any[]>();
+
+// A variant's own rng, independent of any tile, so the library comes out
+// identical whatever order tiles happen to be built in.
+function variantRng(kind: string, index: number): () => number {
+    let a = (hash(index * 7919 + kind.length * 40503 + kind.charCodeAt(0) * 2654) ^ 0x85ebca6b) >>> 0;
+    return () => {
+        a = (a + 0x6d2b79f5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+// Draw a decoration of this kind: a clone of one of its variants.
+function pick(kind: string, make: (rng: () => number) => any, rng: () => number): any {
+    let variants = library.get(kind);
+    if (!variants) {
+        variants = [];
+        for (let i = 0; i < VARIANTS_PER_KIND; i++) {
+            const seeded = variantRng(kind, i);
+            const proto = make(seeded);
+            tintIndividual(proto, seeded);
+            variants.push(proto);
+        }
+        library.set(kind, variants);
+    }
+    return variants[Math.floor(rng() * variants.length)].clone();
+}
+
 // Drop a sub-assembly into the tile group at a scattered position.
 function place(group: any, rng: () => number, piece: any, maxRadius: number, spin: boolean = true): void {
     const { x, z } = scatter(rng, maxRadius);
@@ -319,15 +375,14 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
             for (let i = 0; i < trees; i++) {
                 // The occasional grove slot is a dead tree instead.
                 const roll = rng();
-                const tree = roll < 0.10 ? makeDeadTree(rng) : roll < 0.68 ? makeConifer(rng) : makeDeciduous(rng);
-                tintIndividual(tree, rng);
+                const tree = roll < 0.10 ? pick('deadTree', makeDeadTree, rng) : roll < 0.68 ? pick('conifer', makeConifer, rng) : pick('deciduous', makeDeciduous, rng);
                 const s = 0.8 + rng() * 0.35;
                 tree.scale.set(s, s, s);
                 place(group, rng, tree, 0.55);
             }
             // Forest floor litter: a fallen log and/or undergrowth tufts.
-            if (rng() < 0.35) place(group, rng, makeLog(rng), 0.5);
-            if (rng() < 0.4) place(group, rng, makeTuft(rng), 0.6);
+            if (rng() < 0.35) place(group, rng, pick('log', makeLog, rng), 0.5);
+            if (rng() < 0.4) place(group, rng, pick('tuft', makeTuft, rng), 0.6);
             break;
         }
         case 'GRASS': {
@@ -336,18 +391,16 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
                 // Bushes.
                 const bushes = 1 + Math.floor(rng() * 2);
                 for (let i = 0; i < bushes; i++) {
-                    const bush = makeBush(rng);
-                    tintIndividual(bush, rng);
+                    const bush = pick('bush', makeBush, rng);
                     place(group, rng, bush, 0.5, false);
                 }
             } else if (roll < 0.45) {
                 // A lone deciduous tree.
-                const tree = makeDeciduous(rng);
-                tintIndividual(tree, rng);
+                const tree = pick('deciduous', makeDeciduous, rng);
                 place(group, rng, tree, 0.4);
             } else if (roll < 0.52) {
                 // A lone dead tree or a fallen log on open ground.
-                place(group, rng, rng() < 0.5 ? makeDeadTree(rng) : makeLog(rng), 0.45);
+                place(group, rng, rng() < 0.5 ? pick('deadTree', makeDeadTree, rng) : pick('log', makeLog, rng), 0.45);
             } else {
                 return null; // open grassland
             }
@@ -355,7 +408,7 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
         }
         case 'SAND': {
             if (rng() < 0.35) {
-                place(group, rng, makeRocks(rng, 0xb8a98c), 0.45, false);
+                place(group, rng, pick('rocks-sand', (r) => makeRocks(r, 0xb8a98c), rng), 0.45, false);
             } else {
                 return null;
             }
@@ -367,20 +420,18 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
             // with the rare, hardy little conifer clinging on.
             const foot = tileHeight < 2.0;
             if (foot) {
-                if (rng() < 0.55) place(group, rng, makeTuft(rng), 0.5);
+                if (rng() < 0.55) place(group, rng, pick('tuft', makeTuft, rng), 0.5);
                 if (rng() < 0.45) {
-                    const bush = makeBush(rng);
-                    tintIndividual(bush, rng);
+                    const bush = pick('bush', makeBush, rng);
                     place(group, rng, bush, 0.5, false);
                 }
-                if (rng() < 0.4) place(group, rng, makeRocks(rng, 0x7d7a74), 0.4, false);
+                if (rng() < 0.4) place(group, rng, pick('rocks-mountain', (r) => makeRocks(r, 0x7d7a74), rng), 0.4, false);
             } else if (rng() < 0.5) {
-                place(group, rng, makeRocks(rng, 0x7d7a74), 0.4, false);
+                place(group, rng, pick('rocks-mountain', (r) => makeRocks(r, 0x7d7a74), rng), 0.4, false);
             }
             // Uncommon but possible: a lone small conifer on the mountain.
             if (rng() < 0.08) {
-                const pine = makeConifer(rng);
-                tintIndividual(pine, rng);
+                const pine = pick('conifer', makeConifer, rng);
                 const s = 0.45 + rng() * 0.2;
                 pine.scale.set(s, s, s);
                 place(group, rng, pine, 0.35);
