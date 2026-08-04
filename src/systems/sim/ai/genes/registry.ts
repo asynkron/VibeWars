@@ -31,6 +31,7 @@ import { SCREEN, screenGene } from './screen';
 import { MEND, mendGene } from './mend';
 import { SINK, sinkGene } from './sink';
 import { HOLD_DOOR, holdDoorGene } from './holdDoor';
+import { REPAIR, repairGene } from './repair';
 
 export const GENE_REGISTRY: Readonly<Record<string, GeneDefinition>> = {
     [REGROUP]: regroupGene,
@@ -38,6 +39,7 @@ export const GENE_REGISTRY: Readonly<Record<string, GeneDefinition>> = {
     [MEND]: mendGene,
     [SINK]: sinkGene,
     [HOLD_DOOR]: holdDoorGene,
+    [REPAIR]: repairGene,
 };
 
 // Rebuild an extras table from the names that came over the wire.

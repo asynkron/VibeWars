@@ -44,6 +44,48 @@
             user-select: none;
         }
 
+        /* The skill bar: one button per skill of the selected unit.
+           Bottom-centre, between Next Unit and End Turn, so it sits where
+           the eye already goes for actions. */
+        #skill-bar {
+            position: absolute;
+            bottom: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: none;
+            gap: 8px;
+            z-index: 95;
+            font-family: Arial, sans-serif;
+        }
+        .skill {
+            position: relative;
+            width: 54px;
+            height: 54px;
+            border: 2px solid #2b3a55;
+            border-radius: 8px;
+            background: rgba(10, 15, 30, 0.88);
+            color: #9fb2d0;
+            cursor: pointer;
+            font-family: inherit;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .skill:hover:not(:disabled) { border-color: #4a5f85; color: #dff5e3; }
+        .skill.is-selected { border-color: #4CAF50; background: #1b3a24; color: #dff5e3; }
+        /* A skill on cooldown is refused, not merely numbered -- the
+           reference lets you click one and casts it anyway. */
+        .skill:disabled { opacity: 0.45; cursor: not-allowed; }
+        .skill-glyph { font-size: 24px; line-height: 1; }
+        .skill-cooldown {
+            position: absolute;
+            right: 3px;
+            bottom: 1px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #ffcf6b;
+        }
+
         .view-toggle {
             padding: 6px 12px;
             font-family: inherit;

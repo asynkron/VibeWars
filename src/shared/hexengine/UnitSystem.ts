@@ -26,7 +26,8 @@ import { getGameState } from '../../systems/gameStateStore';
 // it that way.
 import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT } from '../../systems/sim/resolveAttack';
 import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
-import type { SkillDef } from './skills';
+import { chargeSkill, PIKE_REPAIR, type SkillDef } from './skills';
+import { showSkillsFor } from '../../systems/skillBar';
 import { skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
 class UnitSystem {
@@ -527,6 +528,10 @@ class UnitSystem {
     }
 
     static handleSelection(unit: GameUnit | null) {
+        // The bar follows the selection, and resets to the unit's attack --
+        // so a player who never touches it plays exactly the game they
+        // played before it existed.
+        showSkillsFor(unit);
         setSelectedUnit(unit);
         VisualizationSystem.clearPathLine();
         VisualizationSystem.clearHighlights();  // Clear existing highlights first
@@ -649,6 +654,30 @@ class UnitSystem {
             ? { min: skill.effect.minDamage, max: skill.effect.maxDamage }
             : { min: attackerStats.minDamage, max: attackerStats.maxDamage };
         return Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
+    }
+
+    // Patch an ally up. Deliberately NOT routed through applyDamage with a
+    // negative number: applyDamage has no maxHp clamp and the outcome path
+    // treats hp <= 0 as death, so a heal shaped as damage would need both
+    // audited. A separate two-line path cannot overflow or underflow.
+    static repair(target: GameUnit, hp: number, healer?: GameUnit): void {
+        // The cooldown is charged HERE, in the executor both the player and
+        // the AI's replay go through -- one place, so the two cannot drift.
+        // The reference has two casting implementations and they already
+        // have.
+        if (healer) {
+            const skill = skillById(healer.type, PIKE_REPAIR.id);
+            if (skill) healer.cooldowns = chargeSkill(healer.cooldowns, skill);
+        }
+        const restored = Math.min(hp, target.maxHp - target.hp);
+        if (restored <= 0) return;
+        target.hp += restored;
+        if (healer) AudioSystem.playSound('step1', 0.4);
+        // Same floating number the damage path uses, read off the unit's
+        // own visual, which is where every other caller in this file gets
+        // the position from.
+        VisualizationSystem.showDamageNumber(target.visualUnit.position.clone(), restored);
+        this.updateUnitVisuals(target);
     }
 
     static applyDamage(unit: GameUnit, damage: number): void {

@@ -137,6 +137,14 @@ export interface GameUnit {
   minRange: number;
   maxRange: number;
   hasAttacked: boolean;
+  // Skill id -> turns remaining, mirroring SimUnit.cooldowns. The live game
+  // and the simulation carry the same per-unit state, because the AI's plan
+  // is replayed against this side and the two must agree about what is
+  // still available.
+  //
+  // Typed loosely here for the same reason as extraSkills: types.ts is
+  // imported by everything and stays dependency-free.
+  cooldowns?: Readonly<Record<string, number>>;
   visualUnit: Object3DLike;
   engineSound?: { source: any; gainNode: any } | null;
 }

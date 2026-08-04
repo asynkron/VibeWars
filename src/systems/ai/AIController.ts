@@ -207,6 +207,23 @@ export class AIController {
                 continue;
             }
 
+            if (event.type === 'unitRepaired') {
+                const healer = liveRefs[event.repairerIndex];
+                const target = liveRefs[event.targetIndex];
+                if (isAlive(healer) && isAlive(target)) {
+                    UnitSystem.repair(target, event.hp, healer);
+                    // The cooldown is NOT applied here. The live executor
+                    // owns it, exactly as the reference leaves Cast() to
+                    // AnimateSpellCast and deliberately omits it from
+                    // AiSpellCastAction -- one place to charge, so a
+                    // replayed cast and a player's cannot drift.
+                    healer.hasAttacked = true;
+                    await sleep(ACTION_PAUSE_MS);
+                }
+                i++;
+                continue;
+            }
+
             if (event.type === 'buildingCaptured') {
                 // Deliberately NOT executed: the live capture hook in
                 // UnitSystem.move()'s finalizeStep (BuildingSystem.tryCapture)

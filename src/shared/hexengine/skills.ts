@@ -191,3 +191,41 @@ export function primaryAttackSkill(type: string, config: {
         },
     };
 }
+
+// Pike's repair crew. The owner's "Pike units could do repair on a
+// mechanical unit, every x turns", and the reference's Heal is its model --
+// but only its shape, not its details.
+export const PIKE_REPAIR: SkillDef = {
+    id: 'Pike:repair',
+    name: 'Repair',
+    glyph: '⚒',
+    target: {
+        kind: 'allyUnit',
+        // "Mechanical" spelled as classes, which is genuinely new: the
+        // reference's Friendly is a binary partition over SIDES with no
+        // unit predicate at all, so it cannot express this. A Pike being
+        // unable to repair a Pike falls out for free.
+        classes: ['tank', 'aa', 'artillery', 'naval', 'air'],
+        // The one unpunished failure mode in the reference: nothing there
+        // stops the AI healing a full-health ally. The heal caps at max hp,
+        // fitness is unchanged, so the rollout TIES with having done
+        // nothing -- and a tie can survive a beam while burning the unit's
+        // action and a three-turn cooldown. Enforced at target ENUMERATION
+        // rather than in the effect, so the move is unsayable rather than
+        // merely unlikely. Same discipline as mend.ts.
+        onlyDamaged: true,
+    },
+    // Not 0. A repair crew has to reach the hull, and it excludes self.
+    minRange: 1,
+    maxRange: 1,
+    // Three, matching the reference's Heal, and the most the default engine
+    // can still see -- Feint's plies are 0 and 2, so this sits right at the
+    // edge of its horizon. See the note on SkillDef.cooldown.
+    cooldown: 3,
+    // The owner's call. Pike is the ONLY unit that can capture, so this
+    // makes it "repair or shoot or capture" -- a real cost on the only
+    // capturing unit, which is what keeps a medic from being free.
+    spendsAction: true,
+    endsMovement: false,
+    effect: { kind: 'repair', hp: 3 },
+};

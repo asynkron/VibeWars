@@ -92,6 +92,10 @@ export type GameEvent =
     // which is what every event in the game meant before skills existed.
     | { type: 'unitAttacked'; attackerIndex: number; defenderIndex: number; damage: number; skillId?: string }
     | { type: 'unitDied'; unitIndex: number }
+    // A unit patched an ally up. Carries the hp actually restored, already
+    // clamped by the command layer -- apply() stays mechanical and derives
+    // nothing, exactly as it does for damage.
+    | { type: 'unitRepaired'; repairerIndex: number; targetIndex: number; hp: number; skillId: string }
     | { type: 'terrainModified'; q: number; r: number; delta: number }
     // A canCapture unit ended a move on a building it doesn't own. Applies
     // the ownership flip and (first time only) marks the hidden unit as
@@ -305,6 +309,29 @@ export class SimState {
                 // Death is a separate explicit event, recorded by the
                 // command layer when it sees hp reach 0 -- apply() stays
                 // mechanical and never derives new facts.
+                return;
+            }
+            case 'unitRepaired': {
+                const repairer = this.getUnit(event.repairerIndex);
+                const target = this.getUnit(event.targetIndex);
+                if (repairer) {
+                    const skill = UnitSystem.skillById(repairer.type, event.skillId);
+                    this.setUnit(event.repairerIndex, {
+                        ...repairer,
+                        hasAttacked: skill ? skill.spendsAction : true,
+                        cooldowns: skill ? chargeSkill(repairer.cooldowns, skill) : repairer.cooldowns,
+                    });
+                }
+                // Clamped again here rather than trusted. The event is
+                // replayed against the live game too, and a hp total above
+                // maxHp would show as a health bar past full with no way to
+                // get back.
+                if (target) {
+                    this.setUnit(event.targetIndex, {
+                        ...target,
+                        hp: Math.min(target.maxHp, target.hp + event.hp),
+                    });
+                }
                 return;
             }
             case 'unitDied': {

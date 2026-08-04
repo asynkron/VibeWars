@@ -4,6 +4,7 @@ import { GameMap } from '../shared/hexengine/MapSystem';
 import { AIController } from './ai/AIController';
 import { selectedMapProvider } from './maps/mapRegistry';
 import type { Building, GameUnit, GamePlayer, PlayerController } from '../types';
+import { NO_COOLDOWNS, tickCooldowns } from '../shared/hexengine/skills';
 
 class GameState {
     static readonly CPU_TURN_PAUSE_MS = 400;
@@ -98,6 +99,11 @@ class GameState {
                 // Via setHasAttacked so visualUnit.userData stays in sync
                 // (a bare `unit.hasAttacked = false` left it stale).
                 UnitSystem.setHasAttacked(unit, false);
+                // Cooldowns tick for the side whose turn began, beside the
+                // move reset -- the same placement and the same rule as
+                // SimState's turnStarted, so a replayed plan and the live
+                // game never disagree about what is still available.
+                unit.cooldowns = tickCooldowns(unit.cooldowns);
                 // Factory repair: starting the turn on an owned, standing
                 // factory patches the unit up. Mirrors SimState's
                 // turnStarted rule so the AI values it correctly.
@@ -185,6 +191,7 @@ class GameState {
             minRange: config.minRange,
             maxRange: config.maxRange,
             hasAttacked: false,
+            cooldowns: NO_COOLDOWNS,
             visualUnit: visual,
         };
         this.units.push(unit);

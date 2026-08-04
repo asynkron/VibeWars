@@ -14,7 +14,7 @@
 //
 // UnitSystem re-exports every name below, so nothing else had to change.
 
-import { primaryAttackSkill, type SkillDef } from './skills';
+import { primaryAttackSkill, PIKE_REPAIR, type SkillDef } from './skills';
 import type { UnitTypeConfig } from '../../types';
 
 export const UNIT_TYPES = {
@@ -200,6 +200,9 @@ export const UNIT_TYPES = {
             scale: 0.35,
             rotation: 0,
             attackEffect: 'laser',  // squad volley
+            // The repair crew. See PIKE_REPAIR for why it is class-filtered
+            // and why it costs the turn.
+            extraSkills: [PIKE_REPAIR],
             footprintTexture: null,  // No tracks for infantry
             terrainCosts: {
                 // Footsloggers: forests are no obstacle, and they're the

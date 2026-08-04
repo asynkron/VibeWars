@@ -13,9 +13,10 @@ import { menderEngine } from './engines/mender';
 import { dredgeEngine } from './engines/dredge';
 import { gatekeeperEngine } from './engines/gatekeeper';
 import { sapperEngine } from './engines/sapper';
+import { fitterEngine } from './engines/fitter';
 
 export const ENGINES: readonly AIEngine[] = [baselineEngine, wolfpackEngine, gambitEngine, feintEngine, aegisEngine,
-    menderEngine, dredgeEngine, gatekeeperEngine, sapperEngine];
+    menderEngine, dredgeEngine, gatekeeperEngine, sapperEngine, fitterEngine];
 
 // What the live game plays unless told otherwise.
 //
