@@ -23,8 +23,8 @@ import { PlanTurnOptions } from './search';
 import { AIEngine } from './ai/AIEngine';
 import { DEFAULT_ENGINE } from './ai/engineRegistry';
 import { combineSeed } from './resolveAttack';
-import { HexCoord } from '../../shared/hexengine/HexCoord';
-import { UnitSystem } from '../../shared/hexengine/UnitSystem';
+import * as HexCoord from '../../shared/hexengine/hexMath';
+import * as UnitSystem from '../../shared/hexengine/unitStats';
 import type { MapProvider, StartingUnit } from '../maps/MapProvider';
 
 export interface HeadlessMatchOptions {

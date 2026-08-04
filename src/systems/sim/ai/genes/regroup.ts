@@ -18,7 +18,7 @@
 // on an enemy building still captures it -- the same rule every builtin
 // movement gene gets.
 
-import { HexCoord } from '../../../../shared/hexengine/HexCoord';
+import * as HexCoord from '../../../../shared/hexengine/hexMath';
 import { SimState } from '../../SimState';
 import { GeneDefinition, recordSimMove } from '../../SimCommands';
 import { simDijkstra } from '../../SimPathfinding';

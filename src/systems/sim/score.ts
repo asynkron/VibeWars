@@ -24,8 +24,8 @@
 //     AI "knows" without cheating. A capture-pull term marches
 //     capture-capable units toward the nearest capturable building.
 
-import { HexCoord } from '../../shared/hexengine/HexCoord';
-import { UnitSystem } from '../../shared/hexengine/UnitSystem';
+import * as HexCoord from '../../shared/hexengine/hexMath';
+import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
 
 export interface ScoreWeights {

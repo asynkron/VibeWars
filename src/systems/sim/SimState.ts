@@ -23,8 +23,8 @@
 // damage = (minDamage + maxDamage) / 2) so replaying a log always
 // reproduces the same state.
 
-import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
-import { UnitSystem } from '../../shared/hexengine/UnitSystem';
+import * as TerrainSystem from '../../shared/hexengine/terrainStats';
+import * as UnitSystem from '../../shared/hexengine/unitStats';
 
 export interface SimTile {
     height: number;

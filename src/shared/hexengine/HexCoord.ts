@@ -2,6 +2,7 @@
 import { GridSystem } from './GridSystem';
 import { UnitSystem } from './UnitSystem';
 import { MAP_CONFIG } from '../../constants';
+import { hexNeighbors, hexToCube, hexDistance } from './hexMath';
 
 class HexCoord {
   q: number;
@@ -31,16 +32,9 @@ class HexCoord {
     return { x, z };
   }
 
+  // Delegated to hexMath, which imports nothing that renders -- see there.
   static getNeighbors(q: number, r: number): { q: number; r: number }[] {
-    const isOddColumn = q % 2 === 1;
-    return [
-      { q: q - 1, r: r - (isOddColumn ? 0 : 1) },
-      { q: q, r: r - 1 },
-      { q: q + 1, r: r - (isOddColumn ? 0 : 1) },
-      { q: q + 1, r: r + 1 - (isOddColumn ? 0 : 1) },
-      { q: q, r: r + 1 },
-      { q: q - 1, r: r + 1 - (isOddColumn ? 0 : 1) },
-    ];
+    return hexNeighbors(q, r);
   }
 
   // q/r are "odd-q" offset coordinates (odd columns shifted down half a
@@ -51,16 +45,11 @@ class HexCoord {
   // https://www.redblobgames.com/grids/hexagons/#conversions-offset for the
   // conversion this mirrors.
   private static toCube(q: number, r: number): { x: number; y: number; z: number } {
-    const x = q;
-    const z = r - (q - (q & 1)) / 2;
-    const y = -x - z;
-    return { x, y, z };
+    return hexToCube(q, r);
   }
 
   static getDistance(q1: number, r1: number, q2: number, r2: number): number {
-    const a = HexCoord.toCube(q1, r1);
-    const b = HexCoord.toCube(q2, r2);
-    return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.z - b.z));
+    return hexDistance(q1, r1, q2, r2);
   }
 
   static getWorldPositionFromCoords(q: number, r: number, height: number = 0) {

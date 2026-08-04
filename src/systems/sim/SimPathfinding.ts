@@ -15,9 +15,9 @@
 // small move budgets the search stays local and cheap, which matters when
 // hillclimbing evaluates hundreds of candidate plans per AI turn.
 
-import { PriorityQueue } from '../../shared/hexengine/PathfindingSystem';
-import { HexCoord } from '../../shared/hexengine/HexCoord';
-import { UnitSystem } from '../../shared/hexengine/UnitSystem';
+import { PriorityQueue } from '../../shared/hexengine/priorityQueue';
+import * as HexCoord from '../../shared/hexengine/hexMath';
+import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState } from './SimState';
 
 export interface SimDijkstraResult {

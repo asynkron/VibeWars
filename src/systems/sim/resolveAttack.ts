@@ -26,8 +26,8 @@
 // Damage is the expected value round((min+max)/2) rather than the live
 // uniform roll, per SimState's determinism contract.
 
-import { HexCoord } from '../../shared/hexengine/HexCoord';
-import { UnitSystem } from '../../shared/hexengine/UnitSystem';
+import * as HexCoord from '../../shared/hexengine/hexMath';
+import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState } from './SimState';
 
 export interface ResolvedHit {

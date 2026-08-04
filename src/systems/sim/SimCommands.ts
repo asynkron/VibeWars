@@ -16,8 +16,8 @@
 //     against its shrinking movement budget (another old-AI bug: moves
 //     never deducted movement points).
 
-import { HexCoord } from '../../shared/hexengine/HexCoord';
-import { UnitSystem } from '../../shared/hexengine/UnitSystem';
+import * as HexCoord from '../../shared/hexengine/hexMath';
+import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
 import { simDijkstra } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
