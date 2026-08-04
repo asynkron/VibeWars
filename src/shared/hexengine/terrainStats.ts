@@ -10,6 +10,13 @@
 // See unitStats.ts for the same split on the unit side, and
 // systems/sim/workerSafety.test.ts for the guard that keeps both honest.
 
+// Decoration paths are RELATIVE, with no leading slash, like every other
+// asset path in the codebase. An absolute path resolves against the origin,
+// which is the site root when the game is served from one and the wrong
+// place entirely when it is served from a subpath -- as it is on GitHub
+// Pages, where the game lives under /VibeWars/ and "/assets/..." would ask
+// for files one directory above the site.
+
 import type { TerrainTypeConfig } from '../../types';
 
 export const TERRAIN_TYPES = {
@@ -38,7 +45,7 @@ export const TERRAIN_TYPES = {
             impassable: false,
             decorations: [
                 {
-                    model: '/assets/3d/decorator_natural_dune.obj',
+                    model: 'assets/3d/decorator_natural_dune.obj',
                     color: 0xE8B27D,  // Same as base
                     chance: 0.05  // Reduced from 0.1
                 }
@@ -59,62 +66,62 @@ export const TERRAIN_TYPES = {
             impassable: false,
             decorations: [
                 {
-                    model: '/assets/3d/decorator_building_ruins.obj',
+                    model: 'assets/3d/decorator_building_ruins.obj',
                     color: 0x808080,  // Gray for ruins
                     chance: 0.003  // Reduced from 0.01
                 },
                 {
-                    model: '/assets/3d/decorator_building_watchtower.obj',
+                    model: 'assets/3d/decorator_building_watchtower.obj',
                     color: 0x696969,  // Dim gray for stone structures
                     chance: 0.002  // Reduced from 0.005
                 },
                 {
-                    model: '/assets/3d/decorator_building_lightHouse.obj',
+                    model: 'assets/3d/decorator_building_lightHouse.obj',
                     color: 0xFFFFFF,  // White for lighthouse
                     chance: 0.001  // Reduced from 0.002
                 },
                 {
-                    model: '/assets/3d/decorator_building_temple.obj',
+                    model: 'assets/3d/decorator_building_temple.obj',
                     color: 0xDEB887,  // Burlywood for temple stone
                     chance: 0.001  // Reduced from 0.003
                 },
                 {
-                    model: '/assets/3d/decorator_building_barracks.obj',
+                    model: 'assets/3d/decorator_building_barracks.obj',
                     color: 0x8B4513,  // Saddle brown for military structures
                     chance: 0.002  // Reduced from 0.005
                 },
                 {
-                    model: '/assets/3d/decorator_building_barn.obj',
+                    model: 'assets/3d/decorator_building_barn.obj',
                     color: 0x8B4513,  // Saddle brown for wooden structures
                     chance: 0.003  // Reduced from 0.008
                 },
                 {
-                    model: '/assets/3d/decorator_building_city1.obj',
+                    model: 'assets/3d/decorator_building_city1.obj',
                     color: 0xCD853F,  // Peru color for city buildings
                     chance: 0.001  // Reduced from 0.003
                 },
                 {
-                    model: '/assets/3d/decorator_building_city2.obj',
+                    model: 'assets/3d/decorator_building_city2.obj',
                     color: 0xDEB887,  // Burlywood for city buildings
                     chance: 0.001  // Reduced from 0.003
                 },
                 {
-                    model: '/assets/3d/decorator_building_towersignalLight.obj',
+                    model: 'assets/3d/decorator_building_towersignalLight.obj',
                     color: 0x696969,  // Dim gray for tower
                     chance: 0.001  // Reduced from 0.002
                 },
                 {
-                    model: '/assets/3d/decorator_natural_Forest_pine_cut.obj',
+                    model: 'assets/3d/decorator_natural_Forest_pine_cut.obj',
                     color: 0x1B3B1B,  // Darker forest green for pine
                     chance: 0.01
                 },
                 {
-                    model: '/assets/3d/decorator_natural_pineForest.obj',
+                    model: 'assets/3d/decorator_natural_pineForest.obj',
                     color: 0x1B3B1B,  // Darker forest green for pine
                     chance: 0.02
                 },
                 {
-                    model: '/assets/3d/decorator_natural_forest_deciduous.obj',
+                    model: 'assets/3d/decorator_natural_forest_deciduous.obj',
                     color: 0x355E3B,  // Keeping original hunter green for deciduous
                     chance: 0.04
                 }
@@ -135,17 +142,17 @@ export const TERRAIN_TYPES = {
             impassable: false,
             decorations: [
                 {
-                    model: '/assets/3d/decorator_natural_Forest_pine_cut.obj',
+                    model: 'assets/3d/decorator_natural_Forest_pine_cut.obj',
                     color: 0x1B3B1B,  // Darker forest green for pine
                     chance: 0.1
                 },
                 {
-                    model: '/assets/3d/decorator_natural_pineForest.obj',
+                    model: 'assets/3d/decorator_natural_pineForest.obj',
                     color: 0x1B3B1B,  // Darker forest green for pine
                     chance: 0.4
                 },
                 {
-                    model: '/assets/3d/decorator_natural_forest_deciduous.obj',
+                    model: 'assets/3d/decorator_natural_forest_deciduous.obj',
                     color: 0x355E3B,  // Keeping original hunter green for deciduous
                     chance: 0.8
                 }

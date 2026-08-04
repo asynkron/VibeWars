@@ -1,0 +1,66 @@
+# Build the game and publish it to GitHub Pages on every push to main.
+#
+# The site is a plain Vite build of the repo -- static files, no server --
+# so Pages can host the whole thing including the 11 MB of models, textures
+# and sounds under public/. The AI still runs in the player's browser, in
+# the web workers it already uses locally.
+#
+# vite.config.ts sets `base: './'`. A project site lives under /<repo>/, and
+# a default absolute base would ask for /assets/... at the origin root: a
+# blank page and a fistful of 404s.
+
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  # So a deploy can be re-run from the Actions tab without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race. Not cancel-in-progress: a half-finished
+# deploy that gets cancelled leaves the live site mid-swap, and the queue
+# here is at most a few minutes long.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # The gate. Publishing is the one place where "it compiled" is not
+      # enough -- whatever lands here is what people play -- and the suite
+      # covers the simulation, the map invariants and the worker-safety
+      # import graph, none of which a build failure would catch.
+      - run: npm run typecheck
+      - run: npm test
+
+      - run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
