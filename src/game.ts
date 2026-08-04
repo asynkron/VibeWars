@@ -242,9 +242,7 @@ function setupEventListeners(matrices: CameraMatrices) {
         if (unit && isHumanTurn() && getGameState().isPlayerTurn(unit.playerIndex)) {
             // Clear previous selection first, exactly as in the click handler
             if (selectedUnit) {
-                selectedUnit = null;
-                VisualizationSystem.clearPathLine();
-                VisualizationSystem.clearHighlights();
+                clearSelection();
             }
             // Then set the new selection and show highlights
             selectedUnit = unit;
@@ -325,18 +323,14 @@ function setupEventListeners(matrices: CameraMatrices) {
                 UnitSystem.handleMovement(selectedUnit, hexGroup);
             } else if (selectedUnit) {
                 // Clear selection when clicking an empty hex that's not a valid move
-                selectedUnit = null;
-                VisualizationSystem.clearPathLine();
-                VisualizationSystem.clearHighlights();
+                clearSelection();
             }
             return;
         }
 
         // Clear selection if clicking outside the grid
         if (selectedUnit) {
-            selectedUnit = null;
-            VisualizationSystem.clearPathLine();
-            VisualizationSystem.clearHighlights();
+            clearSelection();
         }
     });
 
@@ -352,9 +346,7 @@ function setupEventListeners(matrices: CameraMatrices) {
     // Add end turn button handler
     endTurnButton.addEventListener('click', () => {
         if (isHumanTurn()) {  // Only a human may end their own turn
-            selectedUnit = null;
-            VisualizationSystem.clearPathLine();
-            VisualizationSystem.clearHighlights();
+            clearSelection();
             getGameState().nextTurn();
             FootprintSystem.update();  // Update footprints when turn ends
         }
@@ -594,6 +586,21 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
 
     // Kick off the first turn (starts the AI immediately in AI-vs-AI mode)
     gameState.start();
+}
+
+// Drop the current selection, everything that draws it included.
+//
+// It was four copies of the same three lines, and one of them was written
+// before the skill bar existed -- so clicking an empty hex cleared the unit
+// and left the bar standing there, still showing that unit's skills with one
+// of them still armed. The bar then LIED: it looked ready, there was nothing
+// selected behind it, and the next click did nothing with no explanation.
+// Which is exactly what "clicking Load does nothing" felt like.
+function clearSelection(): void {
+    selectedUnit = null;
+    VisualizationSystem.clearPathLine();
+    VisualizationSystem.clearHighlights();
+    UnitSystem.handleSelection(null);
 }
 
 // Whether a click landed on the interface rather than on the world.
