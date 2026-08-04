@@ -22,7 +22,13 @@ import { SimState, SimUnit } from './SimState';
 import { simDijkstra } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
 
-export type GeneKind = 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'standoff' | 'attack' | 'idle';
+export type BuiltinGeneKind =
+    | 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'standoff' | 'attack' | 'idle';
+
+// An engine may register gene kinds of its own, so the kind is not a closed
+// union. `string & {}` keeps editor completion for the builtins while still
+// admitting a custom name.
+export type GeneKind = BuiltinGeneKind | (string & {});
 
 export interface Gene {
     kind: GeneKind;
@@ -30,6 +36,43 @@ export interface Gene {
     targetIndex?: number;   // enemy unit index for moveTowards/moveAway/attack
     buildingIndex?: number; // building index for moveToBuilding
     seed: number;           // drives scatter + random-move picks
+}
+
+// A gene kind contributed by an engine rather than built in here.
+export interface GeneDefinition {
+    // Apply it to the branch. Same contract as the builtin cases: validate
+    // against the CURRENT state, record events, return whether it acted.
+    // MUST route any movement through recordSimMove, or captures are lost.
+    apply(state: SimState, gene: Gene): boolean;
+    // Optional guard consulted by randomGene: when it returns false the roll
+    // falls back to moveTowards, exactly like the builtin moveToBuilding and
+    // standoff guards. Without it the kind is always considered rollable.
+    applicable?(state: SimState, unitIndex: number): boolean;
+}
+
+// How an engine generates and applies genes. Everything an engine may want
+// to differ on lives here; DEFAULT_DIALECT reproduces the hardcoded
+// behaviour these values replaced.
+export interface GeneDialect {
+    // Roulette table for randomGene. Weights are consumed in order and
+    // should sum to <= 1; whatever is left over falls through to 'idle'.
+    weights: ReadonlyArray<readonly [GeneKind, number]>;
+    // Custom kinds, keyed by the name used in `weights` and Gene.kind.
+    extras: Readonly<Record<string, GeneDefinition>>;
+    // Probability that a generated gene aims at the WEAKEST legal target
+    // instead of a uniformly random enemy. The random remainder is what
+    // keeps exploration alive for the hillclimber.
+    focusFireChance: number;
+    sweep: SweepTuning;
+}
+
+// Tuning for the post-plan attack sweep (see sweepAttacks).
+export interface SweepTuning {
+    // Added to a shot's value when the damage would finish the target off.
+    killBonus: number;
+    // Multiplier applied to splash damage landing on OWN units, subtracted
+    // from the shot's value.
+    friendlyFirePenalty: number;
 }
 
 function unitCanCapture(unit: SimUnit): boolean {
@@ -133,7 +176,7 @@ function resolveTargetIndex(state: SimState, unitIndex: number, gene: Gene): num
 // hooked into UnitSystem.move) so sim and reality agree on when captures
 // happen. No unit is spawned here -- the factory's content is hidden, so
 // the sim only records the capture and lets score.ts value it.
-function recordMove(state: SimState, unitIndex: number, toQ: number, toR: number, moveSpent: number): void {
+export function recordSimMove(state: SimState, unitIndex: number, toQ: number, toR: number, moveSpent: number): void {
     state.record({ type: 'unitMoved', unitIndex, toQ, toR, moveSpent });
     const unit = state.getUnit(unitIndex);
     if (!unit || !unitCanCapture(unit)) return;
@@ -144,8 +187,14 @@ function recordMove(state: SimState, unitIndex: number, toQ: number, toR: number
 }
 
 // Apply one gene to the branch, recording events. Returns true if any
-// event was recorded.
-export function applyGene(state: SimState, gene: Gene): boolean {
+// event was recorded. `extras` supplies any engine-registered kinds; an
+// unknown kind is a no-op rather than an error, so a plan carried between
+// engines degrades instead of throwing.
+export function applyGene(
+    state: SimState,
+    gene: Gene,
+    extras: Readonly<Record<string, GeneDefinition>> = {}
+): boolean {
     const unit = state.getUnit(gene.unitIndex);
     if (!unit) return false;
 
@@ -247,7 +296,7 @@ export function applyGene(state: SimState, gene: Gene): boolean {
 
             if (bestKey === null) return false; // nothing strictly better than staying
             const [toQ, toR] = bestKey.split(',').map(Number);
-            recordMove(state, gene.unitIndex, toQ, toR, bestCost);
+            recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
             return true;
         }
 
@@ -285,7 +334,7 @@ export function applyGene(state: SimState, gene: Gene): boolean {
             // Already parked at the ideal distance? Nothing to do.
             if (bestKey === null || (currentDist === unit.maxRange && bestDist <= currentDist)) return false;
             const [toQ, toR] = bestKey.split(',').map(Number);
-            recordMove(state, gene.unitIndex, toQ, toR, bestCost);
+            recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
             return true;
         }
 
@@ -321,7 +370,7 @@ export function applyGene(state: SimState, gene: Gene): boolean {
             }
             if (bestKey === null) return false;
             const [toQ, toR] = bestKey.split(',').map(Number);
-            recordMove(state, gene.unitIndex, toQ, toR, bestCost);
+            recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
             return true;
         }
 
@@ -333,8 +382,13 @@ export function applyGene(state: SimState, gene: Gene): boolean {
             const rng = mulberry32(gene.seed);
             const key = options[Math.floor(rng() * options.length)];
             const [toQ, toR] = key.split(',').map(Number);
-            recordMove(state, gene.unitIndex, toQ, toR, distances.get(key)!);
+            recordSimMove(state, gene.unitIndex, toQ, toR, distances.get(key)!);
             return true;
+        }
+
+        default: {
+            const custom = extras[gene.kind];
+            return custom ? custom.apply(state, gene) : false;
         }
     }
 }
@@ -352,7 +406,11 @@ export function applyGene(state: SimState, gene: Gene): boolean {
 // nothing nets positive (e.g. a barrage that would mostly hit friends).
 // Deterministic: the resolve seed derives from the acting/target indices,
 // and firing replays the exact resolution just scored.
-export function sweepAttacks(state: SimState, playerIndex: number): boolean {
+export function sweepAttacks(
+    state: SimState,
+    playerIndex: number,
+    tuning: SweepTuning = DEFAULT_SWEEP
+): boolean {
     let fired = false;
     const shooters = [...state.liveUnits()]
         .filter(([, u]) => u.playerIndex === playerIndex && !u.hasAttacked)
@@ -376,8 +434,8 @@ export function sweepAttacks(state: SimState, playerIndex: number): boolean {
             for (const hit of resolved.hits) {
                 const victim = state.getUnit(hit.unitIndex);
                 if (!victim) continue;
-                const worth = hit.damage + (hit.damage >= victim.hp ? 100 : 0);
-                value += victim.playerIndex === playerIndex ? -1.5 * worth : worth;
+                const worth = hit.damage + (hit.damage >= victim.hp ? tuning.killBonus : 0);
+                value += victim.playerIndex === playerIndex ? -tuning.friendlyFirePenalty * worth : worth;
             }
             if (value > bestValue) {
                 bestValue = value;
@@ -393,7 +451,7 @@ export function sweepAttacks(state: SimState, playerIndex: number): boolean {
     return fired;
 }
 
-const KIND_WEIGHTS: Array<[GeneKind, number]> = [
+export const DEFAULT_GENE_WEIGHTS: ReadonlyArray<readonly [GeneKind, number]> = [
     ['attack', 0.30],
     ['moveTowards', 0.20],
     ['standoff', 0.10],
@@ -403,9 +461,31 @@ const KIND_WEIGHTS: Array<[GeneKind, number]> = [
     ['idle', 0.10],
 ];
 
+export const DEFAULT_SWEEP: SweepTuning = {
+    killBonus: 100,
+    friendlyFirePenalty: 1.5,
+};
+
+export const DEFAULT_DIALECT: GeneDialect = {
+    weights: DEFAULT_GENE_WEIGHTS,
+    extras: {},
+    focusFireChance: 0.5,
+    sweep: DEFAULT_SWEEP,
+};
+
 // Random gene for one specific unit -- population init and mutation both
 // use this. rng is the search's own seeded PRNG.
-export function randomGene(state: SimState, unitIndex: number, rng: () => number): Gene {
+//
+// The draw pattern is deliberately unchanged from when the weights were a
+// module constant, so the baseline dialect reproduces the shipped AI's
+// play bit for bit. Two different dialects diverge from each other, which
+// is the point -- each is only required to be deterministic in its own seed.
+export function randomGene(
+    state: SimState,
+    unitIndex: number,
+    rng: () => number,
+    dialect: GeneDialect = DEFAULT_DIALECT
+): Gene {
     const unit = state.getUnit(unitIndex);
     const enemies: number[] = [];
     if (unit) {
@@ -416,7 +496,7 @@ export function randomGene(state: SimState, unitIndex: number, rng: () => number
 
     let roll = rng();
     let kind: GeneKind = 'idle';
-    for (const [k, weight] of KIND_WEIGHTS) {
+    for (const [k, weight] of dialect.weights) {
         if (roll < weight) { kind = k; break; }
         roll -= weight;
     }
@@ -431,17 +511,23 @@ export function randomGene(state: SimState, unitIndex: number, rng: () => number
     if (kind === 'standoff' && (!unit || nearestTargetableEnemyIndex(state, unitIndex) === null)) {
         kind = 'moveTowards';
     }
+    // Engine-registered kinds get the same treatment via their own guard.
+    const custom = dialect.extras[kind];
+    if (custom?.applicable && !custom.applicable(state, unitIndex)) {
+        kind = 'moveTowards';
+    }
     if (enemies.length === 0 && (kind === 'attack' || kind === 'moveTowards' || kind === 'moveAway')) {
         kind = 'moveRandom';
     }
 
-    // Focus fire: half the time aim at the weakest legal target (finish
-    // damaged units off) instead of a uniformly random enemy -- the random
-    // half keeps exploration alive for the hillclimber.
+    // Focus fire: focusFireChance of the time aim at the weakest legal
+    // target (finish damaged units off) instead of a uniformly random
+    // enemy -- the random remainder keeps exploration alive for the
+    // hillclimber.
     let targetIndex: number | undefined;
     if (enemies.length > 0) {
         const weakest = unit ? weakestTargetableEnemyIndex(state, unitIndex) : null;
-        targetIndex = rng() < 0.5 && weakest !== null
+        targetIndex = rng() < dialect.focusFireChance && weakest !== null
             ? weakest
             : enemies[Math.floor(rng() * enemies.length)];
     }

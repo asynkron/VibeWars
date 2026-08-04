@@ -37,9 +37,26 @@
 // plans win; the reported score is the real, unpenalized horizon score.
 
 import { SimState, GameEvent } from './SimState';
-import { Gene, applyGene, randomGene, sweepAttacks } from './SimCommands';
+import { Gene, GeneDialect, DEFAULT_DIALECT, applyGene, randomGene, sweepAttacks } from './SimCommands';
 import { mulberry32, combineSeed } from './resolveAttack';
-import { scoreState } from './score';
+import { scoreState, ScoreWeights, DEFAULT_SCORE_WEIGHTS } from './score';
+
+// How often each mutation operator is picked, as a share of 1. Whatever
+// the four leave over goes to reseed+retarget.
+export interface MutationRates {
+    insert: number;
+    remove: number;
+    replace: number;
+    swap: number;
+}
+
+export const DEFAULT_MUTATION_RATES: MutationRates = {
+    insert: 0.25,
+    remove: 0.20,
+    replace: 0.20,
+    swap: 0.20,
+    // remainder 0.15 -> reseed+retarget
+};
 
 export interface PlanTurnOptions {
     population?: number;
@@ -63,6 +80,31 @@ export interface PlanTurnOptions {
     deepPlies?: number;
     replyPopulation?: number;
     replyRounds?: number;
+
+    // --- Engine personality. Everything below is what makes one AI engine
+    // --- different from another; the defaults are the shipped behaviour.
+
+    // How the board is valued.
+    score?: ScoreWeights;
+    // Which genes exist, how often each is rolled, and how the post-plan
+    // attack sweep values a shot.
+    dialect?: GeneDialect;
+    // Per-gene fitness cost, so equally-scoring shorter plans win.
+    parsimonyPenalty?: number;
+    // Share of the immediate (pre-lookahead) score mixed into fitness --
+    // future discounting, see IMMEDIATE_WEIGHT's note below.
+    immediateWeight?: number;
+    // Fraction of the population kept as breeding stock each round.
+    survivorFraction?: number;
+    // Upper bound on how many genes each unit gets in a freshly generated
+    // plan (1..n, drawn per unit) -- population init and the cheap
+    // opponent model use their own value.
+    initGenesPerUnit?: number;
+    replyGenesPerUnit?: number;
+    // Cap on plan length as a multiple of the side's unit count, used when
+    // maxPlanLength is not given outright.
+    maxGenesPerUnit?: number;
+    mutation?: MutationRates;
 }
 
 export interface TurnPlanResult {
@@ -94,6 +136,11 @@ const PARSIMONY_PENALTY = 0.001;
 // prefer the one that banks the gain immediately. Large enough to break
 // such ties, far too small to override a real lookahead difference.
 const IMMEDIATE_WEIGHT = 0.01;
+
+const SURVIVOR_FRACTION = 0.25;
+const INIT_GENES_PER_UNIT = 3;
+const REPLY_GENES_PER_UNIT = 2;
+const MAX_GENES_PER_UNIT = 6;
 
 // Stable identity for a plan, so its rollout rng (and therefore the
 // opponent's replies) is identical every time the same plan is evaluated.
@@ -127,29 +174,47 @@ function shuffleWith<T>(rng: () => number, items: T[]): T[] {
 // genes per unit, freely ordered. (The attack sweep now guarantees
 // trailing shots, so generation 0 no longer needs explicit attack genes
 // appended -- but a few random attack genes still arise via KIND_WEIGHTS.)
-function randomPlanFor(state: SimState, playerIndex: number, rng: () => number, maxBodyGenes: number): Gene[] {
+function randomPlanFor(
+    state: SimState,
+    playerIndex: number,
+    rng: () => number,
+    maxBodyGenes: number,
+    dialect: GeneDialect
+): Gene[] {
     const myUnits = unitsOf(state, playerIndex);
     const owners: number[] = [];
     for (const unitIndex of myUnits) {
         const count = 1 + Math.floor(rng() * maxBodyGenes);
         for (let k = 0; k < count; k++) owners.push(unitIndex);
     }
-    return shuffleWith(rng, owners).map((unitIndex) => randomGene(state, unitIndex, rng));
+    return shuffleWith(rng, owners).map((unitIndex) => randomGene(state, unitIndex, rng, dialect));
 }
 
 // Cheap opponent model: best of K random plans for `playerIndex` (attack
 // sweep included), judged by that side's own score. It just has to punish
 // obvious blunders during the hillclimb -- the finalist stage brings the
 // competent opponent.
-function bestReply(state: SimState, playerIndex: number, rng: () => number, k: number): SimState {
+//
+// The opponent is modelled with THIS engine's own dialect and weights. An
+// engine has no knowledge of what it is playing against, so the only
+// honest opponent model it can build is itself.
+function bestReply(
+    state: SimState,
+    playerIndex: number,
+    rng: () => number,
+    k: number,
+    dialect: GeneDialect,
+    scoreWeights: ScoreWeights,
+    genesPerUnit: number
+): SimState {
     let best: SimState | null = null;
     let bestScore = -Infinity;
     for (let i = 0; i < k; i++) {
-        const genes = randomPlanFor(state, playerIndex, rng, 2);
+        const genes = randomPlanFor(state, playerIndex, rng, genesPerUnit, dialect);
         const probe = state.fork();
-        for (const gene of genes) applyGene(probe, gene);
-        sweepAttacks(probe, playerIndex);
-        const score = scoreState(probe, playerIndex);
+        for (const gene of genes) applyGene(probe, gene, dialect.extras);
+        sweepAttacks(probe, playerIndex, dialect.sweep);
+        const score = scoreState(probe, playerIndex, scoreWeights);
         if (score > bestScore) {
             bestScore = score;
             best = probe;
@@ -176,8 +241,32 @@ function* planTurnGen(
         deepPlies = 2,
         replyPopulation = 8,
         replyRounds = 2,
+        score: scoreWeights = DEFAULT_SCORE_WEIGHTS,
+        dialect = DEFAULT_DIALECT,
+        parsimonyPenalty = PARSIMONY_PENALTY,
+        immediateWeight = IMMEDIATE_WEIGHT,
+        survivorFraction = SURVIVOR_FRACTION,
+        initGenesPerUnit = INIT_GENES_PER_UNIT,
+        replyGenesPerUnit = REPLY_GENES_PER_UNIT,
+        maxGenesPerUnit = MAX_GENES_PER_UNIT,
+        mutation = DEFAULT_MUTATION_RATES,
     } = options;
     const rng = mulberry32(seed);
+
+    // Everything an engine's personality is made of, forwarded verbatim to
+    // the nested searches below so a deep rollout is played by the SAME
+    // engine rather than by the defaults.
+    const personality = {
+        score: scoreWeights,
+        dialect,
+        parsimonyPenalty,
+        immediateWeight,
+        survivorFraction,
+        initGenesPerUnit,
+        replyGenesPerUnit,
+        maxGenesPerUnit,
+        mutation,
+    };
 
     const myUnits = unitsOf(snapshot, playerIndex);
     const enemyIndexes: number[] = [];
@@ -185,10 +274,10 @@ function* planTurnGen(
         if (unit.playerIndex !== playerIndex) enemyIndexes.push(i);
     }
     if (myUnits.length === 0) {
-        return { events: [], score: scoreState(snapshot, playerIndex), genes: [] };
+        return { events: [], score: scoreState(snapshot, playerIndex, scoreWeights), genes: [] };
     }
 
-    const maxPlanLength = options.maxPlanLength ?? myUnits.length * 6;
+    const maxPlanLength = options.maxPlanLength ?? myUnits.length * maxGenesPerUnit;
     // Two-player assumption (matches GameState's fixed player pair).
     const opponentIndex = 1 - playerIndex;
 
@@ -203,9 +292,9 @@ function* planTurnGen(
 
     const evaluate = (genes: Gene[]): Candidate => {
         const branch = snapshot.fork();
-        for (const gene of genes) applyGene(branch, gene);
-        sweepAttacks(branch, playerIndex);
-        const immediateScore = scoreState(branch, playerIndex);
+        for (const gene of genes) applyGene(branch, gene, dialect.extras);
+        sweepAttacks(branch, playerIndex, dialect.sweep);
+        const immediateScore = scoreState(branch, playerIndex, scoreWeights);
 
         // Cheap rollout: alternate opponent/own simulated turns with the
         // best-of-K random opponent model, score at the horizon.
@@ -216,13 +305,13 @@ function* planTurnGen(
             let side = opponentIndex;
             for (let ply = 0; ply < lookaheadPlies; ply++) {
                 horizon.record({ type: 'turnStarted', playerIndex: side });
-                horizon = bestReply(horizon, side, rolloutRng, replyCandidates);
+                horizon = bestReply(horizon, side, rolloutRng, replyCandidates, dialect, scoreWeights, replyGenesPerUnit);
                 side = side === playerIndex ? opponentIndex : playerIndex;
             }
         }
 
-        const score = scoreState(horizon, playerIndex);
-        const fitness = score + immediateScore * IMMEDIATE_WEIGHT - genes.length * PARSIMONY_PENALTY;
+        const score = scoreState(horizon, playerIndex, scoreWeights);
+        const fitness = score + immediateScore * immediateWeight - genes.length * parsimonyPenalty;
         return { genes, branch, score, fitness };
     };
 
@@ -236,6 +325,7 @@ function* planTurnGen(
             state.record({ type: 'turnStarted', playerIndex: side });
             const snap = state.condense();
             const reply = planTurn(snap, side, {
+                ...personality,
                 population: replyPopulation,
                 rounds: replyRounds,
                 seed: combineSeed(seed, fingerprint(candidate.genes), ply),
@@ -245,28 +335,35 @@ function* planTurnGen(
             state = snap;
             side = side === playerIndex ? opponentIndex : playerIndex;
         }
-        return scoreState(state, playerIndex);
+        return scoreState(state, playerIndex, scoreWeights);
     };
 
-    const randomPlan = (): Gene[] => randomPlanFor(snapshot, playerIndex, rng, 3);
+    const randomPlan = (): Gene[] => randomPlanFor(snapshot, playerIndex, rng, initGenesPerUnit, dialect);
+
+    // Cumulative thresholds for the mutation roulette; the remainder after
+    // swap falls through to reseed+retarget.
+    const opInsert = mutation.insert;
+    const opRemove = opInsert + mutation.remove;
+    const opReplace = opRemove + mutation.replace;
+    const opSwap = opReplace + mutation.swap;
 
     const mutate = (genes: Gene[]): Gene[] => {
         const copy = genes.map((g) => ({ ...g }));
         const op = rng();
 
-        if (op < 0.25 && copy.length < maxPlanLength) {
+        if (op < opInsert && copy.length < maxPlanLength) {
             // Insert a new random gene at a random position.
             const pos = Math.floor(rng() * (copy.length + 1));
             const unitIndex = myUnits[Math.floor(rng() * myUnits.length)];
-            copy.splice(pos, 0, randomGene(snapshot, unitIndex, rng));
-        } else if (op < 0.45 && copy.length > 1) {
+            copy.splice(pos, 0, randomGene(snapshot, unitIndex, rng, dialect));
+        } else if (op < opRemove && copy.length > 1) {
             // Delete a random gene.
             copy.splice(Math.floor(rng() * copy.length), 1);
-        } else if (op < 0.65 && copy.length > 0) {
+        } else if (op < opReplace && copy.length > 0) {
             // Replace one gene (same unit, fresh action).
             const i = Math.floor(rng() * copy.length);
-            copy[i] = randomGene(snapshot, copy[i].unitIndex, rng);
-        } else if (op < 0.85 && copy.length >= 2) {
+            copy[i] = randomGene(snapshot, copy[i].unitIndex, rng, dialect);
+        } else if (op < opSwap && copy.length >= 2) {
             // Swap execution order of two genes.
             const i = Math.floor(rng() * copy.length);
             let j = Math.floor(rng() * copy.length);
@@ -291,7 +388,7 @@ function* planTurnGen(
 
     for (let round = 0; round < rounds; round++) {
         candidates.sort((a, b) => b.fitness - a.fitness);
-        const survivors = candidates.slice(0, Math.max(1, Math.floor(population / 4)));
+        const survivors = candidates.slice(0, Math.max(1, Math.floor(population * survivorFraction)));
         const next: Candidate[] = [...survivors];
         while (next.length < population) {
             const parent = survivors[Math.floor(rng() * survivors.length)];
