@@ -20,6 +20,7 @@ import { randomPlanFor } from '../search';
 import { applyGene, sweepAttacks, GeneDialect, DEFAULT_DIALECT } from '../SimCommands';
 import { scoreState, ScoreWeights, DEFAULT_SCORE_WEIGHTS } from '../score';
 import { mulberry32, combineSeed } from '../resolveAttack';
+import { extrasFromKinds } from './genes/registry';
 
 export interface SimJob {
     // Events replayed onto the snapshot to reach the parent node. Empty at
@@ -50,13 +51,26 @@ export interface SimJobChild {
 // the snapshot is sent once and this rides along with each job.
 export interface SimJobConfig {
     dialect?: GeneDialect;
+    // The custom genes, BY NAME, for the config that crosses postMessage.
+    // A dialect's own `extras` holds functions, which structured clone
+    // refuses -- see genes/registry.ts. When this is present it replaces
+    // whatever `dialect.extras` says; the serial callers omit it and pass
+    // their dialect whole.
+    extraKinds?: readonly string[];
     score?: ScoreWeights;
 }
 
 // Run one job against a snapshot. Pure: same inputs, same output, on any
 // thread.
 export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig = {}): SimJobChild[] {
-    const dialect = config.dialect ?? DEFAULT_DIALECT;
+    const base = config.dialect ?? DEFAULT_DIALECT;
+    // Rebuilt on this side of the wire when the caller sent names. Done
+    // here rather than in the worker entry point so both paths -- serial
+    // beam and parallel pool -- run the identical assembly, which is what
+    // beamParallel.test.ts's serial-vs-parallel identity check rests on.
+    const dialect = config.extraKinds
+        ? { ...base, extras: extrasFromKinds(config.extraKinds) }
+        : base;
     const weights = config.score ?? DEFAULT_SCORE_WEIGHTS;
 
     // Replay to the parent once, then fork per child -- forking shares the

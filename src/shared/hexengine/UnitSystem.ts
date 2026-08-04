@@ -13,6 +13,18 @@ import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 import { players, HIGHLIGHT_COLORS } from '../../constants';
 import { getGameState } from '../../systems/gameStateStore';
+// THE COMBAT NUMBERS COME FROM THE SIMULATION, not from copies kept here.
+// resolveAttack.ts's header says its rules "mirror UnitSystem.attack
+// exactly", and the two had already drifted: splash was 0.5 here against
+// SPLASH_FACTOR 0.25 there, while the crater depth and rocket count sat as
+// literals under a comment asking the next reader to keep them in sync by
+// hand. A comment is not a mechanism. Importing them makes the sim the one
+// source and deletes the whole class of drift.
+//
+// The direction is safe: resolveAttack reaches only unitStats and SimState,
+// never this file, so there is no cycle -- and workerSafety.test.ts keeps
+// it that way.
+import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT } from '../../systems/sim/resolveAttack';
 import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
 import { UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
@@ -777,15 +789,13 @@ class UnitSystem {
                 const classModifier = this.getClassModifier(attacker.type, unitAtHex.type);
                 damages.push({
                     unit: unitAtHex,
-                    damage: Math.floor(damage * (isPrimary ? 1 : 0.5) * classModifier),
+                    damage: Math.floor(damage * (isPrimary ? 1 : SPLASH_FACTOR) * classModifier),
                 });
             }
 
-            const rocketCount = 6;
-            const craterDelta = -0.1; // keep in sync with sim CRATER_DELTA
-            for (let i = 0; i < rocketCount; i++) {
+            for (let i = 0; i < ROCKET_COUNT; i++) {
                 const target = splashHexes[Math.floor(Math.random() * splashHexes.length)];
-                impacts.push({ q: target.q, r: target.r, craterDelta });
+                impacts.push({ q: target.q, r: target.r, craterDelta: CRATER_DELTA });
             }
         } else if (attackerStats.attackEffect === 'rocketVolley') {
             // Several small rockets, all at the target hex -- per-rocket

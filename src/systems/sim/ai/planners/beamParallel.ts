@@ -57,7 +57,16 @@ export async function beamPlanParallel(
 
     const opponentIndex = 1 - playerIndex;
     const childCountAt = (depth: number) => childCounts[Math.min(depth, childCounts.length - 1)] ?? 1;
-    const config = { dialect, score: weights };
+    // The config CROSSES postMessage, so it must be structured-cloneable
+    // and a GeneDefinition is not: it holds functions. The genes travel as
+    // names and runSimJob rebuilds them from genes/registry.ts on the far
+    // side. Sending `dialect` whole is what made ?ai=aegis throw
+    // DataCloneError on every AI turn in a real browser.
+    const config = {
+        dialect: { ...dialect, extras: {} },
+        extraKinds: Object.keys(dialect.extras),
+        score: weights,
+    };
 
     pool.setSnapshot(snapshot);
 
