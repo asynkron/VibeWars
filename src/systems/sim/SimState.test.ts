@@ -171,7 +171,7 @@ describe('buildings', () => {
         const sim = SimState.snapshot(makeSourceWithFactory());
         expect(sim.buildingCount).toBe(1);
         const b = sim.getBuilding(0)!;
-        expect(b).toEqual({ q: 2, r: 2, ownerIndex: null, hasHiddenUnit: true, yieldedTo: null, destroyed: false });
+        expect(b).toEqual({ q: 2, r: 2, ownerIndex: null, hasHiddenUnit: true, yieldedTo: null, destroyed: false, groupId: null, isEntrance: true });
         // No hiddenUnitType anywhere -- the sim can't cheat.
         expect('hiddenUnitType' in b).toBe(false);
         expect(sim.getBuildingAt(2, 2)![0]).toBe(0);
@@ -247,7 +247,7 @@ describe('buildings', () => {
         // scoring state -- the prize was already "paid out").
         const next = a.condense();
         expect(next.getBuilding(0)).toEqual({
-            q: 2, r: 2, ownerIndex: 1, hasHiddenUnit: false, yieldedTo: null, destroyed: false,
+            q: 2, r: 2, ownerIndex: 1, hasHiddenUnit: false, yieldedTo: null, destroyed: false, groupId: null, isEntrance: true,
         });
         expect(next.events.length).toBe(0);
     });

@@ -57,9 +57,11 @@ describe('Half Turn (12x18) balance', () => {
     });
 
     it('gives both sides the same reach to their own and the far depot', () => {
-        // The depot is four pieces; measure to the anchor piece that holds
-        // the prize, one per side.
-        const [a, b] = factories.filter(f => f.type === 'forgeDepotN');
+        // The depot is four pieces but has ONE door, and the door is the
+        // only tile a capture can happen on -- so reach to the depot means
+        // reach to that tile. Measuring to a wall would report a distance
+        // no capture can be made from.
+        const [a, b] = factories.filter(f => f.isEntrance);
         // Each side's nearer factory, and each side's farther one.
         const cpuNear = at(cpuCost, a.q, a.r);
         const playerNear = at(playerCost, b.q, b.r);

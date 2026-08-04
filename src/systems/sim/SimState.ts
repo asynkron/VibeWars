@@ -61,6 +61,15 @@ export interface SimBuilding {
     hasHiddenUnit: boolean;
     yieldedTo: number | null;
     destroyed: boolean;
+    // Pieces of one composite structure share this; null means the
+    // building stands alone. Capturing the group's entrance captures every
+    // piece, so the search values a depot as the single object it looks
+    // like rather than as four independently flippable tiles.
+    groupId: string | null;
+    // The only tile a capture can happen on. A composite's back and side
+    // walls are false, so the search cannot plan a capture by parking
+    // infantry against the wrong face of a depot.
+    isEntrance: boolean;
 }
 
 // Facts, not intentions: each event is deterministic to apply, both here
@@ -173,6 +182,12 @@ export class SimState {
             hasHiddenUnit: b.hasHiddenUnit ?? b.hiddenUnitType != null,
             yieldedTo: null,
             destroyed: !!b.destroyed,
+            groupId: b.groupId ?? null,
+            // A building with no group is its own way in. A grouped one
+            // must say which piece carries the door -- defaulting those to
+            // true would make every wall of a depot capturable, which is
+            // exactly the rule this flag exists to prevent.
+            isEntrance: b.isEntrance ?? (b.groupId == null),
         }));
         return new SimState(cols, rows, tiles, units, buildings, [], new Map(), new Map(), new Map());
     }
@@ -316,17 +331,23 @@ export class SimState {
                 return;
             }
             case 'buildingCaptured': {
-                const building = this.getBuilding(event.buildingIndex);
-                if (!building || building.destroyed) return;
-                const opensFactory = building.hasHiddenUnit;
-                this.setBuilding(event.buildingIndex, {
-                    ...building,
-                    ownerIndex: event.playerIndex,
-                    hasHiddenUnit: false,
-                    // First capture yields the hidden unit; re-captures only
-                    // flip ownership and must not re-credit the prize.
-                    yieldedTo: opensFactory ? event.playerIndex : building.yieldedTo,
-                });
+                const captured = this.getBuilding(event.buildingIndex);
+                if (!captured || captured.destroyed) return;
+                // A composite building changes hands whole. The prize is
+                // credited only on the piece that actually held one -- the
+                // depot's prize lives in a single piece, and crediting all
+                // four would value one Sabre at four Sabres.
+                for (const [index, piece] of this.groupOf(event.buildingIndex)) {
+                    const opensFactory = piece.hasHiddenUnit;
+                    this.setBuilding(index, {
+                        ...piece,
+                        ownerIndex: event.playerIndex,
+                        hasHiddenUnit: false,
+                        // First capture yields the hidden unit; re-captures only
+                        // flip ownership and must not re-credit the prize.
+                        yieldedTo: opensFactory ? event.playerIndex : piece.yieldedTo,
+                    });
+                }
                 return;
             }
         }
@@ -393,6 +414,22 @@ export class SimState {
             if (building.q === q && building.r === r) return [i, building];
         }
         return null;
+    }
+
+    // The standing pieces that make up one structure: everything sharing
+    // this building's groupId, or just the building itself when it has
+    // none. Destroyed pieces are left out -- a piece that sank with its
+    // tile is gone, not un-owned.
+    *groupOf(buildingIndex: number): Generator<[number, SimBuilding]> {
+        const building = this.getBuilding(buildingIndex);
+        if (!building || building.destroyed) return;
+        if (building.groupId === null) {
+            yield [buildingIndex, building];
+            return;
+        }
+        for (const [i, piece] of this.liveBuildings()) {
+            if (piece.groupId === building.groupId) yield [i, piece];
+        }
     }
 
     // ---- Private cache writers (only apply() calls these) ----

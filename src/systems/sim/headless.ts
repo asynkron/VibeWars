@@ -124,8 +124,22 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
     // cheat). When a capture opens a factory, the prize unit materializes
     // on a free neighboring tile at the start of the next turn, mirroring
     // BuildingSystem.yieldHiddenUnit in the live game.
-    const prizes: Array<string | null> = (provider.buildings ?? []).map((b) => b.hiddenUnitType);
+    const spawns = provider.buildings ?? [];
+    const prizes: Array<string | null> = spawns.map((b) => b.hiddenUnitType);
     const pendingSpawns: SimUnit[] = [];
+
+    // Which pieces make up one structure. A composite building is captured
+    // whole, and only one of its pieces holds the prize, so the capture
+    // event can name a piece that holds nothing -- the prize has to be
+    // looked up across the group or a depot taken from the wrong side
+    // silently yields nothing.
+    const groupMembers = (index: number): number[] => {
+        const groupId = spawns[index]?.groupId;
+        if (!groupId) return [index];
+        const members: number[] = [];
+        spawns.forEach((spawn, i) => { if (spawn.groupId === groupId) members.push(i); });
+        return members;
+    };
 
     const freeYieldTile = (buildingIndex: number, type: string): { q: number; r: number } | null => {
         const building = state.getBuilding(buildingIndex)!;
@@ -214,10 +228,11 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
             state.record(event);
             if (event.type === 'buildingCaptured') {
                 captures[event.playerIndex]++;
-                const prize = prizes[event.buildingIndex];
-                if (prize) {
-                    prizes[event.buildingIndex] = null;
-                    const spot = freeYieldTile(event.buildingIndex, prize);
+                for (const memberIndex of groupMembers(event.buildingIndex)) {
+                    const prize = prizes[memberIndex];
+                    if (!prize) continue;
+                    prizes[memberIndex] = null;
+                    const spot = freeYieldTile(memberIndex, prize);
                     if (spot) {
                         pendingSpawns.push({ ...spawnToSimUnit({ type: prize, ...spot }, event.playerIndex) });
                     }

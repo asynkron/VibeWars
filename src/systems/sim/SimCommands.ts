@@ -79,15 +79,19 @@ function unitCanCapture(unit: SimUnit): boolean {
     return !!UnitSystem.unitTypesRecord[unit.type]?.canCapture;
 }
 
-// A building this unit's side could take: still standing and not already
-// owned by them. (Whether it still holds a prize is invisible here -- the
-// score layer decides how much a capture is worth.)
+// A building this unit's side could take: still standing, not already
+// owned by them, and reachable through a door. A composite's walls are
+// skipped -- marching infantry at the back of a depot it can never enter
+// is the failure this filter exists to prevent. (Whether it still holds a
+// prize is invisible here -- the score layer decides what a capture is
+// worth.)
 export function nearestCapturableBuildingIndex(state: SimState, unitIndex: number): number | null {
     const unit = state.getUnit(unitIndex);
     if (!unit) return null;
     let best: number | null = null;
     let bestDist = Infinity;
     for (const [i, building] of state.liveBuildings()) {
+        if (!building.isEntrance) continue;
         if (building.ownerIndex === unit.playerIndex) continue;
         const dist = HexCoord.getDistance(unit.q, unit.r, building.q, building.r);
         if (dist < bestDist) {
@@ -181,7 +185,10 @@ export function recordSimMove(state: SimState, unitIndex: number, toQ: number, t
     const unit = state.getUnit(unitIndex);
     if (!unit || !unitCanCapture(unit)) return;
     const found = state.getBuildingAt(toQ, toR);
-    if (found && found[1].ownerIndex !== unit.playerIndex) {
+    // isEntrance is the door rule: a composite is taken only from the piece
+    // that has one. Standing on its back or side wall is just standing on a
+    // tile.
+    if (found && found[1].isEntrance && found[1].ownerIndex !== unit.playerIndex) {
         state.record({ type: 'buildingCaptured', buildingIndex: found[0], playerIndex: unit.playerIndex });
     }
 }

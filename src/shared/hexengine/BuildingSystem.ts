@@ -54,6 +54,28 @@ class BuildingSystem {
         await ModelSystem.loadModels(BUILDING_TYPES);
     }
 
+    // The standing pieces of one structure. A composite building (the forge
+    // depot's four hexes) is owned as a unit, so every operation that
+    // changes ownership has to run over the whole group -- otherwise the
+    // pieces tint independently and a depot ends up half one colour and
+    // half the other.
+    private static groupOf(building: Building): Building[] {
+        if (!building.groupId) return [building];
+        return getGameState().buildings.filter(
+            (b: Building) => b.groupId === building.groupId && !b.destroyed
+        );
+    }
+
+    // Can a capture happen on this tile? A building with no group is its
+    // own way in; a grouped one needs the piece to be marked. Defaulting a
+    // grouped piece to true would make every wall of a depot capturable,
+    // which is the rule this exists to enforce. Keep in sync with
+    // SimState.snapshot's isEntrance default -- if the two disagree, the
+    // AI plans captures the live game refuses to perform.
+    private static isEntrance(building: Building): boolean {
+        return building.isEntrance ?? !building.groupId;
+    }
+
     private static tintFor(ownerIndex: number | null): number {
         if (ownerIndex === null) return NEUTRAL_TINT;
         return getGameState().players[ownerIndex].color;
@@ -102,6 +124,8 @@ class BuildingSystem {
                 r: spawn.r,
                 ownerIndex: null,
                 hiddenUnitType: spawn.hiddenUnitType,
+                groupId: spawn.groupId,
+                isEntrance: spawn.isEntrance,
                 rotationDeg: spawn.rotationDeg,
                 destroyed: false,
                 visual: null,
@@ -123,13 +147,26 @@ class BuildingSystem {
         if (!UnitSystem.unitTypesRecord[unit.type]?.canCapture) return false;
         const building = this.getBuildingAt(unit.q, unit.r);
         if (!building || building.ownerIndex === unit.playerIndex) return false;
+        // The door rule: a composite is taken from the piece that has one.
+        // Its back and side walls are scenery you can stand on.
+        if (!this.isEntrance(building)) return false;
 
-        building.ownerIndex = unit.playerIndex;
-        this.attachVisual(building); // retint
+        // Whole structure at once -- see groupOf. Every piece retints, so a
+        // captured depot changes colour in one step instead of standing
+        // half in one player's colour and half in the other's.
+        const pieces = this.groupOf(building);
+        for (const piece of pieces) {
+            piece.ownerIndex = unit.playerIndex;
+            this.attachVisual(piece); // retint
+        }
 
-        if (building.hiddenUnitType) {
-            const type = building.hiddenUnitType;
-            building.hiddenUnitType = null;
+        // The prize comes out of the door the capture came through, wherever
+        // in the group it was stored -- a unit appearing behind the back
+        // wall would have had no way out.
+        for (const piece of pieces) {
+            if (!piece.hiddenUnitType) continue;
+            const type = piece.hiddenUnitType;
+            piece.hiddenUnitType = null;
             this.yieldHiddenUnit(building, type, unit.playerIndex);
         }
         return true;

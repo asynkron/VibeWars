@@ -160,6 +160,16 @@ export interface Building {
   r: number;
   ownerIndex: number | null;
   hiddenUnitType: string | null;
+  // Pieces sharing a groupId are ONE structure and are owned as one: take
+  // any piece and the whole thing changes hands and retints together. A
+  // half-owned depot standing in two players' colours is not a state the
+  // game has. Undefined (or unique) means the building stands alone.
+  groupId?: string;
+  // The way in. A composite is taken only by standing on the piece that
+  // has the door -- walking onto its back wall does nothing. A building
+  // with no group is its own entrance; a grouped one needs exactly one
+  // piece marked, or the structure cannot be captured at all.
+  isEntrance?: boolean;
   destroyed: boolean;
   // Y rotation in degrees, applied to the model. The depot's southern copy
   // is the northern one turned half a turn, so its pieces must turn with
@@ -174,6 +184,11 @@ export interface BuildingSpawn {
   q: number;
   r: number;
   hiddenUnitType: string | null;
+  // See Building.groupId: pieces sharing one are captured and tinted as a
+  // single structure.
+  groupId?: string;
+  // See Building.isEntrance: exactly one piece of a group carries the door.
+  isEntrance?: boolean;
   rotationDeg?: number;
 }
 

@@ -110,11 +110,16 @@ export function scoreState(
     // leaving value on the table, so close that distance -- weighted well
     // above the aggression term so the factory wins the gradient tug-of-war
     // for capture-capable units.
+    //
+    // Measured to the ENTRANCE, not to the nearest tile of the structure. A
+    // composite depot is only taken through its door, so pulling infantry
+    // toward whichever wall happens to be closest would park it one hex
+    // from a capture it can never make.
     for (const unit of own) {
         if (!UnitSystem.unitTypesRecord[unit.type]?.canCapture) continue;
         let nearest = Infinity;
         for (const [, building] of state.liveBuildings()) {
-            if (building.ownerIndex === playerIndex) continue;
+            if (!building.isEntrance || building.ownerIndex === playerIndex) continue;
             nearest = Math.min(nearest, HexCoord.getDistance(unit.q, unit.r, building.q, building.r));
         }
         if (nearest !== Infinity) score -= weights.capturePull * nearest;
@@ -122,11 +127,15 @@ export function scoreState(
 
     // Blocking penalty: an own NON-capture unit standing on a factory the
     // side doesn't own accomplishes nothing (only infantry captures) and
-    // physically blocks its own infantry from taking it.
+    // physically blocks its own infantry from taking it. Only the entrance
+    // can be blocked -- a tank parked on a depot's back wall is in nobody's
+    // way, so penalising it would just teach the AI to avoid a harmless hex.
     for (const unit of own) {
         if (UnitSystem.unitTypesRecord[unit.type]?.canCapture) continue;
         const found = state.getBuildingAt(unit.q, unit.r);
-        if (found && found[1].ownerIndex !== playerIndex) score -= weights.buildingBlockPenalty;
+        if (found && found[1].isEntrance && found[1].ownerIndex !== playerIndex) {
+            score -= weights.buildingBlockPenalty;
+        }
     }
 
     return score;

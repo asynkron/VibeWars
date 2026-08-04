@@ -116,6 +116,16 @@ const DEPOT_ANCHOR = { q: 8, r: 5 };
 // all: same cells under the map's rotation, each model spun 180 degrees so
 // its joining edges still face inward. Only the N piece holds the prize,
 // so a depot still yields exactly one Sabre however it is taken.
+//
+// All four pieces share a groupId, which makes them ONE building for
+// ownership: taking the depot takes all four and retints all four. Without
+// it each piece is captured separately and a depot can stand in two
+// players' colours at once.
+//
+// The S piece is the DOOR, and the only way in. The other three are back
+// and side walls -- walking onto them does nothing, so a depot has an
+// approach that can be defended rather than four equivalent ones. The
+// prize lives behind that door for the same reason.
 const depotAt = (anchorQ: number, anchorR: number, rotationDeg: number): BuildingSpawn[] => {
     const cells: Array<[BuildingSpawn['type'], number, number]> = [
         ['forgeDepotN', anchorQ, anchorR],
@@ -123,11 +133,14 @@ const depotAt = (anchorQ: number, anchorR: number, rotationDeg: number): Buildin
         ['forgeDepotE', anchorQ + 1, anchorR],
         ['forgeDepotS', anchorQ, anchorR + 1],
     ];
+    const groupId = `forgeDepot@${anchorQ},${anchorR}/${rotationDeg}`;
     return cells.map(([type, q, r]) => ({
         type,
         q: rotationDeg ? COLS - 1 - q : q,
         r: rotationDeg ? ROWS - 1 - r : r,
-        hiddenUnitType: type === 'forgeDepotN' ? 'Sabre' : null,
+        hiddenUnitType: type === 'forgeDepotS' ? 'Sabre' : null,
+        groupId,
+        isEntrance: type === 'forgeDepotS',
         rotationDeg,
     }));
 };
