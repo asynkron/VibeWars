@@ -14,6 +14,14 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000); // Increased far plane
 camera.position.set(20, 20, 20);
 
+// three's loaders only reuse a file they have already fetched when this is
+// on -- it is off by default. Without it every loader call is a fresh
+// request and a fresh parse of the same bytes, which is what made the
+// projectile reload per shot cost what it did. On, a second load of the
+// same URL resolves from memory, so the remaining on-demand paths degrade
+// to cheap instead of expensive.
+THREE.Cache.enabled = true;
+
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setClearColor(0x000000, 0); // Set clear color to transparent black
 const group = new THREE.Group();
@@ -43,15 +51,35 @@ const mapHeight = MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3);  // ~8
 let composer: any = null;
 let bloomPass: any = null;
 
-// Only the emissive energy panels should bloom -- not the snow caps, not
-// the white shore foam. Luminance alone cannot separate them in an 8-bit
-// buffer: everything bright clamps to 1.0 before the bloom pass ever sees
-// it. So the composer renders into a HALF-FLOAT target, where the panels'
-// emissive (up to ~3.0 once GlowSystem drives it) survives above 1 while
-// snow and foam stay at or below it, and the threshold sits just above 1.
+// What blooms is decided by BRIGHTNESS ABOVE THE THRESHOLD, not by which
+// object it is. In an 8-bit buffer that could not work at all -- everything
+// bright clamps to 1.0 before the pass ever sees it -- so the composer
+// renders into a HALF-FLOAT target, and only what a shader deliberately
+// pushes over the line gets a halo: the depot's energy panels (emissive up
+// to ~3.0, driven by GlowSystem) and the breaking shore surf (FOAM_BLOOM in
+// TerrainShader, 13.0 at the crest of a cap).
+//
+// THE THRESHOLD WAS 1.02, WHICH WAS NOT HIGH ENOUGH TO MEAN THAT. Lit
+// ground clears 1 on its own: ambient 0.5 plus directional 1.2 is 1.7 of
+// light, and the sand palette's red channel is 0.91 before the ground
+// shader's own dune and noise terms brighten it further -- so a sun-facing
+// sand fragment lands around 1.5 and blooms. Every sand tile on the map had
+// been blooming since this number was picked.
+//
+// It only became impossible to miss when the shore ramp landed. The ground
+// shader chooses its look from world height and paints pure sand below
+// 0.80, so sloping the ground down into the lakes moved a lot more of the
+// map into that band. Measured on the 12x18 map: 16 land tiles of 192
+// rendered as sand before, 82 of 192 after. Same fault, five times the
+// surface, and it went from a few bright patches to a white field.
+//
+// 1.70 sits above lit sand and far below both emissive sources, so the rule
+// this comment always claimed is now the rule the code follows. Raising the
+// threshold beats dimming the sand: the sand is not too bright, it just is
+// not a light.
 const BLOOM_STRENGTH = 0.9;
 const BLOOM_RADIUS = 0.5;
-const BLOOM_THRESHOLD = 1.02;
+const BLOOM_THRESHOLD = 1.70;
 
 function buildComposer() {
     const size = new THREE.Vector2(window.innerWidth, window.innerHeight);

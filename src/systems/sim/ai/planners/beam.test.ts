@@ -166,13 +166,35 @@ describe('feint is an ablation of gambit, not a second variant', () => {
         // Not just a different number in a config: fewer levels means the
         // planner really does less. Compared by wall-clock on one position,
         // which is coarse but cannot be satisfied by a mislabelled field.
+        //
+        // MEASURED AS THE BEST OF THREE, INTERLEAVED, because a single pair
+        // of samples measures the machine as much as the planner. It failed
+        // once at 3563 against 1488 -- feint three times slower than
+        // gambit, which is not a thing that can happen -- while an AI match
+        // was running in a browser on the same box eating every core. A
+        // minimum is the right statistic here: load can only ever make a
+        // run slower, so the fastest of several is the closest look at the
+        // work itself. Interleaved so a drift partway through hits both.
+        //
+        // Still not a true work counter. The honest one would count node
+        // evaluations, and nothing reports them today -- TurnPlanResult
+        // carries events, score and genes, and the progress ticks yield
+        // once per depth level, which is the very thing already asserted
+        // above.
         const state = board([mk('Bulwark', 5, 2, 0), mk('Nightjar', 3, 3, 0), mk('Halberd', 5, 7, 1)]);
-        const time = (engine: any) => {
+        const once = (engine: any) => {
             const started = Date.now();
             engine.planTurn(state, 0, 5);
             return Date.now() - started;
         };
-        expect(time(feintEngine)).toBeLessThan(time(gambitEngine));
+
+        let feint = Infinity;
+        let gambit = Infinity;
+        for (let run = 0; run < 3; run++) {
+            feint = Math.min(feint, once(feintEngine));
+            gambit = Math.min(gambit, once(gambitEngine));
+        }
+        expect(feint, `feint ${feint}ms vs gambit ${gambit}ms`).toBeLessThan(gambit);
     }, 120_000);
 });
 

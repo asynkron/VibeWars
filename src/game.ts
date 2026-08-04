@@ -427,6 +427,52 @@ function setupEventListeners(matrices: CameraMatrices) {
     });
 }
 
+// Everything the game needs off the network, started as soon as the start
+// menu is on screen rather than after the player has chosen a mode.
+//
+// None of it depends on the map, the mode or the renderer, so there is no
+// reason for the player to wait through it AFTER clicking: by the time they
+// have read three buttons, the models, sounds and sprites are in memory and
+// initGame's awaits fall straight through. Every one of these is idempotent
+// -- guarded by an `initialized` flag or a stored promise -- so awaiting
+// them again inside initGame costs nothing.
+//
+// One shared promise, so a second call (a mode click, a re-entry) joins the
+// work in flight instead of starting it twice.
+let preloadPromise: Promise<unknown> | null = null;
+
+function preloadAssets(): Promise<unknown> {
+    preloadPromise ??= Promise.all([
+        AudioSystem.initialize(),
+        FootprintSystem.initialize(),
+        PathIndicatorSystem.initialize(),
+        VisualizationSystem.initialize(),
+        RoadSystem.initialize(),
+        UnitSystem.loadUnitModels(),
+        BuildingSystem.loadBuildingModels(),
+    ]).then(() => {
+        // Sprites, not files to await: TextureLoader.load returns a texture
+        // that fills in when the image arrives, so this only has to be
+        // STARTED early, not finished.
+        VisualizationSystem.preloadParticleTextures();
+    });
+    return preloadPromise;
+}
+
+// An AudioContext created outside a user gesture starts suspended, and
+// preloading moved its creation from the mode click to the menu appearing
+// -- so without this the sound would load perfectly and never play. Resumed
+// on the first gesture of any kind, once.
+function resumeAudioOnFirstGesture() {
+    const resume = () => {
+        (AudioSystem as any).audioContext?.resume?.();
+        window.removeEventListener('pointerdown', resume);
+        window.removeEventListener('keydown', resume);
+    };
+    window.addEventListener('pointerdown', resume);
+    window.addEventListener('keydown', resume);
+}
+
 async function initGame(controllers: [PlayerController, PlayerController]) {
     // Initialize renderer first
     initRenderer();  // This sets up the renderer and adds it to the document
@@ -435,14 +481,9 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     const gameState = new GameState(controllers);
     setGameState(gameState);
 
-    // Initialize systems in parallel
-    await Promise.all([
-        AudioSystem.initialize(),
-        FootprintSystem.initialize(),
-        PathIndicatorSystem.initialize(),
-        VisualizationSystem.initialize(),
-        RoadSystem.initialize()
-    ]);
+    // Already running since the menu appeared, so this normally resolves
+    // at once -- see preloadAssets.
+    await preloadAssets();
 
 
     // Set up lighting
@@ -459,10 +500,18 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // Generate roads after map is created but before units
     createRoads(gameState);
 
+    // Then, and only then, plant anything. Decoration used to happen while
+    // each hex was built, which is before the roads exist -- so trees grew
+    // in the middle of them. Roads cannot be routed before the grid exists
+    // either, since the router walks the hex objects, so the order has to
+    // be grid, roads, growth. See GridSystem.decorateTerrain.
+    GridSystem.decorateTerrain();
+
     GridSystem.smoothTerrain();
 
 
-    // Load unit + building models before initializing units/buildings
+    // Also part of preloadAssets; both loaders are idempotent, and this is
+    // the point where the models are actually needed.
     await Promise.all([UnitSystem.loadUnitModels(), BuildingSystem.loadBuildingModels()]);
 
     // Initialize units using gameState
@@ -645,6 +694,11 @@ function showStartMenu() {
 // Boot straight into a match when the URL already names one -- which is what
 // the menu's own map buttons navigate to, and what makes a match linkable.
 function bootFromUrlOrShowMenu() {
+    // Before anything is drawn, and deliberately not awaited: the menu is
+    // usable while the assets stream in behind it.
+    resumeAudioOnFirstGesture();
+    void preloadAssets();
+
     const mode = START_MODE && MATCH_MODES[START_MODE];
     if (mode) {
         initGame(mode.controllers).catch(error => {

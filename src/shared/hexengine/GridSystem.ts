@@ -280,11 +280,43 @@ class GridSystem {
         hexGroup.userData = userData;
         boundingMesh.userData = { ...userData, isBoundingMesh: true };
 
-        // Procedural decoration matched to the terrain type (a grove on
-        // forest, bushes/lone trees on grass, stones on sand, outcrops on
-        // mountains), generated deterministically per (q, r) -- replaces
-        // the old any-random-OBJ-on-any-tile table.
-        if (this.getOption('enableDecorations')) {
+        // Decoration happens LATER, in decorateTerrain -- see the note
+        // there for why it cannot happen here.
+        return hexGroup;
+    }
+
+    // Plant the procedural decorations: a grove on forest, bushes and lone
+    // trees on grass, stones on sand, outcrops on mountains, generated
+    // deterministically per (q, r).
+    //
+    // THIS IS A SEPARATE PASS BECAUSE OF ORDER. It used to run inside
+    // createHexPrism, which is the earliest possible moment -- before the
+    // roads are laid and before the buildings are placed -- so it could not
+    // know about either, and planted trees in the middle of roads and
+    // underneath depots. The roads cannot simply be moved earlier instead:
+    // RoadSystem.generateRoad routes with PathfindingSystem, which walks
+    // the hex objects, so the grid has to exist first. So the grid is built,
+    // then the roads are routed over it, and only then does anything grow.
+    //
+    // The buildings are still placed after this, but their tiles are known
+    // from the map provider before any of it, so they can be skipped up
+    // front. That matters more than it looks: BuildingSystem.attachVisual
+    // only removes a previous decorator when it is the building's OWN, so
+    // a tree that was already there is not removed, only orphaned -- it
+    // stays a child of the hex, standing inside the depot.
+    static decorateTerrain() {
+        if (!this.getOption('enableDecorations')) return;
+        const state = getGameStateOrNull();
+        const occupied = new Set(
+            (selectedMapProvider().buildings ?? []).map((b) => `${b.q},${b.r}`)
+        );
+
+        for (const hexGroup of this.hexGrid) {
+            const { q, r, x, z, height, type } = hexGroup.userData;
+            if (hexGroup.userData.decorator) continue;
+            if (occupied.has(`${q},${r}`)) continue;
+            if (state?.map?.getTile(q, r)?.hasRoad) continue;
+
             const decorMesh = createProceduralDecoration(type.toUpperCase(), q, r, height);
             if (decorMesh) {
                 decorMesh.position.set(x, height, z);
@@ -292,8 +324,6 @@ class GridSystem {
                 hexGroup.add(decorMesh);
             }
         }
-
-        return hexGroup;
     }
 
     // Creates the mini map hex using shared geometry

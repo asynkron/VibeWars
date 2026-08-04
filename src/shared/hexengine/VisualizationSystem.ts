@@ -27,6 +27,39 @@ class VisualizationSystem {
     static highlightGroups = new Map();
     static initialized = false;
     static initializationPromise: any = null;
+    // Smoke and explosion sprites, keyed by path. createParticleEffect used
+    // to build a TextureLoader and load all four PNGs on EVERY call, and it
+    // is called from both createSmokeParticles and createExplosionParticles
+    // -- so every explosion in the game re-fetched and re-decoded the same
+    // four images. Loaded once here, and warmed at start-up by
+    // preloadParticleTextures so the first explosion does not stutter.
+    static particleTextures = new Map<string, any>();
+    static particleTextureLoader: any = null;
+
+    static particleTexture(path: string) {
+        let texture = this.particleTextures.get(path);
+        if (!texture) {
+            this.particleTextureLoader ??= new THREE.TextureLoader();
+            texture = this.particleTextureLoader.load(path);
+            this.particleTextures.set(path, texture);
+        }
+        return texture;
+    }
+
+    // Every sprite any particle effect can ask for. Kept beside the two
+    // callers' defaults on purpose: a path added there and forgotten here
+    // still works, it just loads on first use like it used to.
+    static readonly PARTICLE_TEXTURE_PATHS = [
+        'assets/textures/smoke1.png', 'assets/textures/smoke2.png',
+        'assets/textures/smoke3.png', 'assets/textures/smoke4.png',
+        'assets/textures/explosion1.png', 'assets/textures/explosion2.png',
+        'assets/textures/explosion3.png', 'assets/textures/explosion4.png',
+    ];
+
+    static preloadParticleTextures() {
+        for (const path of this.PARTICLE_TEXTURE_PATHS) this.particleTexture(path);
+    }
+
     static cachedRocketModel: any = null;  // Cache for the rocket model
     static rocketModelPromise: any = null;  // Promise for loading the rocket model
     static dashOffset: any;  // pre-existing: never initialized before use in updatePathAnimation
@@ -516,8 +549,7 @@ class VisualizationSystem {
         const startSizes: any[] = [];
         const textureIndices: any[] = [];
 
-        const textureLoader = new THREE.TextureLoader();
-        const particleTextures = particleTexturePaths.map((path: string) => textureLoader.load(path));
+        const particleTextures = particleTexturePaths.map((path: string) => this.particleTexture(path));
 
         for (let i = 0; i < particleCount; i++) {
             vertices.push(position.x, position.y, position.z);
@@ -806,11 +838,20 @@ class VisualizationSystem {
         // Play jet sound for missile movement with duration matching flight time
         AudioSystem.playSound('jet', 0.5, 500); // 500ms matches the missile flight duration
 
-        // Load the FBX model for the projectile
-        const fbxLoader = new THREE.FBXLoader();
-        fbxLoader.load(
-            'assets/bullet_1_bw.fbx',
-            (object: any) => {
+        // The projectile model is loaded ONCE, at start-up, and cloned per
+        // shot. It used to build a new FBXLoader and re-fetch the file on
+        // every single attack -- with THREE.Cache off that was a real
+        // request and a full FBX re-parse each time a Halberd, Gunboat or
+        // Shrike fired, which on this map is constantly. The cache it
+        // should have been using was already sitting there, filled by
+        // VisualizationSystem.initialize; showRocketBarrageEffect had been
+        // cloning from it correctly the whole time.
+        if (!this.cachedRocketModel) {
+            this.showAttackEffectFallback(startHex, targetHex);
+            return;
+        }
+        {
+            const object = this.cachedRocketModel.clone();
                 // Scale the model appropriately (5 times smaller than before)
                 object.scale.set(0.02, 0.02, 0.02);
 
@@ -925,14 +966,7 @@ class VisualizationSystem {
                 };
 
                 requestAnimationFrame(animate);
-            },
-            undefined,
-            (error: any) => {
-                console.error('Error loading projectile model:', error);
-                // Fallback to sphere if model fails to load
-                this.showAttackEffectFallback(startHex, targetHex);
-            }
-        );
+        }
     }
 
     // Fallback method using sphere if FBX fails to load
