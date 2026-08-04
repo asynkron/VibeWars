@@ -26,10 +26,13 @@ export interface ViewOptions {
 const STORAGE_KEY = 'vibewars.viewOptions';
 
 const DEFAULTS: ViewOptions = {
-    // Off by default: the grid is a diagnostic overlay, not the look.
-    grid: false,
+    // The grid reads as part of the game rather than a debug overlay --
+    // it is how a player counts the moves a unit has left.
+    grid: true,
     textures: true,
-    minimap: true,
+    // Off: the map is small enough to read directly, and the minimap costs
+    // a second render pass every frame to show it again.
+    minimap: false,
 };
 
 function load(): ViewOptions {

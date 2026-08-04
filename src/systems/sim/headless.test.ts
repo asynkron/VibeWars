@@ -3,9 +3,14 @@ import { describe, it, expect } from 'vitest';
 import { runHeadlessMatch, stateFromProvider, HeadlessMatchResult } from './headless';
 import { mirror8MapProvider } from '../maps/Mirror8MapProvider';
 
-// Small search budget keeps these fast; the point is the loop mechanics,
-// not AI strength. finalists: 0 skips the deep finalist stage entirely.
-const FAST = { population: 8, rounds: 1, lookaheadPlies: 1, replyCandidates: 3, finalists: 0 };
+// Small search budget keeps these fast. beamChildCounts is here because
+// the default engine is a BEAM planner, which reads none of the
+// hillclimb fields above -- without it these tests run the shipped
+// search at full width and sit on the edge of their timeout.
+const FAST = {
+    population: 8, rounds: 1, lookaheadPlies: 1, replyCandidates: 3, finalists: 0,
+    beamChildCounts: [8, 4, 3, 2, 2],
+};
 
 describe('stateFromProvider', () => {
     it('builds the full mirrored setup as pure sim state', () => {
