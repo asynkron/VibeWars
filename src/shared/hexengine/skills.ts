@@ -229,3 +229,46 @@ export const PIKE_REPAIR: SkillDef = {
     endsMovement: false,
     effect: { kind: 'repair', hp: 3 },
 };
+
+// The Drover's ramp. Two halves of one mechanic, and both are skills so the
+// sidebar, the legality rules and the gene layer all come for free.
+//
+// LOAD IS A SKILL RATHER THAN "WALK ONTO THE CARRIER", which was the other
+// obvious design. Boarding by moving would mean relaxing "an occupied hex is
+// impassable, including as a destination" in BOTH pathfinders -- and that is
+// not a small relaxation: simDijkstra skips occupied hexes during neighbour
+// expansion, so such a hex is never enqueued at all and cannot be reached.
+// It is also the exact rule the movement-dead-end fix has just stabilised.
+export const DROVER_LOAD: SkillDef = {
+    id: 'Drover:load',
+    name: 'Load',
+    glyph: '⬇',
+    target: { kind: 'allyUnit', classes: ['infantry'] },
+    minRange: 1,
+    maxRange: 1,
+    cooldown: 0,
+    // Picking someone up is the transport's turn. Unloading is not -- see
+    // below.
+    spendsAction: true,
+    endsMovement: false,
+    effect: { kind: 'load' },
+};
+
+export const DROVER_UNLOAD: SkillDef = {
+    id: 'Drover:unload',
+    name: 'Unload',
+    glyph: '⬆',
+    target: { kind: 'emptyHex' },
+    minRange: 1,
+    maxRange: 1,
+    // A delivery is not a resource.
+    cooldown: 0,
+    // The owner's call, and the point of a transport: drive up, drop the
+    // infantry, and the infantry can still act. Note the consequence they
+    // accepted -- with the action unspent the Drover is still swept into
+    // firing afterwards, so unload-and-shoot is free tempo, and the beam
+    // will find it.
+    spendsAction: false,
+    endsMovement: false,
+    effect: { kind: 'unload' },
+};

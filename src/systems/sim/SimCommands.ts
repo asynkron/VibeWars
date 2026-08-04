@@ -253,6 +253,20 @@ export function applyGene(
                 const victim = state.getUnit(hit.unitIndex);
                 if (victim && victim.hp <= 0) {
                     state.record({ type: 'unitDied', unitIndex: hit.unitIndex });
+                    // A transport takes its cargo down with it. Without
+                    // this a loaded APC is an invulnerable warehouse:
+                    // getUnitAt hides the passenger from every shot, so
+                    // nothing else can ever reach it. Making the ride a
+                    // real risk is what lets the beam weigh it against the
+                    // mobility rather than treating loading as free.
+                    //
+                    // Derived at the command layer, like every other death
+                    // in this file -- apply() stays mechanical.
+                    for (const [index, rider] of state.liveUnits()) {
+                        if (rider.carriedBy === hit.unitIndex) {
+                            state.record({ type: 'unitDied', unitIndex: index });
+                        }
+                    }
                 }
             }
             for (const impact of resolved.impacts) {

@@ -14,7 +14,7 @@
 //
 // UnitSystem re-exports every name below, so nothing else had to change.
 
-import { primaryAttackSkill, PIKE_REPAIR, type SkillDef } from './skills';
+import { primaryAttackSkill, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef } from './skills';
 import type { UnitTypeConfig } from '../../types';
 
 export const UNIT_TYPES = {
@@ -266,6 +266,12 @@ export const UNIT_TYPES = {
             scale: 0.22,
             rotation: 0,
             attackEffect: 'cannon',  // main gun, not a rocket
+            // The only transport in the game. "Personnel transport" was the
+            // model's name and nothing more until now -- nothing in this
+            // codebase could be carried by anything.
+            capacity: 1,
+            carries: ['infantry'] as const,
+            extraSkills: [DROVER_LOAD, DROVER_UNLOAD],
             footprintTexture: 'assets/textures/tracks2.png',
             terrainCosts: {
                 WATER: null,

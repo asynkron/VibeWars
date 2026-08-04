@@ -26,7 +26,7 @@ import { getGameState } from '../../systems/gameStateStore';
 // it that way.
 import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT } from '../../systems/sim/resolveAttack';
 import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
-import { chargeSkill, PIKE_REPAIR, type SkillDef } from './skills';
+import { chargeSkill, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef } from './skills';
 import { showSkillsFor } from '../../systems/skillBar';
 import { skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
@@ -678,6 +678,44 @@ class UnitSystem {
         // the position from.
         VisualizationSystem.showDamageNumber(target.visualUnit.position.clone(), restored);
         this.updateUnitVisuals(target);
+    }
+
+    // Put a passenger aboard. The visual is hidden rather than removed:
+    // the unit is still in gameState.units -- cargo is alive, just not on
+    // the board -- and re-adding a removed model would mean rebuilding it.
+    static loadPassenger(carrier: GameUnit, passenger: GameUnit): void {
+        passenger.carriedBy = carrier;
+        passenger.q = carrier.q;
+        passenger.r = carrier.r;
+        passenger.move = 0;
+        if (passenger.visualUnit) (passenger.visualUnit as any).visible = false;
+        const skill = skillById(carrier.type, DROVER_LOAD.id);
+        if (skill) {
+            carrier.cooldowns = chargeSkill(carrier.cooldowns, skill);
+            if (skill.spendsAction) this.setHasAttacked(carrier, true);
+        }
+    }
+
+    static unloadPassenger(carrier: GameUnit, passenger: GameUnit, q: number, r: number): void {
+        passenger.carriedBy = null;
+        // PLACED, NOT MOVED. UnitSystem.move's finalizeStep is what fires
+        // the capture hook, so routing a drop through move() would capture
+        // a depot the simulation never captured -- and AIController's
+        // replay check only validates range and hasAttacked, so nothing
+        // would notice. The rule is that you walk in the door.
+        passenger.q = q;
+        passenger.r = r;
+        const hex = HexCoord.findHex(q, r);
+        if (hex && passenger.visualUnit) {
+            this.setPosition(passenger.visualUnit, new HexCoord(q, r), hex);
+        }
+        passenger.move = 0;
+        if (passenger.visualUnit) (passenger.visualUnit as any).visible = true;
+        const skill = skillById(carrier.type, DROVER_UNLOAD.id);
+        if (skill) {
+            carrier.cooldowns = chargeSkill(carrier.cooldowns, skill);
+            if (skill.spendsAction) this.setHasAttacked(carrier, true);
+        }
     }
 
     static applyDamage(unit: GameUnit, damage: number): void {

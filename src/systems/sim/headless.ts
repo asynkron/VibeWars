@@ -122,6 +122,7 @@ function spawnToSimUnit(spawn: StartingUnit, playerIndex: number) {
         maxRange: stats.maxRange,
         hasAttacked: false,
         cooldowns: NO_COOLDOWNS,
+        carriedBy: null,
     };
 }
 

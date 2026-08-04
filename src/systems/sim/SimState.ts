@@ -51,6 +51,28 @@ export interface SimUnit {
     // so a record is only ever allocated for a unit that has actually used
     // a rationed skill.
     cooldowns: Cooldowns;
+    // The index of the transport carrying this unit, or null when it is on
+    // the board itself.
+    //
+    // A CARRIED UNIT STAYS IN liveUnits() AND DISAPPEARS FROM getUnitAt().
+    // That split is the whole trick, and getting it backwards makes the
+    // transport unusable:
+    //
+    //   Staying listed is what keeps loading score-NEUTRAL. score.ts prices
+    //   a unit both directly and through a quadratic army-size term, so a
+    //   passenger that left the list would read as dead twice -- loading
+    //   would be a self-inflicted loss the search never takes, and
+    //   unloading free money it always takes, including into enemy guns.
+    //   Listed, with q,r synced to the carrier, also means the
+    //   capture-proximity term reads the passenger as being wherever the
+    //   transport has driven it, which is the entire point of an APC.
+    //
+    //   Vanishing from getUnitAt is what makes it CARGO. The pathfinder
+    //   blocks on getUnitAt, so a carried unit stops blocking hexes; splash
+    //   looks up victims through it, so cargo cannot be shot while loaded.
+    //   That last one is the transport's value, and it is why a full APC
+    //   has to die with its passengers -- see the attack gene.
+    carriedBy: number | null;
 }
 
 // A building as the simulation sees it. Deliberately does NOT carry the
@@ -96,6 +118,13 @@ export type GameEvent =
     // clamped by the command layer -- apply() stays mechanical and derives
     // nothing, exactly as it does for damage.
     | { type: 'unitRepaired'; repairerIndex: number; targetIndex: number; hp: number; skillId: string }
+    // A unit boarded a transport, and a transport put one down. Separate
+    // events rather than a move, because an unload is NOT a move: routing
+    // it through unitMoved would derive a capture in the simulation that
+    // the live side never performs, and AIController's replay check only
+    // validates range and hasAttacked, so it would never notice.
+    | { type: 'unitLoaded'; carrierIndex: number; passengerIndex: number; skillId: string }
+    | { type: 'unitUnloaded'; carrierIndex: number; passengerIndex: number; toQ: number; toR: number; skillId: string }
     | { type: 'terrainModified'; q: number; r: number; delta: number }
     // A canCapture unit ended a move on a building it doesn't own. Applies
     // the ownership flip and (first time only) marks the hidden unit as
@@ -192,6 +221,7 @@ export class SimState {
             // three keep working without an edit, and it is why a fork
             // cannot silently lose a cooldown.
             cooldowns: u.cooldowns ?? NO_COOLDOWNS,
+            carriedBy: u.carriedBy ?? null,
         }));
         // Accepts both the live Building shape (hiddenUnitType) and an
         // already-flattened SimBuilding (hasHiddenUnit) so condense() can
@@ -271,6 +301,17 @@ export class SimState {
     private apply(event: GameEvent): void {
         switch (event.type) {
             case 'unitMoved': {
+                // Cargo rides along. Without this the passenger's
+                // coordinates stay where it boarded, and every distance
+                // term in score.ts -- including the capture-proximity pull
+                // that is the whole point of driving infantry forward --
+                // reads a lie.
+                for (let i = 0; i < this.baseUnits.length; i++) {
+                    const rider = this.getUnit(i);
+                    if (rider?.carriedBy === event.unitIndex) {
+                        this.setUnit(i, { ...rider, q: event.toQ, r: event.toR });
+                    }
+                }
                 const unit = this.getUnit(event.unitIndex);
                 if (!unit) return;
                 this.setUnit(event.unitIndex, {
@@ -330,6 +371,56 @@ export class SimState {
                     this.setUnit(event.targetIndex, {
                         ...target,
                         hp: Math.min(target.maxHp, target.hp + event.hp),
+                    });
+                }
+                return;
+            }
+            case 'unitLoaded': {
+                const carrier = this.getUnit(event.carrierIndex);
+                const passenger = this.getUnit(event.passengerIndex);
+                if (carrier) {
+                    const skill = UnitSystem.skillById(carrier.type, event.skillId);
+                    this.setUnit(event.carrierIndex, {
+                        ...carrier,
+                        hasAttacked: skill ? skill.spendsAction : carrier.hasAttacked,
+                        cooldowns: skill ? chargeSkill(carrier.cooldowns, skill) : carrier.cooldowns,
+                    });
+                }
+                if (passenger && carrier) {
+                    // Coordinates follow the carrier immediately, so the
+                    // passenger is never briefly somewhere it is not.
+                    this.setUnit(event.passengerIndex, {
+                        ...passenger,
+                        carriedBy: event.carrierIndex,
+                        q: carrier.q,
+                        r: carrier.r,
+                        move: 0,
+                    });
+                }
+                return;
+            }
+            case 'unitUnloaded': {
+                const carrier = this.getUnit(event.carrierIndex);
+                const passenger = this.getUnit(event.passengerIndex);
+                if (carrier) {
+                    const skill = UnitSystem.skillById(carrier.type, event.skillId);
+                    this.setUnit(event.carrierIndex, {
+                        ...carrier,
+                        hasAttacked: skill?.spendsAction ? true : carrier.hasAttacked,
+                        cooldowns: skill ? chargeSkill(carrier.cooldowns, skill) : carrier.cooldowns,
+                    });
+                }
+                if (passenger) {
+                    this.setUnit(event.passengerIndex, {
+                        ...passenger,
+                        carriedBy: null,
+                        q: event.toQ,
+                        r: event.toR,
+                        // Lands with no movement left: a transport that
+                        // delivers a unit AND lets it drive off is a free
+                        // teleport, not a ride. It may still act, which is
+                        // the payoff for having been carried.
+                        move: 0,
                     });
                 }
                 return;
@@ -466,8 +557,19 @@ export class SimState {
         }
     }
 
+    // Who is STANDING on this hex. Cargo is skipped: a carried unit shares
+    // its transport's coordinates, so without this every loaded APC would
+    // report two occupants and the passenger would block its own ride.
+    //
+    // One line, and it fixes three things at once, because everything that
+    // asks "is this hex taken" asks here. simDijkstra blocks on it, so the
+    // pathfinder stops seeing cargo. resolveAttack looks up splash victims
+    // through it, so cargo cannot be shot while loaded -- which is the
+    // transport's entire value, and the reason a destroyed transport has to
+    // take its passengers with it.
     getUnitAt(q: number, r: number): [number, SimUnit] | null {
         for (const [i, unit] of this.liveUnits()) {
+            if (unit.carriedBy !== null) continue;
             if (unit.q === q && unit.r === r) return [i, unit];
         }
         return null;

@@ -12,7 +12,7 @@ const grass = () => ({ type: 'GRASS', height: 1, moveCost: 1, hasRoad: false });
 function unit(over: Partial<SimUnit> & Pick<SimUnit, 'type' | 'q' | 'r' | 'playerIndex'>): SimUnit {
     return {
         hp: 4, maxHp: 4, move: 2, attack: 3, minRange: 1, maxRange: 1,
-        hasAttacked: false, cooldowns: NO_COOLDOWNS, ...over,
+        hasAttacked: false, cooldowns: NO_COOLDOWNS, carriedBy: null, ...over,
     };
 }
 

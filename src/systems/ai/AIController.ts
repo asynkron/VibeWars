@@ -224,6 +224,21 @@ export class AIController {
                 continue;
             }
 
+            if (event.type === 'unitLoaded' || event.type === 'unitUnloaded') {
+                const carrier = liveRefs[event.carrierIndex];
+                const passenger = liveRefs[event.passengerIndex];
+                if (isAlive(carrier) && isAlive(passenger)) {
+                    if (event.type === 'unitLoaded') {
+                        UnitSystem.loadPassenger(carrier, passenger);
+                    } else {
+                        UnitSystem.unloadPassenger(carrier, passenger, event.toQ, event.toR);
+                    }
+                    await sleep(ACTION_PAUSE_MS);
+                }
+                i++;
+                continue;
+            }
+
             if (event.type === 'buildingCaptured') {
                 // Deliberately NOT executed: the live capture hook in
                 // UnitSystem.move()'s finalizeStep (BuildingSystem.tryCapture)

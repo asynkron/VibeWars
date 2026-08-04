@@ -92,6 +92,10 @@ export interface UnitTypeConfig {
   // Typed as unknown[] here because types.ts is imported by everything and
   // must stay dependency-free; Skills.skillsFor does the narrowing.
   extraSkills?: readonly unknown[];
+  // How many units this type can carry, and which classes. Absent means it
+  // is not a transport -- which is every type but the Drover.
+  capacity?: number;
+  carries?: readonly UnitClass[];
   footprintTexture?: string | null;
   terrainCosts: Record<string, number | null>;
   usePlayerColor: boolean;
@@ -145,6 +149,10 @@ export interface GameUnit {
   // Typed loosely here for the same reason as extraSkills: types.ts is
   // imported by everything and stays dependency-free.
   cooldowns?: Readonly<Record<string, number>>;
+  // Mirrors SimUnit.carriedBy: the transport carrying this unit, or null.
+  // Held as a reference rather than an index because the live side has no
+  // stable unit indices -- the simulation's indices are per-snapshot.
+  carriedBy?: GameUnit | null;
   visualUnit: Object3DLike;
   engineSound?: { source: any; gainNode: any } | null;
 }
