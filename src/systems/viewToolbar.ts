@@ -8,6 +8,8 @@
 
 import { MAP_CONFIG } from '../constants';
 import { viewOptions, toggleViewOption, ViewOptions } from '../shared/hexengine/ViewOptions';
+import { FrameStats } from './frameStats';
+import { renderer } from '../render';
 
 interface ToggleSpec {
     key: keyof ViewOptions;
@@ -19,6 +21,7 @@ const TOGGLES: ToggleSpec[] = [
     { key: 'grid', label: 'Grid', title: 'Hex grid lines over the terrain' },
     { key: 'textures', label: 'Textures', title: 'Procedural ground detail, roads and tracks' },
     { key: 'minimap', label: 'Minimap', title: 'The overview map below' },
+    { key: 'stats', label: 'Stats', title: 'Frame time, draw calls and triangles' },
 ];
 
 // The minimap's DOM overlay is only a click target -- the map itself is
@@ -65,6 +68,7 @@ export function initViewToolbar(): void {
             toggleViewOption(spec.key);
             paint();
             if (spec.key === 'minimap') syncMinimapOverlay(viewOptions);
+            if (spec.key === 'stats') FrameStats.setEnabled(viewOptions.stats, renderer);
         });
 
         toolbar.appendChild(button);
@@ -72,4 +76,5 @@ export function initViewToolbar(): void {
 
     document.body.appendChild(toolbar);
     syncMinimapOverlay(viewOptions);
+    FrameStats.setEnabled(viewOptions.stats, renderer);
 }

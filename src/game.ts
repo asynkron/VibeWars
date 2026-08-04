@@ -641,9 +641,13 @@ function configureDirectionalLight() {
     directionalLight.position.set(mapWidth / 2, mapHeight * 0.6, -mapHeight / 2); // Raised height to 60% of map height
     directionalLight.castShadow = true;
 
-    // Configure shadow properties
-    directionalLight.shadow.mapSize.width = 4096;
-    directionalLight.shadow.mapSize.height = 4096;
+    // Configure shadow properties.
+    //
+    // 2048, not 4096. Measured on the shipped map: 4096 renders at 22.0 ms
+    // median, 2048 at 19.1 -- about 3 ms, for a difference in edge softness
+    // not visible at this camera height over hexes this size.
+    directionalLight.shadow.mapSize.width = 2048;
+    directionalLight.shadow.mapSize.height = 2048;
     directionalLight.shadow.bias = -0.001;
     directionalLight.shadow.normalBias = 0.04;
     directionalLight.shadow.camera.near = 1;

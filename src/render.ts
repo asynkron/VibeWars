@@ -3,6 +3,8 @@ import { GridSystem } from './shared/hexengine/GridSystem';
 import { GlowSystem } from './shared/hexengine/GlowSystem';
 import { RotorSystem } from './shared/hexengine/RotorSystem';
 import { viewOptions } from './shared/hexengine/ViewOptions';
+import { consumeShadowsDirty, markShadowsDirty } from './shared/hexengine/ShadowBudget';
+import { FrameStats } from './systems/frameStats';
 import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
 import type { CameraMatrices } from './types';
 
@@ -75,6 +77,24 @@ function resizeComposer(width: number, height: number) {
     composer?.setSize(width, height);
 }
 
+// The shadow map is the single most expensive thing in the frame. Measured
+// on the shipped map: shadows off runs at the 60 Hz vsync cap (16.7 ms,
+// 1294 draws); on at 4096 it is 22.0 ms and 2614 draws. So the shadow pass
+// is roughly HALF of every draw call and about 5.3 ms.
+//
+// Almost all of that is wasted. This is a turn-based game whose camera is
+// usually parked, so the same shadow map is regenerated from an unchanged
+// scene sixty times a second. autoUpdate off plus an explicit refresh
+// spends it only when something actually moved.
+//
+// The interval is a SAFETY NET, not the mechanism: markShadowsDirty() is
+// the mechanism, and the interval means a missed call site shows up as a
+// shadow one or two frames stale rather than as a shadow frozen forever.
+// Cheap insurance against a bug class that is invisible until someone
+// notices a dead unit's shadow still lying on the grass.
+const SHADOW_REFRESH_INTERVAL = 3;
+let framesSinceShadowRefresh = 0;
+
 function initRenderer() {
     if (isRendererInitialized) {
         return;
@@ -83,6 +103,8 @@ function initRenderer() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.shadowMap.enabled = true;  // Enable shadow mapping
     renderer.shadowMap.type = THREE.VSMShadowMap;
+    // Regenerated on demand -- see SHADOW_REFRESH_INTERVAL above.
+    renderer.shadowMap.autoUpdate = false;
     document.body.appendChild(renderer.domElement);
     scene.add(group);
 
@@ -210,6 +232,10 @@ function setupMinimap(mapCenterX: number, mapCenterZ: number) {
 function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number, mapHeight: number, highlightGroup: any) {
     requestAnimationFrame(() => animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup));
 
+    // Before any rendering, so the counters cover the whole frame rather
+    // than only the last render() call.
+    FrameStats.beginFrame(renderer);
+
     // Update path animation
     VisualizationSystem.updatePathAnimation();
 
@@ -220,8 +246,15 @@ function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number,
     // Gutter the models' energy panels on the same clock.
     GlowSystem.animate(seconds);
 
-    // Spin the helicopters' rotors.
-    RotorSystem.animate(seconds);
+    // Spin the helicopters' rotors. Blades move every frame, so their
+    // shadow is stale every frame -- but only while a helicopter is alive.
+    if (RotorSystem.animate(seconds)) markShadowsDirty();
+
+    // Refresh the shadow map only when the scene it depicts has changed.
+    framesSinceShadowRefresh++;
+    const refreshShadows = consumeShadowsDirty() || framesSinceShadowRefresh >= SHADOW_REFRESH_INTERVAL;
+    renderer.shadowMap.needsUpdate = refreshShadows;
+    if (refreshShadows) framesSinceShadowRefresh = 0;
 
     renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
     renderer.setScissor(0, 0, window.innerWidth, window.innerHeight);
@@ -240,6 +273,7 @@ function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number,
     // whole viewport every frame, so its corner is simply drawn over.
     if (!viewOptions.minimap) {
         renderer.setScissorTest(false);
+        FrameStats.endFrame(performance.now(), renderer);
         return;
     }
 
@@ -261,6 +295,7 @@ function animate(miniMapCamera: any, matrices: CameraMatrices, mapWidth: number,
     renderer.render(miniMapScene, miniMapCamera);
 
     renderer.setScissorTest(false);
+    FrameStats.endFrame(performance.now(), renderer);
 }
 
 // Update minimap highlights
@@ -303,5 +338,5 @@ export {
     scene, camera, renderer, group, miniMapScene, mapWidth, mapHeight, cameraTarget,
     initRenderer, setupCamera, getLookDirection, setCameraPosition, updateCameraPosition,
     updateCameraZoom, setupMinimap, animate, updateMiniMapHighlights,
-    getCameraHeight, setCameraHeight, resizeComposer,
+    getCameraHeight, setCameraHeight, resizeComposer, markShadowsDirty,
 };

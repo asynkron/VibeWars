@@ -53,7 +53,9 @@ class RotorSystem {
     }
 
     // Driven from the render loop, `time` in seconds.
-    static animate(time: number): void {
+    // Returns whether anything actually turned, so the caller can skip a
+    // shadow-map refresh on the frames where nothing did.
+    static animate(time: number): boolean {
         const spin = new THREE.Quaternion();
         for (let i = this.rotors.length - 1; i >= 0; i--) {
             const rotor = this.rotors[i];
@@ -67,6 +69,7 @@ class RotorSystem {
             spin.setFromAxisAngle(rotor.axis, time * rotor.speed);
             rotor.node.quaternion.copy(rotor.base).multiply(spin);
         }
+            return this.rotors.length > 0;
     }
 
     static clear(): void {

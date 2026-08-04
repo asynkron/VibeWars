@@ -1,5 +1,6 @@
 // UnitSystem.js
 import { scene, miniMapScene } from '../../render';
+import { markShadowsDirty } from './ShadowBudget';
 import { FootprintSystem } from './FootprintSystem';
 import { VisualizationSystem } from './VisualizationSystem';
 import { PathfindingSystem } from './PathfindingSystem';
@@ -675,6 +676,10 @@ class UnitSystem {
 
         // Set model position
         unit.position.copy(finalPosition);
+        // The one write path for a unit's transform, interpolation frames
+        // included -- so hooking it here catches every way a shadow caster
+        // can move without chasing individual animation call sites.
+        markShadowsDirty();
         // Only once the unit has actually ARRIVED. The interpolation frames
         // call this many times per step with a customPosition; letting them
         // move the tile too meant oldHex above was already the destination

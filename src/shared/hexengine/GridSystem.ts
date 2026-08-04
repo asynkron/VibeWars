@@ -9,6 +9,7 @@ import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
 import { applyProceduralGround, applyWaterSurface } from './TerrainShader';
 import { createProceduralDecoration } from './ProceduralDecorations';
+import { markShadowsDirty } from './ShadowBudget';
 import { addColorVariation, getVertexOffsets } from './utils';
 import { MAP_CONFIG, CRATER_COLOR } from '../../constants';
 import { getGameState, getGameStateOrNull } from '../../systems/gameStateStore';
@@ -715,6 +716,7 @@ class GridSystem {
 
     static updateHexGeometry(hexMesh: any, waterHeight: number, isWater: boolean = false) {
         if (!hexMesh) return;
+        markShadowsDirty();
         const geometry = hexMesh.geometry;
         const position = geometry.attributes.position;
         const colors = geometry.attributes.color;
@@ -735,6 +737,7 @@ class GridSystem {
     }
 
     static updateHexAndBoundingMeshHeight(hex: any, newHeight: number, craterColor: any) {
+        markShadowsDirty();
         const hexMesh = hex.children.find(
             (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
         );
