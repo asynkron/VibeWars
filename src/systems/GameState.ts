@@ -163,8 +163,16 @@ class GameState {
         return this.currentTurn === playerIndex;
     }
 
+    // Who is STANDING here. Cargo is skipped, exactly as in
+    // SimState.getUnitAt -- a carried unit shares its transport's
+    // coordinates, so without this every loaded APC reports two occupants.
+    //
+    // The live side needs the same rule or the two disagree about the
+    // board: the simulation would plan a shot through a hex the live game
+    // thinks is blocked, or target a passenger the simulation considers
+    // untouchable. Splash, occupancy and selection all come through here.
     getUnitAt(q: number, r: number): GameUnit | undefined {
-        return this.units.find(unit => unit.q === q && unit.r === r);
+        return this.units.find(unit => !unit.carriedBy && unit.q === q && unit.r === r);
     }
 
     getPlayerUnits(playerIndex: number): GameUnit[] {
