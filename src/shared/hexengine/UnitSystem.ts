@@ -26,7 +26,8 @@ import { getGameState } from '../../systems/gameStateStore';
 // it that way.
 import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT } from '../../systems/sim/resolveAttack';
 import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
-import { UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
+import type { SkillDef } from './skills';
+import { skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
 class UnitSystem {
     // The roster and the combat rules live in unitStats.ts, which imports
@@ -638,11 +639,16 @@ class UnitSystem {
         return unit.hasAttacked;  // We only need to check one since they're kept in sync
     }
 
-    static calculateDamage(attackerStats: UnitTypeConfig, defender: GameUnit): number {
-        // Calculate base damage using attacker's min and max damage
-        const baseDamage = Math.floor(Math.random() * (attackerStats.maxDamage - attackerStats.minDamage + 1)) + attackerStats.minDamage;
-
-        return baseDamage;
+    // The player's damage roll. Reads the SKILL's range when one is given,
+    // falling back to the unit table -- which for today's roster is the
+    // same pair of numbers, since every unit's slot-0 skill is derived from
+    // exactly those fields. That equality is the point: it makes routing
+    // the live path through skills a change of source, not of behaviour.
+    static calculateDamage(attackerStats: UnitTypeConfig, defender: GameUnit, skill?: SkillDef): number {
+        const range = skill?.effect.kind === 'attack'
+            ? { min: skill.effect.minDamage, max: skill.effect.maxDamage }
+            : { min: attackerStats.minDamage, max: attackerStats.maxDamage };
+        return Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
     }
 
     static applyDamage(unit: GameUnit, damage: number): void {
@@ -692,7 +698,12 @@ class UnitSystem {
         return closestAngle * Math.PI / 180;
     }
 
-    static async attack(attacker: GameUnit, defender: GameUnit, resolved?: ResolvedAttackOutcome): Promise<void> {
+    // `skillId` names which of the attacker's skills is firing. Trailing
+    // and optional, so every existing call site keeps meaning what it
+    // meant: the unit's primary attack.
+    static async attack(
+        attacker: GameUnit, defender: GameUnit, resolved?: ResolvedAttackOutcome, skillId?: string
+    ): Promise<void> {
         if (this.hasUnitAttacked(attacker)) {
             return;
         }
@@ -727,31 +738,41 @@ class UnitSystem {
         // hexes) is made up front. Player attacks resolve here and now; AI
         // replay passes in the outcome its simulation already committed to,
         // so the executed reality matches the searched plan exactly.
-        const outcome = resolved ?? this.resolveLiveAttack(attacker, defender, attackerStats);
+        // Which skill is firing. The AI's replay names it on the event
+        // when it is not the primary; a player's click will name it from
+        // the sidebar. Resolved ONCE here so the visual branch below and
+        // the damage resolver cannot disagree about which skill this is --
+        // the reference has two casting implementations and they have
+        // already drifted apart on exactly that kind of detail.
+        const skill = (skillId ? skillById(attacker.type, skillId) : undefined)
+            ?? primarySkill(attacker.type);
+        const effect = skill?.effect.kind === 'attack' ? skill.effect.attackEffect : attackerStats.attackEffect;
+
+        const outcome = resolved ?? this.resolveLiveAttack(attacker, defender, attackerStats, skill);
 
         // Show attack effect based on unit type, then execute the outcome.
-        if (attackerStats.attackEffect === 'projectile') {
+        if (effect === 'projectile') {
             VisualizationSystem.showAttackEffect(attackerHex, defenderHex);
             await new Promise(resolve => setTimeout(resolve, 500));
             this.applyResolvedOutcome(outcome);
-        } else if (attackerStats.attackEffect === 'cannon') {
+        } else if (effect === 'cannon') {
             VisualizationSystem.showCannonShotEffect(attackerHex, defenderHex);
             await new Promise(resolve => setTimeout(resolve, 300));
             this.applyResolvedOutcome(outcome);
-        } else if (attackerStats.attackEffect === 'rocketBarrage' || attackerStats.attackEffect === 'rocketVolley') {
+        } else if (effect === 'rocketBarrage' || effect === 'rocketVolley') {
             // Rockets fly to the exact resolved impact hexes (a volley's
             // impacts all point at the defender's hex). A replayed volley
             // arrives without impacts -- the sim drops craterDelta-0
             // events -- so rebuild the purely-visual ones here.
             let vfxImpacts = outcome.impacts;
-            if (attackerStats.attackEffect === 'rocketVolley' && vfxImpacts.length === 0) {
+            if (effect === 'rocketVolley' && vfxImpacts.length === 0) {
                 vfxImpacts = Array.from({ length: 4 }, () => ({ q: defender.q, r: defender.r, craterDelta: 0 }));
             }
             VisualizationSystem.showRocketBarrageEffect(attackerHex, defenderHex, { impacts: vfxImpacts });
             // Wait for all rockets to finish
             await new Promise(resolve => setTimeout(resolve, 1000));
             this.applyResolvedOutcome(outcome);
-        } else if (attackerStats.attackEffect === 'laser') {
+        } else if (effect === 'laser') {
             VisualizationSystem.showLaserAttackEffect(attackerHex, defenderHex);
             await new Promise(resolve => setTimeout(resolve, 400));
             this.applyResolvedOutcome(outcome);
@@ -768,12 +789,15 @@ class UnitSystem {
     // rolling real dice (uniform damage, Math.random scatter) since player
     // attacks don't need cross-candidate determinism -- only resolve-before-
     // execute. Splash and crater rules are identical to the sim version.
-    static resolveLiveAttack(attacker: GameUnit, defender: GameUnit, attackerStats: UnitTypeConfig): ResolvedAttackOutcome {
-        const damage = this.calculateDamage(attackerStats, defender);
+    static resolveLiveAttack(
+        attacker: GameUnit, defender: GameUnit, attackerStats: UnitTypeConfig, skill?: SkillDef
+    ): ResolvedAttackOutcome {
+        const damage = this.calculateDamage(attackerStats, defender, skill);
+        const effect = skill?.effect.kind === 'attack' ? skill.effect.attackEffect : attackerStats.attackEffect;
         const damages: ResolvedAttackOutcome['damages'] = [];
         const impacts: ResolvedAttackOutcome['impacts'] = [];
 
-        if (attackerStats.attackEffect === 'rocketBarrage') {
+        if (effect === 'rocketBarrage') {
             // Splash hexes: the defender's hex + all in-bounds neighbors.
             const splashHexes = [{ q: defender.q, r: defender.r }];
             HexCoord.getNeighbors(defender.q, defender.r).forEach((n) => {
@@ -797,7 +821,7 @@ class UnitSystem {
                 const target = splashHexes[Math.floor(Math.random() * splashHexes.length)];
                 impacts.push({ q: target.q, r: target.r, craterDelta: CRATER_DELTA });
             }
-        } else if (attackerStats.attackEffect === 'rocketVolley') {
+        } else if (effect === 'rocketVolley') {
             // Several small rockets, all at the target hex -- per-rocket
             // damages sum to the single-shot total; no splash, no craters.
             const classModifier = this.getClassModifier(attacker.type, defender.type);

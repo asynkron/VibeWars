@@ -194,7 +194,13 @@ export class AIController {
                         );
                     } else {
                         stats.attacks++;
-                        await UnitSystem.attack(attacker, primaryDefender, outcome);
+                        // The skill the simulation chose travels with the
+                        // plan, so the live cast is the same cast. This is
+                        // the property the reference has only by accident:
+                        // its player and its AI both call
+                        // Unit.AnimateSpellCast, which is the single most
+                        // copyable idea in the whole thing.
+                        await UnitSystem.attack(attacker, primaryDefender, outcome, skillId);
                         await sleep(ACTION_PAUSE_MS);
                     }
                 }

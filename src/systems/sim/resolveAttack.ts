@@ -29,6 +29,7 @@
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState } from './SimState';
+import type { SkillDef } from '../../shared/hexengine/skills';
 
 export interface ResolvedHit {
     unitIndex: number;
@@ -87,18 +88,46 @@ export function expectedDamage(unitType: string): number {
     return Math.round((stats.minDamage + stats.maxDamage) / 2);
 }
 
+// The same number, read off a SKILL rather than off the unit. Every unit's
+// slot-0 skill is derived from the very fields expectedDamage reads, so for
+// today's roster the two agree exactly -- which is what makes routing
+// attacks through skills a change in where the number comes from and not in
+// what it is.
+//
+// expectedDamage keeps its signature untouched on purpose: eleven
+// assertions in resolveAttack.test.ts call it by unit type, and rewriting
+// them would mean rewriting the tests that are supposed to be judging this
+// change.
+export function skillDamage(skill: SkillDef): number {
+    if (skill.effect.kind !== 'attack') return 0;
+    return Math.round((skill.effect.minDamage + skill.effect.maxDamage) / 2);
+}
+
 export function resolveAttack(
     state: SimState,
     attackerIndex: number,
     defenderIndex: number,
-    seed: number
+    seed: number,
+    // Which of the attacker's skills is firing. TRAILING AND OPTIONAL
+    // because thirteen call sites already exist, eleven of them assertions
+    // in resolveAttack.test.ts that are meant to be judging this change
+    // rather than being rewritten by it. Omitted means the unit's primary
+    // attack, which is what every call meant before skills existed.
+    skillId?: string
 ): ResolvedAttack | null {
     const attacker = state.getUnit(attackerIndex);
     const defender = state.getUnit(defenderIndex);
     if (!attacker || !defender) return null;
 
+    // The skill is the source of the damage and of the effect shape now.
+    // Falling back to the unit table when a skill cannot be found keeps a
+    // unit type that somehow has none from silently becoming harmless --
+    // the same failure the 'cannon' comment below warns about.
+    const skill = (skillId ? UnitSystem.skillById(attacker.type, skillId) : undefined)
+        ?? UnitSystem.primarySkill(attacker.type);
     const stats = UnitSystem.unitTypesRecord[attacker.type];
-    const damage = expectedDamage(attacker.type);
+    const attackEffect = skill?.effect.kind === 'attack' ? skill.effect.attackEffect : stats.attackEffect;
+    const damage = skill ? skillDamage(skill) : expectedDamage(attacker.type);
     const hits: ResolvedHit[] = [];
     const impacts: ResolvedImpact[] = [];
 
@@ -111,11 +140,11 @@ export function resolveAttack(
     // Single-target effects. 'cannon' MUST be listed here: anything not
     // matched below deals no damage at all, so a new effect name silently
     // makes the unit harmless to the search.
-    if (stats.attackEffect === 'projectile' || stats.attackEffect === 'laser'
-        || stats.attackEffect === 'cannon') {
+    if (attackEffect === 'projectile' || attackEffect === 'laser'
+        || attackEffect === 'cannon') {
         const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);
         hits.push({ unitIndex: defenderIndex, damage: Math.floor(damage * classModifier) });
-    } else if (stats.attackEffect === 'rocketBarrage') {
+    } else if (attackEffect === 'rocketBarrage') {
         // Splash hexes: defender's hex + all in-bounds neighbors.
         const splashHexes = [{ q: defender.q, r: defender.r }];
         for (const n of HexCoord.getNeighbors(defender.q, defender.r)) {
@@ -143,7 +172,7 @@ export function resolveAttack(
             const target = splashHexes[Math.floor(rng() * splashHexes.length)];
             impacts.push({ q: target.q, r: target.r, craterDelta: CRATER_DELTA });
         }
-    } else if (stats.attackEffect === 'rocketVolley') {
+    } else if (attackEffect === 'rocketVolley') {
         // Several small rockets, all at the same target: the per-rocket
         // damages sum exactly to the usual single-shot total.
         const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);

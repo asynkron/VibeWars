@@ -35,6 +35,17 @@ export interface Gene {
     unitIndex: number;
     targetIndex?: number;   // enemy unit index for moveTowards/moveAway/attack
     buildingIndex?: number; // building index for moveToBuilding
+    // Which of the unit's skills this gene uses. Absent means its primary
+    // attack -- what every gene meant before skills existed, and what
+    // keeps today's plans byte-identical.
+    //
+    // A PARAMETER of the existing genes rather than a gene kind per skill,
+    // and that is a branching-factor decision. randomGene's roulette table
+    // stays the same size; a unit with one attack has no choice to make and
+    // consumes no extra rng() draw, which matters because an extra draw
+    // would shift the random stream for all nine engines at once and every
+    // determinism test would shift with it, catching nothing.
+    skillId?: string;
     seed: number;           // drives scatter + random-move picks
 }
 
@@ -221,7 +232,7 @@ export function applyGene(
             // Class targeting rule: artillery/infantry can't attack air.
             if (!UnitSystem.canTarget(unit.type, target.type)) return false;
 
-            const resolved = resolveAttack(state, gene.unitIndex, targetIndex, gene.seed);
+            const resolved = resolveAttack(state, gene.unitIndex, targetIndex, gene.seed, gene.skillId);
             if (!resolved || resolved.hits.length === 0) return false;
 
             for (const hit of resolved.hits) {
@@ -230,6 +241,14 @@ export function applyGene(
                     attackerIndex: gene.unitIndex,
                     defenderIndex: hit.unitIndex,
                     damage: hit.damage,
+                    // Named only when it is NOT the primary attack. The
+                    // event log is hashed verbatim by the neutrality
+                    // fixture, so writing the primary's id into every
+                    // attack would move all eight digests and throw away
+                    // the comparison that proves this migration is
+                    // behaviour-neutral -- for a field that carries no
+                    // information, since absent already means primary.
+                    ...(gene.skillId ? { skillId: gene.skillId } : {}),
                 });
                 const victim = state.getUnit(hit.unitIndex);
                 if (victim && victim.hp <= 0) {
