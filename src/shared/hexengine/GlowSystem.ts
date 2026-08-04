@@ -10,10 +10,11 @@
 // them, and it is then tinted to the player's colour on top; a colour test
 // lit whole vehicles instead of their details.
 
-// There is no bloom pass in this renderer, so emissive only brightens the
-// surface it is on -- it casts no light and spills no halo. The panels
-// therefore have to be driven well past the material's authored strength
-// to read as lit rather than merely painted.
+// Emissive only brightens the surface it is on -- it casts no light. The
+// bloom pass in render.ts spreads a halo from it, but only above its
+// threshold, so the panels still have to be driven well past the
+// material's authored strength to reach that and to read as lit rather
+// than merely painted.
 const GLOW_BOOST = 3.0;
 
 // How far the level swings either side of that, and the two rates it beats
@@ -45,8 +46,23 @@ class GlowSystem {
     // Object3D.clone(), so without this every unit on the map would be
     // driving the same material and the whole army would gutter in
     // lockstep. Each clone gets its own phase instead.
+    //
+    // ONE CLONE PER (root, source material) -- not one per mesh. The
+    // distinction is the whole behaviour. A model is many meshes sharing a
+    // handful of materials, so cloning per mesh gives every individual
+    // panel on the same machine its own phase: measured on a forge depot
+    // piece, 19 panels held 19 different intensities at once, one at 1.65
+    // while its neighbour on the same wall sat at 4.26. A machine has one
+    // power plant, so its panels gutter together; separate machines differ.
+    //
+    // Keying the map on the SOURCE material is what collapses them: every
+    // mesh in one model that uses "energy" points at the same material
+    // object, because Object3D.clone() shares them and ModelSystem's
+    // teamColorMaterial path only replaces the one slot it tints.
     static claim(root: any): void {
         if (!root) return;
+
+        const ownedFor = new Map<any, any>();
 
         root.traverse((child: any) => {
             if (!child.isMesh || !child.material) return;
@@ -54,7 +70,11 @@ class GlowSystem {
             const claimOne = (material: any) => {
                 if (!this.isGlowMaterial(material)) return material;
 
+                const already = ownedFor.get(material);
+                if (already) return already;
+
                 const owned = material.clone();
+                ownedFor.set(material, owned);
                 this.glows.push({
                     material: owned,
                     root,

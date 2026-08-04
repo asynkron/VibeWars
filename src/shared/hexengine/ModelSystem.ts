@@ -89,7 +89,35 @@ class ModelSystem {
                 const rotation = config.rotation || 0;
                 loadedModel.rotation.y = (rotation * Math.PI) / 180;
 
-                // Initialize materials and shadows
+                // Initialize materials and shadows.
+                //
+                // The clone below exists only to set three flags without
+                // mutating the loader's material. It is cached PER SOURCE
+                // MATERIAL, not per mesh: a GLB gives every primitive that
+                // uses "armorDark" the same material object, and cloning
+                // inside the loop broke that apart in the CACHED BASE
+                // MODEL, so every instance inherited the split. Measured on
+                // forge-depot-tile-e: 34 meshes over 6 authored materials
+                // became 34 materials, and the two depots on the map turned
+                // 8 pieces into 263 materials and 386 draw calls.
+                //
+                // It also defeated GlowSystem, which clones one material
+                // per model so a machine's panels gutter together -- with
+                // the source already split per mesh there was nothing left
+                // to share, and each panel flickered on its own phase.
+                const prepared = new Map<any, any>();
+                const prepare = (mat: any) => {
+                    if (!mat) mat = new THREE.MeshStandardMaterial();
+                    const cached = prepared.get(mat);
+                    if (cached) return cached;
+                    const clonedMat = mat.clone();
+                    clonedMat.transparent = true;
+                    clonedMat.depthTest = true;
+                    clonedMat.depthWrite = true;
+                    prepared.set(mat, clonedMat);
+                    return clonedMat;
+                };
+
                 loadedModel.traverse((child: any) => {
                     if (child.isMesh) {
                         child.castShadow = true;
@@ -100,22 +128,9 @@ class ModelSystem {
                             child.material = new THREE.MeshStandardMaterial();
                         }
 
-                        // Handle both single materials and arrays
-                        if (Array.isArray(child.material)) {
-                            child.material = child.material.map((mat: any) => {
-                                if (!mat) mat = new THREE.MeshStandardMaterial();
-                                const clonedMat = mat.clone();
-                                clonedMat.transparent = true;
-                                clonedMat.depthTest = true;
-                                clonedMat.depthWrite = true;
-                                return clonedMat;
-                            });
-                        } else {
-                            child.material = child.material.clone();
-                            child.material.transparent = true;
-                            child.material.depthTest = true;
-                            child.material.depthWrite = true;
-                        }
+                        child.material = Array.isArray(child.material)
+                            ? child.material.map(prepare)
+                            : prepare(child.material);
                     }
                 });
 
