@@ -6,11 +6,12 @@
 // import cycle. mapRegistry.selectedMapProvider() asserts this table
 // stays in sync with the providers.
 const MAP_SIZES: Record<string, { rows: number; cols: number }> = {
+    rotor12x18: { rows: 18, cols: 12 },
     mirror8: { rows: 8, cols: 8 },
     random50: { rows: 50, cols: 50 },
 };
 
-const DEFAULT_MAP_KEY = 'mirror8';
+const DEFAULT_MAP_KEY = 'rotor12x18';
 
 function pickMapKey(): string {
     if (typeof window !== 'undefined' && window.location?.search) {

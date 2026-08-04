@@ -6,8 +6,9 @@ import { MAP_KEY, MAP_CONFIG } from '../../constants';
 import { MapProvider } from './MapProvider';
 import { mirror8MapProvider } from './Mirror8MapProvider';
 import { perlinMapProvider } from './PerlinMapProvider';
+import { rotor12x18MapProvider } from './Rotor12x18MapProvider';
 
-const providers: MapProvider[] = [mirror8MapProvider, perlinMapProvider];
+const providers: MapProvider[] = [rotor12x18MapProvider, mirror8MapProvider, perlinMapProvider];
 
 export function getMapProvider(key: string): MapProvider | undefined {
     return providers.find((p) => p.key === key);
