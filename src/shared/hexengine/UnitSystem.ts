@@ -667,7 +667,18 @@ class UnitSystem {
         // have.
         if (healer) {
             const skill = skillById(healer.type, PIKE_REPAIR.id);
-            if (skill) healer.cooldowns = chargeSkill(healer.cooldowns, skill);
+            if (skill) {
+                healer.cooldowns = chargeSkill(healer.cooldowns, skill);
+                // AND it costs the action, when the skill says so. Charging
+                // the cooldown without spending the action let a Pike
+                // repair and then still shoot -- while SimState.apply, which
+                // reads the same spendsAction flag, believed the action was
+                // gone. The simulation and the live game disagreeing about
+                // what a unit has left is the exact fault the resolve-first
+                // design exists to prevent, and it was invisible because
+                // both halves looked right on their own.
+                if (skill.spendsAction) this.setHasAttacked(healer, true);
+            }
         }
         const restored = Math.min(hp, target.maxHp - target.hp);
         if (restored <= 0) return;

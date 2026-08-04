@@ -4,7 +4,7 @@
 import '../test/threeStub';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { showSkillsFor, armedSkill } from './skillBar';
-import { chargeSkill, NO_COOLDOWNS, PIKE_REPAIR } from '../shared/hexengine/skills';
+import { chargeSkill, NO_COOLDOWNS, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD } from '../shared/hexengine/skills';
 import type { GameUnit } from '../types';
 
 const unit = (type: string, over: Partial<GameUnit> = {}): GameUnit => ({
@@ -68,5 +68,22 @@ describe('the skill bar', () => {
         showSkillsFor(null);
         expect(document.getElementById('skill-bar')!.style.display).toBe('none');
         expect(armedSkill()).toBeNull();
+    });
+});
+
+describe('the live executor spends what the skill says it spends', () => {
+    // A regression with a story: the cooldown was charged in the executor
+    // and the spent action was set in AIController's replay arm. So a
+    // PLAYER could repair and then still shoot, while SimState.apply --
+    // reading the same spendsAction flag -- believed the action was gone.
+    // Both halves looked right in isolation, which is why nothing caught it
+    // until the hp and the hasAttacked flag were read in the same breath.
+    it('PIKE_REPAIR says it costs the action', () => {
+        expect(PIKE_REPAIR.spendsAction).toBe(true);
+    });
+
+    it('and UNLOAD says it does not', () => {
+        expect(DROVER_UNLOAD.spendsAction).toBe(false);
+        expect(DROVER_LOAD.spendsAction).toBe(true);
     });
 });

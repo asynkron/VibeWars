@@ -211,13 +211,14 @@ export class AIController {
                 const healer = liveRefs[event.repairerIndex];
                 const target = liveRefs[event.targetIndex];
                 if (isAlive(healer) && isAlive(target)) {
+                    // Neither the cooldown NOR the spent action is applied
+                    // here: the executor owns both, exactly as the
+                    // reference leaves Cast() to AnimateSpellCast and omits
+                    // it from AiSpellCastAction. One place to charge, so a
+                    // replayed cast and a player's cannot drift -- and they
+                    // did drift, the first time this was written with the
+                    // action set here and the cooldown set there.
                     UnitSystem.repair(target, event.hp, healer);
-                    // The cooldown is NOT applied here. The live executor
-                    // owns it, exactly as the reference leaves Cast() to
-                    // AnimateSpellCast and deliberately omits it from
-                    // AiSpellCastAction -- one place to charge, so a
-                    // replayed cast and a player's cannot drift.
-                    healer.hasAttacked = true;
                     await sleep(ACTION_PAUSE_MS);
                 }
                 i++;
