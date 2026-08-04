@@ -116,7 +116,15 @@ export const UNIT_TYPES = {
             // anything that reaches it -- closing in on artillery must pay.
             maxHp: 3,
             hp: 3,
-            move: 1,
+            // Two, up from one. At move 1 a Kestrel that had picked the
+            // wrong hex was stuck with it: everything else on the board
+            // moves 2 or more, so it could neither follow an advance nor
+            // break contact, and its 2-3 range was the only thing keeping
+            // it alive. Two lets it reposition into its own firing bracket
+            // in one turn instead of two, which is what artillery spends
+            // its turns doing -- and it is still the slowest thing on the
+            // map, so closing on it still pays.
+            move: 2,
             minRange: 2,
             maxRange: 3,
             // Nerfed from 4-6: with full-strength splash + craters the

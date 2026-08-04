@@ -22,10 +22,10 @@
 // ground an earlier barrage has already dug out. There it is two or three
 // turns of work for a guaranteed kill, and the beam can play that out.
 //
-// It also handles its own positioning. Artillery has move 1 and range 2-3,
-// so a gene that only fired when already in range would almost never fire,
-// and composing it out of standoff-then-attack is exactly the coincidence
-// of two random genes landing together that the search cannot rely on.
+// It also handles its own positioning. Artillery has move 2 and range 2-3,
+// so a gene that only fired when already in range would rarely fire, and
+// composing it out of standoff-then-attack is exactly the coincidence of
+// two random genes landing together that the search cannot rely on.
 
 import * as HexCoord from '../../../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../../../shared/hexengine/unitStats';
