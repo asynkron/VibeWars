@@ -501,7 +501,15 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // measurable when requestAnimationFrame is throttled -- which a
     // backgrounded tab always does, and which is exactly when you want to
     // A/B two settings. Same passes, same order, no scheduler.
-    (window as any).renderFrameNow = () => renderFrame(miniMapCamera, matrices, highlightGroup);
+    // Returns the frame's own draw counts. Draw calls are deterministic for
+    // a given scene, so they are the honest way to show a rendering change
+    // worked -- frame time on a loaded machine is not.
+    (window as any).renderFrameNow = () => {
+        renderer.info.reset();
+        renderFrame(miniMapCamera, matrices, highlightGroup);
+        const r = renderer.info.render;
+        return { calls: r.calls, triangles: r.triangles };
+    };
 
     // Kick off the first turn (starts the AI immediately in AI-vs-AI mode)
     gameState.start();

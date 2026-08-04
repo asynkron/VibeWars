@@ -71,7 +71,7 @@ const DECOR_FRAGMENT = /* glsl */ `
         float fine = decorNoise(dp * 3.7 + 11.0);
         diffuseColor.rgb *= 0.84 + 0.20 * coarse + 0.08 * fine;
 
-        if (uDecorKind > 0.5 && uDecorKind < 1.5) {
+        if (vDecorKind > 0.5 && vDecorKind < 1.5) {
             // CONIFER foliage: layered branch fringes that HANG DOWNWARD.
             // In the cone's local frame, iso-lines of (y + droop * radius)
             // slope down and outward -- banding on that coordinate reads
@@ -87,7 +87,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // Angular clumping: branches, not a smooth skirt.
             float clump = 0.86 + 0.14 * decorNoise(vec2(angle * 3.0, vDecorLocalPos.y * 5.0));
             diffuseColor.rgb *= fringe * clump;
-        } else if (uDecorKind > 1.5) {
+        } else if (vDecorKind > 1.5) {
             // DECIDUOUS leaves: patchy variation WITHIN one crown -- some
             // clusters shift toward sunlit yellow-green, others sit in
             // deeper shade, plus fine leaf speckle.
@@ -103,17 +103,21 @@ const DECOR_FRAGMENT = /* glsl */ `
 
 // kind: 0 = generic surface (bark, rock), 1 = conifer foliage,
 // 2 = deciduous/bush leaves.
-function applyOrganicDetail(material: any, kind: number): void {
+function applyOrganicDetail(material: any): void {
     material.onBeforeCompile = (shader: any) => {
-        shader.uniforms.uDecorKind = { value: kind };
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;')
+            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying float vDecorKind;\n attribute vec3 aDecorLocal;\n attribute float aDecorKind;')
             .replace(
                 '#include <begin_vertex>',
-                '#include <begin_vertex>\n vDecorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n vDecorLocalPos = position;'
+                // aDecorLocal is the vertex's position in ITS OWN mesh, kept
+                // through the merge. The conifer's branch banding and the
+                // crown splotches are computed in that frame, so feeding
+                // them the merged tile-local position instead would rescale
+                // every pattern on the map.
+                '#include <begin_vertex>\n vDecorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorKind = aDecorKind;'
             );
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\n uniform float uDecorKind;\n' + DECOR_NOISE_GLSL)
+            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n' + DECOR_NOISE_GLSL)
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT);
     };
     material.customProgramCacheKey = () => 'decor-organic';
@@ -126,12 +130,14 @@ function mat(color: number, kind: number = 0) {
         roughness: 0.85,
         flatShading: true,
     });
-    applyOrganicDetail(material, kind);
+    applyOrganicDetail(material);
     return material;
 }
 
 function addMesh(parent: any, geometry: any, color: number, x: number, y: number, z: number, kind: number = 0): any {
     const mesh = new THREE.Mesh(geometry, mat(color, kind));
+    // Read back by mergeDecorations, which turns it into a vertex attribute.
+    mesh.userData.decorKind = kind;
     mesh.position.set(x, y, z);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -361,6 +367,146 @@ function place(group: any, rng: () => number, piece: any, maxRadius: number, spi
     group.add(piece);
 }
 
+// ---------------------------------------------------------------------
+// Per-tile merge
+//
+// A decorated tile held five separate meshes -- a trunk, two or three
+// cones, a bush -- each its own draw call. Across the shipped map that is
+// 577 draws for the scenery alone, out of about 2000 for the whole frame,
+// and this scene is bound by draw calls rather than by its 70k triangles.
+//
+// They all share ONE shader program already (customProgramCacheKey is
+// constant), so the only things that stopped them being one mesh were the
+// per-material base colour and the per-material kind. Both become vertex
+// attributes here, and the tile becomes a single mesh.
+//
+// ONE MATERIAL PER TILE, not one for the whole map, deliberately:
+// GridSystem.updateDecoratorTransparency dims a tile's decoration when a
+// unit stands on it by writing material.opacity. A map-wide material would
+// make one unit dim every tree in the world.
+//
+// aDecorLocal is the load-bearing detail. The organic-detail shader
+// computes the conifer's branch banding and the crown splotches from the
+// vertex's position in ITS OWN mesh; after a merge `position` is
+// tile-local, so the original is carried alongside it. Get that wrong and
+// every tree on the map silently changes pattern scale.
+
+const MERGE_ATTRS = ['position', 'normal', 'uv'] as const;
+
+function mergeDecorations(group: any): any | null {
+    group.updateMatrixWorld(true);
+
+    const parts: any[] = [];
+    group.traverse((child: any) => { if (child.isMesh && child.geometry) parts.push(child); });
+    if (parts.length === 0) return null;
+    if (parts.length === 1 && parts[0].parent === group) {
+        // Nothing to merge; leave it alone rather than rebuild it.
+        return group;
+    }
+
+    let vertices = 0;
+    let indices = 0;
+    for (const mesh of parts) {
+        const g = mesh.geometry;
+        vertices += g.attributes.position.count;
+        indices += g.index ? g.index.count : g.attributes.position.count;
+    }
+
+    const position = new Float32Array(vertices * 3);
+    const normal = new Float32Array(vertices * 3);
+    const uv = new Float32Array(vertices * 2);
+    const local = new Float32Array(vertices * 3);
+    const color = new Float32Array(vertices * 3);
+    const kind = new Float32Array(vertices);
+    const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
+
+    const normalMatrix = new THREE.Matrix3();
+    const vertex = new THREE.Vector3();
+    let vOffset = 0;
+    let iOffset = 0;
+
+    for (const mesh of parts) {
+        const g = mesh.geometry;
+        const count = g.attributes.position.count;
+        // The group sits at the origin while it is being built, so a mesh's
+        // matrixWorld already IS its transform within the tile.
+        const matrix = mesh.matrixWorld;
+        normalMatrix.getNormalMatrix(matrix);
+
+        const src = g.attributes.position;
+        const srcNormal = g.attributes.normal;
+        const srcUv = g.attributes.uv;
+        const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
+        const c = material?.color ?? { r: 1, g: 1, b: 1 };
+        const k = mesh.userData.decorKind ?? 0;
+
+        for (let i = 0; i < count; i++) {
+            // Merged, tile-local.
+            vertex.set(src.getX(i), src.getY(i), src.getZ(i));
+            // Kept untransformed for the shader -- see the header.
+            local[(vOffset + i) * 3] = vertex.x;
+            local[(vOffset + i) * 3 + 1] = vertex.y;
+            local[(vOffset + i) * 3 + 2] = vertex.z;
+
+            vertex.applyMatrix4(matrix);
+            position[(vOffset + i) * 3] = vertex.x;
+            position[(vOffset + i) * 3 + 1] = vertex.y;
+            position[(vOffset + i) * 3 + 2] = vertex.z;
+
+            if (srcNormal) {
+                vertex.set(srcNormal.getX(i), srcNormal.getY(i), srcNormal.getZ(i))
+                    .applyMatrix3(normalMatrix).normalize();
+                normal[(vOffset + i) * 3] = vertex.x;
+                normal[(vOffset + i) * 3 + 1] = vertex.y;
+                normal[(vOffset + i) * 3 + 2] = vertex.z;
+            }
+            if (srcUv) {
+                uv[(vOffset + i) * 2] = srcUv.getX(i);
+                uv[(vOffset + i) * 2 + 1] = srcUv.getY(i);
+            }
+
+            color[(vOffset + i) * 3] = c.r;
+            color[(vOffset + i) * 3 + 1] = c.g;
+            color[(vOffset + i) * 3 + 2] = c.b;
+            kind[vOffset + i] = k;
+        }
+
+        if (g.index) {
+            for (let i = 0; i < g.index.count; i++) index[iOffset + i] = g.index.getX(i) + vOffset;
+            iOffset += g.index.count;
+        } else {
+            for (let i = 0; i < count; i++) index[iOffset + i] = i + vOffset;
+            iOffset += count;
+        }
+        vOffset += count;
+    }
+
+    const merged = new THREE.BufferGeometry();
+    merged.setAttribute('position', new THREE.BufferAttribute(position, 3));
+    merged.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+    merged.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    merged.setAttribute('aDecorLocal', new THREE.BufferAttribute(local, 3));
+    merged.setAttribute('color', new THREE.BufferAttribute(color, 3));
+    merged.setAttribute('aDecorKind', new THREE.BufferAttribute(kind, 1));
+    merged.setIndex(new THREE.BufferAttribute(index, 1));
+    merged.computeBoundingSphere();
+
+    // Colour now comes from the vertices, so the material carries white.
+    const material = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        metalness: 0.05,
+        roughness: 0.85,
+        flatShading: true,
+        vertexColors: true,
+    });
+    applyOrganicDetail(material);
+
+    const mesh = new THREE.Mesh(merged, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+}
+
 // Build the decoration group for a tile, or null for none. Deterministic
 // per (q, r): reloads produce the identical map dressing. `tileHeight`
 // zones the mountains: vegetated foot, bare rocky heights.
@@ -443,5 +589,6 @@ export function createProceduralDecoration(terrainType: string, q: number, r: nu
             return null; // WATER etc.
     }
 
-    return group.children.length > 0 ? group : null;
+    // One mesh per tile rather than one per twig -- see mergeDecorations.
+    return group.children.length > 0 ? mergeDecorations(group) : null;
 }
