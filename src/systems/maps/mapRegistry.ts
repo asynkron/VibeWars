@@ -5,6 +5,7 @@
 import { MAP_KEY, MAP_CONFIG } from '../../constants';
 import { MapProvider } from './MapProvider';
 import { ford10MapProvider } from './Ford10MapProvider';
+import { crown14MapProvider } from './Crown14MapProvider';
 import { mirror8MapProvider } from './Mirror8MapProvider';
 import { rotor12x18MapProvider } from './Rotor12x18MapProvider';
 import {
@@ -21,6 +22,7 @@ export const AUTHORED_PROVIDERS: MapProvider[] = [
     mirror8MapProvider,
     rotor12x18MapProvider,
     ford10MapProvider,
+    crown14MapProvider,
 ];
 
 // The random maps: one perlin generator, three sizes. Not symmetric and

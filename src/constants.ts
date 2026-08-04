@@ -9,6 +9,8 @@ const MAP_SIZES: Record<string, { rows: number; cols: number }> = {
     // Authored, symmetric, deterministic -- the competitive maps.
     mirror8: { rows: 8, cols: 8 },
     rotor12x18: { rows: 18, cols: 12 },
+    ford10: { rows: 10, cols: 10 },
+    crown14: { rows: 14, cols: 14 },
     // Random, perlin-generated. One generator, three sizes.
     random20: { rows: 20, cols: 20 },
     random30: { rows: 30, cols: 30 },
