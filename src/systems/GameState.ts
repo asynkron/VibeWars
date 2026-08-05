@@ -190,8 +190,12 @@ class GameState {
             this.fireBoard, this.units, this.currentTurn,
             (u) => UnitSystem.unitTypesRecord[u.type]?.unitClass === 'air'
         )) {
-            unit.hp -= FIRE_DAMAGE;
-            UnitSystem.updateUnitVisuals(unit);
+            // THROUGH applyDamage, not by hand. It is the one function that
+            // knows a hit point is three things: the game state, the mirror
+            // on visualUnit.userData, and the health-bar sprite. Docking
+            // unit.hp directly left the first correct and the other two
+            // stale -- the damage number appeared and the bar never moved.
+            UnitSystem.applyDamage(unit, FIRE_DAMAGE);
             VisualizationSystem.showDamageNumber(unit.visualUnit.position.clone(), FIRE_DAMAGE);
             if (unit.hp <= 0) UnitSystem.removeUnit(unit);
         }

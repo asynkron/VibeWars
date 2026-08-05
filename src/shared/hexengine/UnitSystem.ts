@@ -506,8 +506,7 @@ class UnitSystem {
                         flies
                     );
                     if (burn > 0 && here) {
-                        unit.hp -= burn;
-                        UnitSystem.updateUnitVisuals(unit);
+                        UnitSystem.applyDamage(unit, burn);
                         VisualizationSystem.showDamageNumber(unit.visualUnit.position.clone(), burn);
                         if (unit.hp <= 0) UnitSystem.removeUnit(unit);
                     }
@@ -1105,6 +1104,14 @@ class UnitSystem {
             sprite.material.map.dispose();
             const newSprite = this.createUnitSprite(unit.type, unit.hp, unit.maxHp, unit.playerIndex);
             sprite.material.map = newSprite.material.map;
+            // Swapping the map is not enough -- three.js re-uploads a
+            // texture only when it is told the material changed. Without
+            // this the health bar keeps drawing the old canvas, which is
+            // exactly what applyDamage does two lines further on and what
+            // this one was missing. Also mirror the hp onto userData, which
+            // is where the rest of the renderer reads it.
+            sprite.material.needsUpdate = true;
+            unit.visualUnit.userData.hp = unit.hp;
         }
     }
 
