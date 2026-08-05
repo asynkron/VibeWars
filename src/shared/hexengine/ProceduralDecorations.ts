@@ -527,7 +527,34 @@ function mergeDecorations(group: any): any | null {
     const mesh = new THREE.Mesh(merged, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
+    // THE SHADOW PASS DOES NOT USE THIS MATERIAL. It renders depth with its
+    // own MeshDepthMaterial, which knows nothing about uBurn -- so a burnt
+    // tile lost its crown in the colour pass and went on casting a
+    // full-canopy shadow. The depth material has to discard the same
+    // fragments, from the same uniform.
+    mesh.customDepthMaterial = burnAwareDepthMaterial(material);
     return mesh;
+}
+
+// A depth material that drops the same fragments the visible one does.
+//
+// Shares the visible material's burn uniform OBJECT rather than a copy, so
+// setting it in one place blackens the tile and clears its shadow together
+// -- two uniforms would be two things to keep in step, and the one that got
+// forgotten would be the shadow, silently.
+function burnAwareDepthMaterial(source: any): any {
+    const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+    depth.onBeforeCompile = (shader: any) => {
+        shader.uniforms.uBurn = source.userData.burnUniform;
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n attribute float aDecorKind;')
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\n vDecorKind = aDecorKind;');
+        shader.fragmentShader = shader.fragmentShader
+            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n uniform float uBurn;')
+            .replace('void main() {', 'void main() {\n if (uBurn > 0.5 && vDecorKind > 0.5) discard;');
+    };
+    depth.customProgramCacheKey = () => 'decor-depth-burn';
+    return depth;
 }
 
 // Build the decoration group for a tile, or null for none. Deterministic

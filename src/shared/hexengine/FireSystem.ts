@@ -23,7 +23,7 @@
 // disposes a texture it did not create.
 
 import { MAP_CONFIG } from '../../constants';
-import { scene } from '../../render';
+import { markShadowsDirty, scene } from '../../render';
 import { GridSystem } from './GridSystem';
 import { VisualizationSystem } from './VisualizationSystem';
 import { HexCoord } from './HexCoord';
@@ -420,6 +420,10 @@ class FireSystem {
         // left is bare blackened stems -- darkening the leaves instead still
         // read as a canopy from map height.
         decor.material.userData.burnUniform.value = 1;
+        // Shadows are generated on demand -- renderer.shadowMap.autoUpdate
+        // is false -- so without this the tile keeps casting the shadow of
+        // a canopy it no longer has.
+        markShadowsDirty();
         // Transparency is driven separately (a unit standing here dims the
         // scenery), so re-apply whatever it should currently be.
         GridSystem.updateDecoratorTransparency?.(hex);
