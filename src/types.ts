@@ -32,12 +32,6 @@ export type HexGroup = Object3DLike;
 
 // A single terrain type's config (WATER/SAND/GRASS/FOREST/MOUNTAIN), see
 // TerrainSystem.terrainTypes.
-export interface TerrainDecoration {
-  model: string;
-  color: number;
-  chance: number;
-}
-
 export interface TerrainTypeConfig {
   name: string;
   moveCost: number;
@@ -46,7 +40,6 @@ export interface TerrainTypeConfig {
   heightModifier: number;
   threshold: number;
   impassable: boolean;
-  decorations: TerrainDecoration[];
   material: { color: number; metalness: number; roughness: number };
 }
 

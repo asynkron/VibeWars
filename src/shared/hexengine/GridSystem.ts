@@ -3,7 +3,6 @@
  */
 import { group, miniMapScene, renderer } from '../../render';
 import { BuildingSystem } from './BuildingSystem';
-import { ModelSystem } from './ModelSystem';
 import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
@@ -873,31 +872,6 @@ class GridSystem {
         return currentState.units.find(
             (unit: GameUnit) => unit.q === hex.userData.q && unit.r === hex.userData.r
         );
-    }
-
-    static async loadTileModels() {
-        try {
-            if (!this.getOption('enableDecorations') || typeof ModelSystem === 'undefined') {
-                return false;
-            }
-            const modelConfigs: Record<string, any> = {};
-            Object.values(TerrainSystem.terrainTypes).forEach((terrain: any) => {
-                terrain.decorations.forEach((decoration: any) => {
-                    if (!modelConfigs[decoration.model]) {
-                        modelConfigs[decoration.model] = {
-                            model: decoration.model,
-                            scale: MAP_CONFIG.HEX_RADIUS,
-                            rotation: 90,
-                        };
-                    }
-                });
-            });
-            await ModelSystem.loadModels(modelConfigs);
-            return true;
-        } catch (error) {
-            console.error('Error in loadTileModels:', error);
-            return false;
-        }
     }
 
     static clear() {

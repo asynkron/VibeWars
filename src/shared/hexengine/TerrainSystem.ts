@@ -1,15 +1,11 @@
 // TerrainSystem.js
-import { scene } from '../../render';
 import { UnitSystem } from './UnitSystem';
-import { HexCoord } from './HexCoord';
 import { addColorVariation } from './utils';
 import { getGameState } from '../../systems/gameStateStore';
 import { TERRAIN_TYPES, terrainTypesRecord, getTerrainColor, getTerrainName, getTerrainBaseHeight, getTerrainHeightVariation, getTerrainHeightModifier, getTerrainThreshold, isImpassable } from './terrainStats';
-import type { TerrainTypeConfig, TerrainDecoration } from '../../types';
+import type { TerrainTypeConfig } from '../../types';
 
 class TerrainSystem {
-    static decoratorModels: any; // never assigned anywhere -- addDecorator() is dead code
-
     // Table and pure lookups live in terrainStats.ts, which imports nothing
     // that renders -- see there. Re-exported so every existing caller works.
     static terrainTypes = TERRAIN_TYPES;
@@ -25,7 +21,6 @@ class TerrainSystem {
     static getTerrainHeightModifier = getTerrainHeightModifier;
     static getTerrainThreshold = getTerrainThreshold;
     static isImpassable = isImpassable;
-
 
     static getMoveCost(hex: any, unit: any): number {
         // Check if the tile has a road first
@@ -79,23 +74,6 @@ class TerrainSystem {
         return 'MOUNTAIN'; // Default to mountain if above all thresholds
     }
 
-    static getTerrainDecorations(terrainType: string): TerrainDecoration[] {
-        return this.terrainTypesRecord[terrainType]?.decorations || [];
-    }
-
-    static getRandomDecoration(terrainType: string): TerrainDecoration | null {
-        const decorations = this.getTerrainDecorations(terrainType);
-        if (decorations.length === 0) return null;
-
-        // Roll for each decoration based on its chance
-        for (const decoration of decorations) {
-            if (Math.random() < decoration.chance) {
-                return decoration;
-            }
-        }
-        return null;  // No decoration was selected
-    }
-
     // Ground height for PLACING things on a hex (units, buildings).
     // getHeight() returns the smoothed center vertex, which smoothing can
     // pull well ABOVE the hex's flat top face (userData.height) when
@@ -105,21 +83,6 @@ class TerrainSystem {
     // model's underside, which reads as sitting in the terrain.
     static getPlacementHeight(hex: any): number {
         return Math.min(this.getHeight(hex), hex.userData.height);
-    }
-
-    static addDecorator(hex: any, decoratorType: string): void {
-        if (this.decoratorModels[decoratorType]) {
-            const decorator = this.decoratorModels[decoratorType].clone();
-            const worldPos = new HexCoord(hex.userData.q, hex.userData.r).getWorldPosition();
-            decorator.position.set(worldPos.x, this.getHeight(hex), worldPos.z);
-
-            // Random rotation in 60-degree increments (6 possible orientations)
-            const randomHexRotation = Math.floor(Math.random() * 6) * (Math.PI / 3);
-            decorator.rotation.y = randomHexRotation;
-
-            hex.userData.decorator = decorator;
-            scene.add(decorator);
-        }
     }
 
     static getTerrainMaterial(terrainType: string) {
@@ -164,7 +127,6 @@ class TerrainSystem {
             const waterColor = new THREE.Color(this.getTerrainColor('WATER'));
 
             // Lerp between water and shallow water colors
-
 
             return waterColor.getHex();
         }
