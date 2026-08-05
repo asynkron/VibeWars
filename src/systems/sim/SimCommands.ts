@@ -118,7 +118,7 @@ export function nearestEnemyIndex(state: SimState, unitIndex: number): number | 
     if (!unit) return null;
     let best: number | null = null;
     let bestDist = Infinity;
-    for (const [i, other] of state.liveUnits()) {
+    for (const [i, other] of state.activeUnits()) {
         if (other.playerIndex === unit.playerIndex) continue;
         const dist = HexCoord.getDistance(unit.q, unit.r, other.q, other.r);
         if (dist < bestDist) {
@@ -129,6 +129,30 @@ export function nearestEnemyIndex(state: SimState, unitIndex: number): number | 
     return best;
 }
 
+// A death, cargo included.
+//
+// A transport takes its passengers down with it. Without that a loaded APC
+// is an invulnerable warehouse: getUnitAt hides the cargo from every shot,
+// so nothing else can ever reach it. Making the ride a real risk is what
+// lets the beam weigh it against the mobility rather than treating loading
+// as free.
+//
+// It lives in one function because it did not: the damage path cascaded and
+// the drowning path did not, so sinking the ground under a transport left
+// its passengers alive, riding a corpse, at coordinates that no longer
+// updated. Every death in this file goes through here.
+//
+// Derived at the command layer like every other death -- apply() stays
+// mechanical.
+function recordDeath(state: SimState, unitIndex: number): void {
+    state.record({ type: 'unitDied', unitIndex });
+    for (const [index, rider] of state.liveUnits()) {
+        if (rider.carriedBy === unitIndex) {
+            state.record({ type: 'unitDied', unitIndex: index });
+        }
+    }
+}
+
 // Nearest enemy this unit is ALLOWED to shoot (respects the class
 // targeting rule: artillery/infantry can't touch air).
 export function nearestTargetableEnemyIndex(state: SimState, unitIndex: number): number | null {
@@ -136,7 +160,7 @@ export function nearestTargetableEnemyIndex(state: SimState, unitIndex: number):
     if (!unit) return null;
     let best: number | null = null;
     let bestDist = Infinity;
-    for (const [i, other] of state.liveUnits()) {
+    for (const [i, other] of state.activeUnits()) {
         if (other.playerIndex === unit.playerIndex) continue;
         if (!UnitSystem.canTarget(unit.type, other.type)) continue;
         const dist = HexCoord.getDistance(unit.q, unit.r, other.q, other.r);
@@ -158,7 +182,7 @@ export function weakestTargetableEnemyIndex(state: SimState, unitIndex: number):
     let best: number | null = null;
     let bestHp = Infinity;
     let bestDist = Infinity;
-    for (const [i, other] of state.liveUnits()) {
+    for (const [i, other] of state.activeUnits()) {
         if (other.playerIndex === unit.playerIndex) continue;
         if (!UnitSystem.canTarget(unit.type, other.type)) continue;
         const dist = HexCoord.getDistance(unit.q, unit.r, other.q, other.r);
@@ -252,21 +276,7 @@ export function applyGene(
                 });
                 const victim = state.getUnit(hit.unitIndex);
                 if (victim && victim.hp <= 0) {
-                    state.record({ type: 'unitDied', unitIndex: hit.unitIndex });
-                    // A transport takes its cargo down with it. Without
-                    // this a loaded APC is an invulnerable warehouse:
-                    // getUnitAt hides the passenger from every shot, so
-                    // nothing else can ever reach it. Making the ride a
-                    // real risk is what lets the beam weigh it against the
-                    // mobility rather than treating loading as free.
-                    //
-                    // Derived at the command layer, like every other death
-                    // in this file -- apply() stays mechanical.
-                    for (const [index, rider] of state.liveUnits()) {
-                        if (rider.carriedBy === hit.unitIndex) {
-                            state.record({ type: 'unitDied', unitIndex: index });
-                        }
-                    }
+                    recordDeath(state, hit.unitIndex);
                 }
             }
             for (const impact of resolved.impacts) {
@@ -279,7 +289,7 @@ export function applyGene(
                 if (before && before.type !== 'WATER' && after && after.type === 'WATER') {
                     const standing = state.getUnitAt(impact.q, impact.r);
                     if (standing && UnitSystem.unitTypesRecord[standing[1].type].terrainCosts.WATER == null) {
-                        state.record({ type: 'unitDied', unitIndex: standing[0] });
+                        recordDeath(state, standing[0]);
                     }
                 }
             }
@@ -513,7 +523,7 @@ export function sweepAttacks(
     tuning: SweepTuning = DEFAULT_SWEEP
 ): boolean {
     let fired = false;
-    const shooters = [...state.liveUnits()]
+    const shooters = [...state.activeUnits()]
         .filter(([, u]) => u.playerIndex === playerIndex && !u.hasAttacked)
         .map(([i]) => i);
 
@@ -523,7 +533,7 @@ export function sweepAttacks(
 
         let bestTarget = -1;
         let bestValue = 0; // only fire if strictly net-positive
-        for (const [enemyIndex, enemy] of state.liveUnits()) {
+        for (const [enemyIndex, enemy] of state.activeUnits()) {
             if (enemy.playerIndex === playerIndex) continue;
             const dist = HexCoord.getDistance(unit.q, unit.r, enemy.q, enemy.r);
             if (dist < unit.minRange || dist > unit.maxRange) continue;
@@ -590,7 +600,7 @@ export function randomGene(
     const unit = state.getUnit(unitIndex);
     const enemies: number[] = [];
     if (unit) {
-        for (const [i, other] of state.liveUnits()) {
+        for (const [i, other] of state.activeUnits()) {
             if (other.playerIndex !== unit.playerIndex) enemies.push(i);
         }
     }

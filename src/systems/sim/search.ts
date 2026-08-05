@@ -168,7 +168,10 @@ function fingerprint(genes: Gene[]): number {
 // Units a player currently has alive in the given state.
 function unitsOf(state: SimState, playerIndex: number): number[] {
     const result: number[] = [];
-    for (const [i, unit] of state.liveUnits()) {
+    // activeUnits, not liveUnits: a gene handed to a passenger is a
+    // passenger that acts from inside the hull -- and 'advance' would
+    // pathfind it out of the transport without ever recording an unload.
+    for (const [i, unit] of state.activeUnits()) {
         if (unit.playerIndex === playerIndex) result.push(i);
     }
     return result;

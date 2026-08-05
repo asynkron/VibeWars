@@ -22,7 +22,7 @@
 
 import type { GameUnit } from '../types';
 import { skillsFor } from '../shared/hexengine/unitStats';
-import { isReady, type SkillDef } from '../shared/hexengine/skills';
+import { type SkillDef, skillReady } from '../shared/hexengine/skills';
 
 let bar: HTMLDivElement | null = null;
 let selectedUnit: GameUnit | null = null;
@@ -73,9 +73,15 @@ export function showSkillsFor(unit: GameUnit | null): void {
     }
     root.style.display = 'flex';
 
-    // Slot 0 -- the attack -- unless it is somehow on cooldown, in which
-    // case the first thing that is actually usable.
-    const usable = skills.find((s) => isReady(unit.cooldowns, s.id));
+    // Slot 0 -- the attack -- unless it is somehow unusable, in which case
+    // the first thing that actually is.
+    //
+    // skillReady, not isReady: readiness is the cooldown AND the unspent
+    // action. Arming on the cooldown alone auto-armed the attack of a unit
+    // that had already fired, and lit every spendsAction skill on the bar
+    // for it -- clicks that castArmedSkill then silently refused, because
+    // it checks the real rule.
+    const usable = skills.find((s) => skillReady(unit, s));
     selectedSkillId = (usable ?? skills[0]).id;
 
     for (const skill of skills) {
@@ -102,7 +108,7 @@ export function showSkillsFor(unit: GameUnit | null): void {
             button.appendChild(badge);
         }
 
-        const ready = isReady(unit.cooldowns, skill.id);
+        const ready = skillReady(unit, skill);
         button.disabled = !ready;
         button.classList.toggle('is-selected', skill.id === selectedSkillId);
 

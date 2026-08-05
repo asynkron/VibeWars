@@ -819,6 +819,15 @@ class UnitSystem {
             return;
         }
 
+        // The action is spent HERE, before the first await, not after the
+        // visuals finish. Everything below yields to the event loop for up
+        // to a second, and the player's clicks keep arriving during it --
+        // so a unit that had fired still read as hasAttacked: false, and a
+        // second attack or a skill cast launched inside its own explosion.
+        // hasUnitAttacked at the top of this function is the guard; it only
+        // works if the flag is already set.
+        this.setHasAttacked(attacker, true);
+
         // Resolve-first: every random decision (damage roll, rocket landing
         // hexes) is made up front. Player attacks resolve here and now; AI
         // replay passes in the outcome its simulation already committed to,
@@ -863,10 +872,12 @@ class UnitSystem {
             this.applyResolvedOutcome(outcome);
         }
 
-        // Set the hasAttacked flag for the attacker
-        this.setHasAttacked(attacker, true);
-
+        // The selection goes, and the bar goes with it. showSkillsFor holds
+        // its own copy of the selected unit and the armed skill; clearing
+        // only setSelectedUnit left a live bar belonging to a unit that was
+        // no longer selected, still arming casts against it.
         setSelectedUnit(null);
+        showSkillsFor(null);
         VisualizationSystem.clearHighlights();
     }
 

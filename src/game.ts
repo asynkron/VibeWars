@@ -288,7 +288,15 @@ function setupEventListeners(matrices: CameraMatrices) {
             // hexes and the armed skill is the player's stated intent --
             // the reference gets this right by routing every cast through
             // the same selected-spell field, and it is worth keeping.
-            if (selectedUnit && castArmedSkill(selectedUnit, hexGroup.userData.q, hexGroup.userData.r)) {
+            const armed = selectedUnit ? armedSkill() : null;
+            if (selectedUnit && armed && armed.effect.kind !== 'attack') {
+                // An armed non-attack skill CONSUMES the click whether or
+                // not the cast is legal. Falling through on refusal meant a
+                // player who armed Unload and clicked an impossible hex
+                // drove the transport there instead -- the one thing they
+                // demonstrably did not ask for. A miss is a miss; the bar
+                // stays armed and they can click again.
+                castArmedSkill(selectedUnit, hexGroup.userData.q, hexGroup.userData.r);
                 return;
             }
 
@@ -660,6 +668,13 @@ export function castArmedSkill(actor: GameUnit, q: number, r: number): boolean {
         // Passable for the CARGO, not for the carrier -- a Pike cannot be
         // put down in a lake just because the Drover is parked beside one.
         if (!tile || UnitSystem.unitTypesRecord[passenger.type]?.terrainCosts[tile.type] == null) return false;
+        // Never onto a building, the same rule genes/transport.ts dropHexes
+        // enforces for the AI: an unload records no move and so derives no
+        // capture, meaning a passenger dropped on a depot door would take
+        // the door in neither the simulation nor the live game. Letting the
+        // player do what the AI is forbidden also splits the two rulesets,
+        // which is how live/sim divergence starts. You walk in the door.
+        if (BuildingSystem.getBuildingAt(q, r)) return false;
         UnitSystem.unloadPassenger(actor, passenger, q, r);
         UnitSystem.handleSelection(actor);
         return true;

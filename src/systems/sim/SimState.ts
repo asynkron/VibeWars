@@ -202,6 +202,21 @@ export class SimState {
                 };
             }
         }
+        // carriedBy is an INDEX here and a GameUnit REFERENCE on the live
+        // side (UnitSystem.loadPassenger writes `passenger.carriedBy =
+        // carrier`). Copying it through unchanged put an object into a
+        // number field, and every consumer compares it against an index --
+        // so a loaded transport that reached a snapshot became a passenger
+        // carried by nobody, invisible to getUnitAt for the rest of the
+        // search and never able to be shot or to die.
+        //
+        // Resolved by identity against the same array the indices refer to.
+        const indexOfCarrier = (value: unknown): number | null => {
+            if (value == null) return null;
+            if (typeof value === 'number') return value;
+            const index = source.units.indexOf(value as any);
+            return index >= 0 ? index : null;
+        };
         const units: SimUnit[] = source.units.map((u: any) => ({
             type: u.type,
             q: u.q,
@@ -221,7 +236,7 @@ export class SimState {
             // three keep working without an edit, and it is why a fork
             // cannot silently lose a cooldown.
             cooldowns: u.cooldowns ?? NO_COOLDOWNS,
-            carriedBy: u.carriedBy ?? null,
+            carriedBy: indexOfCarrier(u.carriedBy),
         }));
         // Accepts both the live Building shape (hiddenUnitType) and an
         // already-flattened SimBuilding (hasHiddenUnit) so condense() can
@@ -252,9 +267,27 @@ export class SimState {
     // what AIController does against the live game, but usable headlessly
     // to chain simulated turns without any UI.
     condense(): SimState {
+        // COMPACTING RENUMBERS EVERYTHING AFTER A HOLE, and carriedBy is an
+        // index. Copying it through a condense that dropped a dead unit
+        // rebound every passenger to whoever now sits at that number --
+        // often itself. condense runs on two hot paths, deepEvaluate's
+        // rollout and every turn of a headless match, so this went wrong
+        // constantly and silently: the passenger stayed hidden from
+        // getUnitAt, answered as cargo of an unrelated unit, and teleported
+        // whenever THAT unit moved.
         const units: SimUnit[] = [];
+        const newIndexOf = new Map<number, number>();
+        for (const [oldIndex] of this.liveUnits()) newIndexOf.set(oldIndex, newIndexOf.size);
         for (const [, unit] of this.liveUnits()) {
-            units.push({ ...unit });
+            units.push({
+                ...unit,
+                // A carrier that died is no carrier: the passenger is put
+                // back on the board rather than left pointing at a ghost.
+                // It cannot happen through the command layer, which
+                // cascades cargo death, but a snapshot assembled by hand
+                // can produce it and silence is the wrong answer.
+                carriedBy: unit.carriedBy === null ? null : newIndexOf.get(unit.carriedBy) ?? null,
+            });
         }
         return SimState.snapshot({
             map: {
@@ -430,7 +463,13 @@ export class SimState {
             case 'turnStarted': {
                 for (let i = 0; i < this.baseUnits.length; i++) {
                     const unit = this.getUnit(i);
-                    if (unit && unit.playerIndex === event.playerIndex) {
+                    // Cargo does not get its move back. unitLoaded sets
+                    // move: 0 to pin the passenger to the hull, and the
+                    // next turnStarted handed it straight back -- so a
+                    // loaded Pike could simply walk out of a moving
+                    // transport, with no unload, from wherever the hull
+                    // happened to be.
+                    if (unit && unit.playerIndex === event.playerIndex && unit.carriedBy === null) {
                         // Factory repair: a unit starting its turn on an
                         // owned, standing factory patches up (mirrors
                         // GameState.nextTurn's live rule). Deterministic,
@@ -550,6 +589,22 @@ export class SimState {
         for (let i = 0; i < this.baseUnits.length; i++) {
             const unit = this.getUnit(i);
             if (unit) yield [i, unit];
+        }
+    }
+
+    // Everyone who is IN PLAY -- on the board and not inside a transport.
+    //
+    // liveUnits() answers "exists"; this answers "may act and may be acted
+    // upon", and combat wants the second one. Cargo stays listed by
+    // liveUnits on purpose (score.ts prices it, so loading is score-neutral
+    // -- see genes/transport.ts), but a passenger that is enumerated by the
+    // targeting code is a passenger that shoots out of a sealed hull and
+    // gets shot through it. Both happened: every target picker, sweepAttacks
+    // on BOTH sides of its loop, and the search's per-unit gene assignment
+    // all walked liveUnits() with no cargo test.
+    *activeUnits(): Generator<[number, SimUnit]> {
+        for (const entry of this.liveUnits()) {
+            if (entry[1].carriedBy === null) yield entry;
         }
     }
 

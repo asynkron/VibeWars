@@ -87,3 +87,25 @@ describe('the live executor spends what the skill says it spends', () => {
         expect(DROVER_LOAD.spendsAction).toBe(true);
     });
 });
+
+describe('a spent action closes the bar', () => {
+    beforeEach(() => { document.body.replaceChildren(); showSkillsFor(null); });
+
+    it('disables every skill that costs the action once it is gone', () => {
+        // The bar asked isReady -- the COOLDOWN only. A unit that had
+        // already fired still got its attack auto-armed and every
+        // spendsAction button lit, so the player was offered casts that
+        // castArmedSkill then silently refused, because it checks the real
+        // rule. Unload survives, and should: it does not cost the action.
+        showSkillsFor(unit('Drover', { hasAttacked: true }));
+        const disabled = Object.fromEntries(buttons().map((b) => [b.dataset.skill, b.disabled]));
+
+        expect(disabled[DROVER_LOAD.id], 'offered a cast the unit cannot pay for').toBe(true);
+        expect(disabled[DROVER_UNLOAD.id], 'Unload costs no action and should survive').toBe(false);
+    });
+
+    it('arms the first skill that is actually usable, not the first off cooldown', () => {
+        showSkillsFor(unit('Drover', { hasAttacked: true }));
+        expect(armedSkill()!.spendsAction, 'armed a skill the unit cannot pay for').toBe(false);
+    });
+});
