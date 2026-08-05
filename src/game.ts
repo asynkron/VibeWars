@@ -31,7 +31,7 @@ import { renderFrame } from './render';
 import { LightPool } from './shared/hexengine/LightPool';
 import { setGameState, getGameState } from './systems/gameStateStore';
 import { AUTHORED_PROVIDERS, RANDOM_PROVIDERS, selectedMapProvider } from './systems/maps/mapRegistry';
-import { armedSkill } from './systems/skillBar';
+import { armedSkill, setArmedListener } from './systems/skillBar';
 import { skillReady, inSkillRange, skillAccepts } from './shared/hexengine/skills';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
 
@@ -251,6 +251,21 @@ function setupEventListeners(matrices: CameraMatrices) {
         }
         return false;
     }
+
+    // Arming a skill lights up what it can be cast on. Wired here rather
+
+    // than inside skillBar, which is tested in jsdom and must not reach
+
+    // the renderer.
+
+    setArmedListener((unit, skill) => {
+
+        if (!unit || !skill || skill.effect.kind === 'attack') return;
+
+        UnitSystem.highlightSkillTargets(unit, skill);
+
+    });
+
 
     window.addEventListener('click', (event) => {
         // A click on the UI is not a click on the map.

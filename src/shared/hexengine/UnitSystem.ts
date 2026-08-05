@@ -29,6 +29,7 @@ import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../type
 import { skillCost, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef } from './skills';
 import { showSkillsFor } from '../../systems/skillBar';
 import { canIgnite, firePathDamage, ignite, WRECK_FIRE_CHANCE } from './fire';
+import { inSkillRange, skillAccepts } from './skills';
 import { FireSystem } from './FireSystem';
 import { isMechanical, skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
@@ -576,6 +577,41 @@ class UnitSystem {
         if (unit) {
             this.highlightMoveRange(unit);
             this.highlightAttackRange(unit);
+        }
+    }
+
+    // Show what the armed skill can actually be cast on.
+    //
+    // WHY THIS EXISTS. Arming a skill used to change nothing on the board:
+    // the player saw their move range, armed Load, clicked the ally they
+    // meant to pick up, and if the click landed a hex off the cast was
+    // refused in silence -- doubly so since a refused cast now consumes the
+    // click rather than driving the unit somewhere it was not asked to go.
+    // "Nothing happens" was the whole user experience of a near miss.
+    //
+    // Answered by asking skillAccepts itself rather than by re-deriving the
+    // rules, so the highlight and the cast can never disagree about what is
+    // legal -- which is the reason skillAccepts was extracted in the first
+    // place.
+    static highlightSkillTargets(caster: GameUnit, skill: SkillDef): void {
+        VisualizationSystem.clearHighlights();
+        const state = getGameState();
+        for (let q = 0; q < state.map.cols; q++) {
+            for (let r = 0; r < state.map.rows; r++) {
+                const distance = this.getHexDistance(caster.q, caster.r, q, r);
+                if (!inSkillRange(skill, distance)) continue;
+                const hex = GridSystem.findHex(q, r);
+                if (!hex) continue;
+
+                const occupant = state.getUnitAt(q, r);
+                const ground = state.map.getTile(q, r);
+                const legal = skillAccepts(
+                    skill, caster,
+                    occupant ? { ...occupant, unitClass: unitTypesRecord[occupant.type]?.unitClass ?? '' } : null,
+                    ground ? { vegetated: ground.vegetated, burning: ground.burning > 0, burned: ground.burned } : null
+                );
+                if (legal) VisualizationSystem.highlightHex(hex, HIGHLIGHT_COLORS.SKILL_TARGET, true);
+            }
         }
     }
 

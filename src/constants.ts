@@ -111,7 +111,8 @@ const HIGHLIGHT_COLORS = {
     MOVE_RANGE: 0xFAFFA0,   // Goldenrod for move range
     ATTACK_RANGE: 0x8B0000, // Dark red for attack range
     CANT_ATTACK: 0x808080,  // Gray for can't attack
-    OWN_UNIT: 0x40C4FF      // Cyan outline marking the ground tile under each of the player's own units
+    OWN_UNIT: 0x40C4FF,     // Cyan outline marking the ground tile under each of the player's own units
+    SKILL_TARGET: 0xFF8C1A   // Amber: a hex the armed skill can actually be cast on
 };
 
 // Visual effect colors

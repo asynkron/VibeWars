@@ -28,6 +28,22 @@ let bar: HTMLDivElement | null = null;
 let selectedUnit: GameUnit | null = null;
 let selectedSkillId: string | null = null;
 
+// Notified whenever the armed skill changes, so the map can show what the
+// skill can be cast on.
+//
+// A callback rather than a direct call into the renderer: this module is
+// tested in jsdom against a stubbed THREE, and an import of
+// VisualizationSystem here would drag a canvas into that test.
+let onArmed: ((unit: GameUnit | null, skill: SkillDef | null) => void) | null = null;
+
+export function setArmedListener(fn: (unit: GameUnit | null, skill: SkillDef | null) => void): void {
+    onArmed = fn;
+}
+
+function announceArmed(): void {
+    onArmed?.(selectedUnit, armedSkill());
+}
+
 function element(): HTMLDivElement {
     // Re-attached rather than merely remembered. Holding the node in a
     // module variable and trusting it is fine until something removes it --
@@ -116,6 +132,7 @@ export function showSkillsFor(unit: GameUnit | null): void {
             if (!ready) return;
             selectedSkillId = skill.id;
             repaint();
+            announceArmed();
         });
 
         root.appendChild(button);
