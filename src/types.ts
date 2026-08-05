@@ -156,6 +156,14 @@ export interface GameUnit {
 // UnitSystem.attack builds one itself for player attacks and accepts one
 // from the AI replay, so simulation facts and executed reality match.
 export interface ResolvedAttackOutcome {
+  // Tiles a destroyed machine set alight, ALREADY ROLLED.
+  //
+  // The channel that makes the 50% wreck fire happen exactly once. The live
+  // game never replays a unitDied event -- it re-derives deaths from the
+  // damage -- so a roll on the live death path would throw fresh dice against
+  // the ones the AI already searched with. Present means "a plan decided
+  // this, apply it"; absent means "a player swung, roll now".
+  ignitions?: Array<{ q: number; r: number }>;
   damages: Array<{ unit: GameUnit; damage: number }>;
   impacts: Array<{ q: number; r: number; craterDelta: number }>;
 }

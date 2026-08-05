@@ -145,7 +145,12 @@ export type GameEvent =
     // A unit set light to a tile. Carries the hex rather than a target
     // index because the target IS terrain -- fire is the first skill in the
     // game that does not point at a unit.
-    | { type: 'fireStarted'; q: number; r: number; casterIndex: number; skillId: string }
+    // `skillId` is OPTIONAL and casterIndex may be -1: a wreck sets fire to
+    // the trees with nobody casting anything. -1 rather than an omitted
+    // field, because that is the value getUnit's bounds check actually
+    // catches -- an absent index slips past `index < 0` and survives only on
+    // falsiness.
+    | { type: 'fireStarted'; q: number; r: number; casterIndex: number; skillId?: string }
     // One turn of wildfire, ALREADY ROLLED. The spread is the only genuinely
     // random rule in the simulation, so the dice are thrown by the command
     // layer and only the outcome travels -- exactly as resolveAttack does
@@ -517,7 +522,7 @@ export class SimState {
                 // and shooting in the same turn while a replayed one cannot.
                 const caster = this.getUnit(event.casterIndex);
                 if (caster) {
-                    const skill = UnitSystem.skillById(caster.type, event.skillId);
+                    const skill = event.skillId ? UnitSystem.skillById(caster.type, event.skillId) : undefined;
                     this.setUnit(event.casterIndex, {
                         ...caster,
                         ...(skill ? skillCost(caster, skill) : { hasAttacked: true }),

@@ -175,6 +175,19 @@ export class AIController {
                     } else if (e.type === 'terrainModified') {
                         outcome.impacts.push({ q: e.q, r: e.r, craterDelta: e.delta });
                         i++;
+                    } else if (e.type === 'fireStarted' && e.casterIndex < 0) {
+                        // A wreck fire: no caster, no skill. Consumed INTO
+                        // this attack's outcome rather than left to the arm
+                        // below, for two reasons. It is recorded in the
+                        // middle of an attack's event run, so letting it
+                        // through would split the run and the remainder
+                        // would be dropped by attack()'s hasAttacked guard.
+                        // And applyResolvedOutcome is the only moment in the
+                        // whole replay when a death actually happens, so it
+                        // is the only place the ignition can be sequenced
+                        // with the corpse it came from.
+                        (outcome.ignitions ??= []).push({ q: e.q, r: e.r });
+                        i++;
                     } else {
                         break;
                     }
@@ -242,8 +255,18 @@ export class AIController {
             }
 
             if (event.type === 'fireStarted') {
+                if (event.casterIndex < 0) {
+                    // A wreck fire that reached here rather than being
+                    // consumed into an attack's outcome above -- which means
+                    // a death happened somewhere the grouping loop does not
+                    // cover. Lit anyway, because dropping it silently is the
+                    // divergence this replay exists to prevent.
+                    UnitSystem.igniteTile(event.q, event.r);
+                    i++;
+                    continue;
+                }
                 const caster = liveRefs[event.casterIndex];
-                const skill = skillById(caster?.type ?? '', event.skillId);
+                const skill = event.skillId ? skillById(caster?.type ?? '', event.skillId) : undefined;
                 if (isAlive(caster) && skill) {
                     // The same executor the player's click calls, which is
                     // what charges the cost exactly once and in one way.

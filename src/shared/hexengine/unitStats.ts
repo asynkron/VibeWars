@@ -14,7 +14,7 @@
 //
 // UnitSystem re-exports every name below, so nothing else had to change.
 
-import { primaryAttackSkill, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef, PIKE_FIRE} from './skills';
+import { primaryAttackSkill, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef, PIKE_FIRE, MECHANICAL_CLASSES} from './skills';
 import type { UnitTypeConfig } from '../../types';
 
 export const UNIT_TYPES = {
@@ -435,6 +435,19 @@ export const CLASS_COUNTERS: Record<string, Record<string, number>> = {
 // artillery lobs shells and infantry carries small arms -- neither can
 // touch an AIR unit at all (no attack, no barrage splash). Everything
 // else may target anything.
+// Is this a machine? The same partition a Pike's repair crew works on, so a
+// class added later cannot be repairable and organic at the same time.
+//
+// AN ALLOWLIST, NOT `unitClass !== 'infantry'`. The two agree on all twelve
+// current types and disagree on the one that matters: an unknown or
+// misspelled type, where `!== 'infantry'` is true and would set the forest
+// alight. Every other lookup in this file fails safe through `?.`; "an
+// unknown thing does not burn the woods down" is the right default.
+export function isMechanical(type: string): boolean {
+    const unitClass = unitTypesRecord[type]?.unitClass;
+    return !!unitClass && (MECHANICAL_CLASSES as readonly string[]).includes(unitClass);
+}
+
 export function canTarget(attackerType: string, defenderType: string): boolean {
     const attackerClass = unitTypesRecord[attackerType]?.unitClass;
     const defenderClass = unitTypesRecord[defenderType]?.unitClass;

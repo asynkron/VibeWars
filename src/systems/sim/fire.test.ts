@@ -14,6 +14,7 @@ import { applyGene, startTurn, recordSimMove } from './SimCommands';
 import { burnGene } from './ai/genes/burn';
 import { mulberry32 } from './resolveAttack';
 import { hexNeighbors } from '../../shared/hexengine/hexMath';
+import * as UnitSystem from '../../shared/hexengine/unitStats';
 
 // Everything is vegetated unless a test says otherwise, so the interesting
 // variable is the fire rather than the scenery.
@@ -187,5 +188,89 @@ describe('the AI can light one', () => {
         const fires = state.events.filter((e: any) => e.type === 'fireStarted');
         expect(fires).toHaveLength(1);
         expect(state.getUnit(0)!.hasAttacked).toBe(true);
+    });
+});
+
+describe('a destroyed machine leaves a burning wreck', () => {
+    // The roll is seeded from the branch's own position, so a scenario either
+    // ignites or it does not -- deterministically. These probe a spread of
+    // positions and assert on the POPULATION rather than on one lucky hex,
+    // which is what a 50% rule actually claims.
+    const killAt = (type: string, q: number, r: number, vegetated = true) => {
+        const state = board(
+            [
+                unit({ type: 'Bulwark', q: 0, r: 0, playerIndex: 1, attack: 99, minRange: 1, maxRange: 9 }),
+                unit({ type, q, r, playerIndex: 0, hp: 1, maxHp: 1 }),
+            ],
+            () => tile({ vegetated })
+        );
+        applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 });
+        return state;
+    };
+
+    const litFraction = (type: string, vegetated = true) => {
+        let lit = 0, total = 0;
+        for (let q = 1; q < 9; q++) {
+            for (let r = 1; r < 9; r++) {
+                total++;
+                if (killAt(type, q, r, vegetated).getTile(q, r)!.burning > 0) lit++;
+            }
+        }
+        return lit / total;
+    };
+
+    it('catches about half the time', () => {
+        const share = litFraction('Bulwark');
+        expect(share, `a tank wreck lit ${Math.round(share * 100)}% of the time`).toBeGreaterThan(0.3);
+        expect(share).toBeLessThan(0.7);
+    });
+
+    it('never from infantry -- there is no engine to burn', () => {
+        expect(litFraction('Pike'), 'a dead Pike started a forest fire').toBe(0);
+    });
+
+    it('never on bare ground', () => {
+        expect(litFraction('Bulwark', false)).toBe(0);
+    });
+
+    it('is the same partition the repair crew works on', () => {
+        // One definition of "mechanical", not two that happen to agree.
+        expect(UnitSystem.isMechanical('Bulwark')).toBe(true);
+        expect(UnitSystem.isMechanical('Kestrel')).toBe(true);
+        expect(UnitSystem.isMechanical('Nightjar')).toBe(true);
+        expect(UnitSystem.isMechanical('Pike')).toBe(false);
+        expect(UnitSystem.isMechanical('Road')).toBe(false);
+        // Fails safe: an unknown type is not a machine, so a typo cannot set
+        // the map alight.
+        expect(UnitSystem.isMechanical('Nonesuch'), 'an unknown type burned the woods down').toBe(false);
+    });
+
+    it('records the fire with no caster, so nothing is charged for it', () => {
+        let found: any = null;
+        for (let q = 1; q < 9 && !found; q++) {
+            for (let r = 1; r < 9 && !found; r++) {
+                const e = killAt('Bulwark', q, r).events.find((x: any) => x.type === 'fireStarted');
+                if (e) found = e;
+            }
+        }
+        expect(found, 'no wreck fire was produced anywhere on the board').not.toBeNull();
+        expect(found.casterIndex, 'a wreck fire named a caster, who would be charged for it').toBe(-1);
+        expect(found.skillId).toBeUndefined();
+    });
+
+    it('rolls once for a loaded transport, not once per corpse', () => {
+        // recordDeath cascades cargo. Riders are infantry by construction, so
+        // the passenger must not add a second draw on the same hex.
+        const state = board(
+            [
+                unit({ type: 'Bulwark', q: 0, r: 0, playerIndex: 1, attack: 99, minRange: 1, maxRange: 9 }),
+                unit({ type: 'Drover', q: 4, r: 4, playerIndex: 0, hp: 1, maxHp: 1 }),
+                unit({ type: 'Pike', q: 4, r: 4, playerIndex: 0, carriedBy: 1 }),
+            ],
+            () => tile()
+        );
+        applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 });
+        const fires = state.events.filter((e: any) => e.type === 'fireStarted');
+        expect(fires.length, 'the passenger rolled its own wreck fire').toBeLessThanOrEqual(1);
     });
 });

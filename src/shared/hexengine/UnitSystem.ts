@@ -28,9 +28,9 @@ import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT } from '../../systems/sim/res
 import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
 import { skillCost, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef } from './skills';
 import { showSkillsFor } from '../../systems/skillBar';
-import { canIgnite, firePathDamage, ignite } from './fire';
+import { canIgnite, firePathDamage, ignite, WRECK_FIRE_CHANCE } from './fire';
 import { FireSystem } from './FireSystem';
-import { skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
+import { isMechanical, skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
 class UnitSystem {
     // The roster and the combat rules live in unitStats.ts, which imports
@@ -723,6 +723,33 @@ class UnitSystem {
     // The RULE is fire.ts's `ignite` -- how long a tile burns is not decided
     // here. This function is the live board's plumbing around it: charge the
     // caster, light the tile, make it visible.
+    // A destroyed machine leaves a burning wreck half the time. Mirrors
+    // SimCommands.recordDeath's rule; the shared canIgnite is the gate, so
+    // "what can catch" is not spelled out twice.
+    private static rollWreckFire(unit: GameUnit): void {
+        if (!isMechanical(unit.type)) return;
+        const map = getGameState().map;
+        if (!canIgnite(map.getTile(unit.q, unit.r))) return;
+        // Math.random is right on this side: one real board, one roll, with
+        // nothing to reproduce. The simulation seeds its own for replay.
+        if (Math.random() >= WRECK_FIRE_CHANCE) return;
+        this.igniteTile(unit.q, unit.r);
+    }
+
+    // Light a tile with no caster and no skill -- a wreck, or a replayed one.
+    static igniteTile(q: number, r: number): void {
+        const map = getGameState().map;
+        const board = {
+            getTile: (tq: number, tr: number) => map.getTile(tq, tr),
+            setTile: (tq: number, tr: number, tile: any) => {
+                const existing = map.getTile(tq, tr);
+                if (existing) Object.assign(existing, tile);
+            },
+        };
+        ignite(board, q, r);
+        FireSystem.sync(map);
+    }
+
     static startFire(caster: GameUnit, q: number, r: number, skill: SkillDef): void {
         const state = getGameState();
         const map = state.map;
@@ -997,6 +1024,17 @@ class UnitSystem {
             VisualizationSystem.showDamageNumber(unit.visualUnit.position.clone(), damage);
             this.applyDamage(unit, damage);
             if (unit.hp <= 0) {
+                // Rolled HERE and not in removeUnit, deliberately.
+                // removeUnit is re-entrant (a unit killed mid-path keeps
+                // running the rest of its scheduled steps) and it cascades
+                // cargo, so a destroyed loaded transport would roll once per
+                // corpse on the same hex -- 50% becoming 75%, then 87.5%.
+                // This is the one place a death happens exactly once.
+                //
+                // `ignitions` present means this is a replayed plan whose
+                // dice were thrown in the simulation: obey the list, do not
+                // re-roll. Absent means a player swung.
+                if (!outcome.ignitions) this.rollWreckFire(unit);
                 this.removeUnit(unit);
             }
         }

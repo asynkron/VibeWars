@@ -31,6 +31,11 @@ export const FIRE_DURATION = 6;
 // rolled once per tile per turn.
 export const FIRE_SPREAD_CHANCE = 0.5;
 
+// Chance a destroyed MECHANICAL unit sets light to the tile it died on.
+// Here rather than at either death site, so the simulation and the live game
+// cannot end up rolling against different odds.
+export const WRECK_FIRE_CHANCE = 0.5;
+
 // Hp lost per burning tile a ground unit walks into.
 export const FIRE_DAMAGE = 1;
 

@@ -21,7 +21,7 @@ import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
 import { simDijkstra, simCostFieldFrom, simPath } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
-import { burningTilesOf, firePathDamage, tickFires } from '../../shared/hexengine/fire';
+import { burningTilesOf, canIgnite, firePathDamage, tickFires } from '../../shared/hexengine/fire';
 
 export type BuiltinGeneKind =
     | 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'standoff' | 'attack' | 'idle';
@@ -154,6 +154,11 @@ export function startTurn(state: SimState, playerIndex: number, rng: () => numbe
     state.record({ type: 'fireTicked', ignited: tick.ignited, burnedOut: tick.burnedOut });
 }
 
+// A destroyed machine leaves a burning wreck half the time.
+const WRECK_FIRE_CHANCE = 0.5;
+// A fixed salt, so a wreck's roll cannot collide with the spread's stream.
+const WRECK_FIRE_SEED = 0x77265;
+
 // A death, cargo included.
 //
 // A transport takes its passengers down with it. Without that a loaded APC
@@ -169,8 +174,35 @@ export function startTurn(state: SimState, playerIndex: number, rng: () => numbe
 //
 // Derived at the command layer like every other death -- apply() stays
 // mechanical.
-function recordDeath(state: SimState, unitIndex: number): void {
+function recordDeath(state: SimState, unitIndex: number, wreckFires = true): void {
+    // Read BEFORE the death is recorded: record() applies before it logs, and
+    // the unitDied arm nulls the unit -- afterwards there is no type and no
+    // coordinates left to ask about.
+    const dying = state.getUnit(unitIndex);
+
     state.record({ type: 'unitDied', unitIndex });
+
+    // A burning wreck. Mechanical only -- infantry leaves no fuel behind --
+    // and only where there is something left to catch.
+    //
+    // ROLLED HERE, IN THE COMMAND LAYER, and recorded as an outcome, for the
+    // same reason the fire spread is: apply() must stay mechanical, and a
+    // beam node replayed on another worker thread has to rebuild the same
+    // board rather than throw fresh dice.
+    //
+    // The seed is derived from the branch's own position -- the dying unit,
+    // where it fell, and how many events got us here. A node is identified by
+    // the events that produced it and replayed identically, so that triple is
+    // stable across threads without any caller having to thread a seed in.
+    if (wreckFires && dying && UnitSystem.isMechanical(dying.type)) {
+        const tile = state.getTile(dying.q, dying.r);
+        if (canIgnite(tile)) {
+            const rng = mulberry32(combineSeed(WRECK_FIRE_SEED, unitIndex, dying.q, dying.r, state.events.length));
+            if (rng() < WRECK_FIRE_CHANCE) {
+                state.record({ type: 'fireStarted', q: dying.q, r: dying.r, casterIndex: -1 });
+            }
+        }
+    }
     for (const [index, rider] of state.liveUnits()) {
         if (rider.carriedBy === unitIndex) {
             state.record({ type: 'unitDied', unitIndex: index });
@@ -285,7 +317,11 @@ function chargeFireDamage(state: SimState, unitIndex: number, toQ: number, toR: 
     // for an attack -- and through recordDeath, so a transport that burns to
     // death still takes its passengers with it.
     const after = state.getUnit(unitIndex);
-    if (after && after.hp <= 0) recordDeath(state, unitIndex);
+    // No wreck fire from a burn death. The unit dies on a tile that is by
+    // definition already alight, so there is nothing to ignite -- and the
+    // move has not been recorded yet, so this would be reading the hex it
+    // set off FROM rather than the one it died on.
+    if (after && after.hp <= 0) recordDeath(state, unitIndex, false);
 }
 
 // Apply one gene to the branch, recording events. Returns true if any

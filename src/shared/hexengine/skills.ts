@@ -207,6 +207,15 @@ export function primaryAttackSkill(type: string, config: {
     };
 }
 
+// Anything with an engine in it.
+//
+// This list was already the game's definition of "mechanical" -- it was just
+// spelled out inline as PIKE_REPAIR's target classes and had no name. A wreck
+// fire needs the same partition, and writing it out a second time is exactly
+// how the rules in this codebase have drifted before, so it gets a name and
+// one home instead.
+export const MECHANICAL_CLASSES = ['tank', 'aa', 'artillery', 'naval', 'air'] as const satisfies readonly UnitClass[];
+
 // Pike's repair crew. The owner's "Pike units could do repair on a
 // mechanical unit, every x turns", and the reference's Heal is its model --
 // but only its shape, not its details.
@@ -220,7 +229,7 @@ export const PIKE_REPAIR: SkillDef = {
         // reference's Friendly is a binary partition over SIDES with no
         // unit predicate at all, so it cannot express this. A Pike being
         // unable to repair a Pike falls out for free.
-        classes: ['tank', 'aa', 'artillery', 'naval', 'air'],
+        classes: MECHANICAL_CLASSES,
         // The one unpunished failure mode in the reference: nothing there
         // stops the AI healing a full-health ally. The heal caps at max hp,
         // fitness is unchanged, so the rollout TIES with having done
