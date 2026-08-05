@@ -20,12 +20,13 @@ import { FootprintSystem } from './shared/hexengine/FootprintSystem';
 import { PathfindingSystem } from './shared/hexengine/PathfindingSystem';
 import { UnitSystem } from './shared/hexengine/UnitSystem';
 import { BuildingSystem } from './shared/hexengine/BuildingSystem';
+import { DIFFICULTIES } from './systems/ai/AIController';
 import { AudioSystem } from './shared/hexengine/AudioSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
-import { MAP_CONFIG, MAP_KEY, START_MODE } from './constants';
+import { MAP_CONFIG, MAP_KEY, START_MODE, AI_DIFFICULTY} from './constants';
 import { initViewToolbar } from './systems/viewToolbar';
 import { renderFrame } from './render';
 import { LightPool } from './shared/hexengine/LightPool';
@@ -809,6 +810,59 @@ function showStartMenu() {
     }
     paintMapButtons();
 
+    // --- AI difficulty -----------------------------------------------
+    //
+    // Chosen BEFORE the match type, because picking a match type is what
+    // starts the game -- a setting placed after it would be one the player
+    // never gets to touch.
+    heading('AI difficulty');
+
+    let chosenDifficulty: string = AI_DIFFICULTY ?? 'low';
+
+    const difficultyRow = document.createElement('div');
+    difficultyRow.style.cssText = 'display:flex;gap:8px;justify-content:center;';
+    overlay.appendChild(difficultyRow);
+
+    const difficultyNotes: Record<string, string> = {
+        low: 'looks 3 turns ahead',
+        medium: 'looks 4 turns ahead, searches wider',
+        hard: 'looks 5 turns ahead, searches widest — slower to think',
+    };
+
+    const difficultyButtons: Array<{ key: string; element: HTMLButtonElement }> = [];
+    const paintDifficulty = () => {
+        for (const { key, element } of difficultyButtons) {
+            const chosen = key === chosenDifficulty;
+            element.style.borderColor = chosen ? '#4CAF50' : '#2b3a55';
+            element.style.background = chosen ? '#1b3a24' : '#141c30';
+            element.style.color = chosen ? '#dff5e3' : '#9fb2d0';
+        }
+    };
+
+    for (const key of DIFFICULTIES) {
+        const button = document.createElement('button');
+        button.dataset.difficulty = key;
+        button.style.cssText =
+            'padding:10px 12px;font-size:15px;border:2px solid #2b3a55;border-radius:6px;cursor:pointer;' +
+            'background:#141c30;color:#9fb2d0;text-align:left;line-height:1.35;font-family:inherit;' +
+            'min-width:150px;';
+        const name = document.createElement('div');
+        name.textContent = key[0].toUpperCase() + key.slice(1);
+        name.style.cssText = 'font-weight:bold;';
+        const note = document.createElement('div');
+        note.textContent = difficultyNotes[key] ?? '';
+        note.style.cssText = 'font-size:12px;opacity:0.75;';
+        button.appendChild(name);
+        button.appendChild(note);
+        button.addEventListener('click', () => {
+            chosenDifficulty = key;
+            paintDifficulty();
+        });
+        difficultyRow.appendChild(button);
+        difficultyButtons.push({ key, element: button });
+    }
+    paintDifficulty();
+
     // --- Mode --------------------------------------------------------
     heading('Match type');
 
@@ -819,7 +873,7 @@ function showStartMenu() {
             'padding:14px 40px;font-size:20px;background-color:#4CAF50;color:white;border:none;' +
             'border-radius:6px;cursor:pointer;min-width:280px;font-family:inherit;';
         button.addEventListener('click', () => {
-            if (chosenMap === MAP_KEY) {
+            if (chosenMap === MAP_KEY && chosenDifficulty === (AI_DIFFICULTY ?? 'low')) {
                 // Already on the right map, so no reload is needed and the
                 // menu can hand straight over. This is the common path:
                 // start, pick a mode, play.
@@ -829,7 +883,7 @@ function showStartMenu() {
                 });
                 return;
             }
-            window.location.search = `?map=${encodeURIComponent(chosenMap)}&mode=${encodeURIComponent(mode)}`;
+            window.location.search = `?map=${encodeURIComponent(chosenMap)}&mode=${encodeURIComponent(mode)}&difficulty=${encodeURIComponent(chosenDifficulty)}`;
         });
         overlay.appendChild(button);
     }

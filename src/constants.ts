@@ -39,6 +39,11 @@ const MAP_KEY = pickMapKey();
 // navigation is what lets that be one click and one reload rather than two.
 const START_MODE = urlParam('mode');
 
+// How hard the CPU thinks. Read here with the rest of the match setup so it
+// rides in the same URL, which is what makes a match linkable and what makes
+// changing it exactly one reload.
+const AI_DIFFICULTY = urlParam('difficulty');
+
 // Map and camera constants
 const MAP_CONFIG = {
     ROWS: MAP_SIZES[MAP_KEY].rows,
@@ -141,6 +146,6 @@ const DEBUG_SETTINGS = {
 const CRATER_COLOR = '#3A2B1B';
 
 export {
-    MAP_CONFIG, MAP_KEY, MAP_SIZES, START_MODE, TERRAIN_CONFIG, players, HIGHLIGHT_COLORS, VISUAL_COLORS,
+    MAP_CONFIG, MAP_KEY, MAP_SIZES, START_MODE, AI_DIFFICULTY, TERRAIN_CONFIG, players, HIGHLIGHT_COLORS, VISUAL_COLORS,
     VISUAL_OFFSETS, DEBUG_SETTINGS, CRATER_COLOR,
 };

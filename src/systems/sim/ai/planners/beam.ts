@@ -91,6 +91,11 @@ export function* beamPlanGen(
     // Width may be overridden by a budget; depth and the keep-counts may
     // not. See PlanTurnOptions.beamChildCounts.
     const childCounts = options.beamChildCounts ?? beam.childCounts;
+    // Depth gets the same treatment as width, and for the same reason: a
+    // live game has time to think that a headless batch does not. Explicit
+    // and separate, so depth can only ever change because someone asked
+    // for it -- handing over a whole beam object would carry it silently.
+    const beamDepth = options.beamDepth ?? beam.depth;
 
     const hasUnits = [...snapshot.liveUnits()].some((u) => u[1].playerIndex === playerIndex);
     if (!hasUnits) {
@@ -106,7 +111,7 @@ export function* beamPlanGen(
     let best: Node | null = null;
     let bestValue = -Infinity;
 
-    for (let depth = 0; depth < beam.depth; depth++) {
+    for (let depth = 0; depth < beamDepth; depth++) {
         const side = depth % 2 === 0 ? playerIndex : opponentIndex;
         const isOwnLevel = side === playerIndex;
         const childCount = childCountAt(depth);
@@ -194,7 +199,7 @@ export function* beamPlanGen(
         }
 
         level = nextLevel;
-        yield { done: depth + 1, total: beam.depth, label: depth === 0 ? 'search' : 'verify' };
+        yield { done: depth + 1, total: beamDepth, label: depth === 0 ? 'search' : 'verify' };
     }
 
     if (!best) {

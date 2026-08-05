@@ -1,3 +1,4 @@
+import { AI_DIFFICULTY } from '../../constants';
 // Bridges the pure search (SimState + planTurn) to the live game: snapshot
 // the world, search for the best whole-turn plan, then replay the winning
 // event log against the real systems with animations.
@@ -36,21 +37,65 @@ const ACTION_PAUSE_MS = 300;
 // what to think. Which engine plays is chosen separately below, so
 // swapping engines can't accidentally change the think time and a budget
 // change can't accidentally change how the AI values the board.
-const LIVE_BUDGET = {
-    population: 32,
-    rounds: 5,
-    finalists: 6,
-    deepPlies: 4,
-    replyPopulation: 10,
-    replyRounds: 2,
-    // A beam planner reads none of the above, so it needs its own live
-    // dial or it would play the batch-sized search in a game where there
-    // is time to think. WIDTH only: handing over a whole beam object here
-    // would also hand over its depth, which would silently turn a
-    // deliberately shallow engine into a deep one the moment it was
-    // selected for a live game.
-    beamChildCounts: [160, 120, 60, 40, 32],
+// How hard the CPU thinks, as three budgets.
+//
+// The dials are the beam's WIDTH (how many candidate turns survive at each
+// level) and its DEPTH (how many turns ahead it looks). Width buys better
+// play within the same horizon; depth buys foresight, and costs far more --
+// each extra ply multiplies the tree.
+//
+// LOW IS EXACTLY WHAT THE GAME PLAYED BEFORE THIS SETTING EXISTED, so a
+// player who never touches it gets the same opponent as yesterday.
+//
+// DEPTH NEVER GOES BELOW 3 at any level. skills.ts refuses to author a
+// cooldown longer than the default engine is deep, and Feint's 3 is what
+// makes Repair and Start Fire visible to the search -- a shallower setting
+// would spend them as though they were free.
+const DIFFICULTY_BUDGETS = {
+    low: {
+        population: 32,
+        rounds: 5,
+        finalists: 6,
+        deepPlies: 4,
+        replyPopulation: 10,
+        replyRounds: 2,
+        // A beam planner reads none of the above, so it needs its own live
+        // dial or it would play the batch-sized search in a game where
+        // there is time to think.
+        beamChildCounts: [160, 120, 60, 40, 32],
+        beamDepth: 3,
+    },
+    medium: {
+        population: 48,
+        rounds: 6,
+        finalists: 8,
+        deepPlies: 4,
+        replyPopulation: 14,
+        replyRounds: 2,
+        beamChildCounts: [220, 160, 90, 60, 44],
+        beamDepth: 4,
+    },
+    hard: {
+        population: 64,
+        rounds: 7,
+        finalists: 10,
+        deepPlies: 5,
+        replyPopulation: 18,
+        replyRounds: 3,
+        beamChildCounts: [300, 220, 130, 90, 64],
+        beamDepth: 5,
+    },
 };
+
+export type Difficulty = keyof typeof DIFFICULTY_BUDGETS;
+
+export const DIFFICULTIES: readonly Difficulty[] = ['low', 'medium', 'hard'];
+
+function budgetFor(difficulty: string | null) {
+    return DIFFICULTY_BUDGETS[(difficulty as Difficulty)] ?? DIFFICULTY_BUDGETS.low;
+}
+
+const LIVE_BUDGET = budgetFor(AI_DIFFICULTY);
 
 // ?ai=wolfpack picks a variant for BOTH CPU sides; ?ai=baseline:wolfpack
 // gives each side its own, so an AI-vs-AI game in the browser is a visible

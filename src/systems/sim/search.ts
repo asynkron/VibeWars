@@ -118,6 +118,14 @@ export interface PlanTurnOptions {
     // Folding the whole beam object into a budget instead would let
     // LIVE_BUDGET silently hand a shallow engine someone else's depth.
     beamChildCounts?: number[];
+    // Beam depth for a live game. Separate from beamChildCounts so width and
+    // depth can be raised independently -- and separate from the engine's
+    // own beam.depth so a batch run cannot inherit a browser's budget.
+    //
+    // NEVER SET IT BELOW 3. skills.ts refuses to author a cooldown longer
+    // than the default engine is deep, and Feint's 3 is what makes a
+    // three-turn cooldown visible to the search.
+    beamDepth?: number;
 }
 
 export interface TurnPlanResult {
