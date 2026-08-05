@@ -72,31 +72,32 @@ const DIFFICULTY_BUDGETS = {
         deepPlies: 4,
         replyPopulation: 14,
         replyRounds: 2,
-        beamChildCounts: [220, 160, 90, 60, 44],
+        // 1400 wide. Only the first FOUR entries are ever read -- the list
+        // is indexed childCounts[min(depth, length - 1)] and this plays four
+        // plies -- but the tail is kept so the taper is readable beside
+        // Hard's, and so raising beamDepth later does not silently hand the
+        // new deepest ply a number chosen for a shallower one.
+        beamChildCounts: [1400, 1000, 620, 400, 260],
         beamDepth: 4,
     },
     hard: {
         population: 96,
         rounds: 9,
         finalists: 14,
-        deepPlies: 6,
+        deepPlies: 5,
         replyPopulation: 24,
         replyRounds: 3,
-        // Six entries for six plies. A shorter list is not an error --
-        // childCountAt clamps to the last entry -- but it would silently
-        // give the deepest, most expensive levels the width meant for a
-        // shallower one.
-        // WIDTH IS THE CHEAP DIAL. Work per level is roughly (surviving
-        // nodes x childCount), and the survivors are capped by the engine's
-        // keepBest/keepWorst -- so width scales the cost LINEARLY while each
-        // extra ply of depth multiplies it. Spending the budget here buys
-        // far more searching per second of thinking.
-        // 2600 wide, not 9000. Measured: a synchronous plan at width 9000
-        // and depth 6 did not finish inside 30 seconds and locked the tab.
-        // This is roughly 16x Low's width and two plies deeper, and a whole
-        // CPU turn on a 30x30 map lands around two seconds end to end.
-        beamChildCounts: [2600, 1900, 1200, 800, 520, 340],
-        beamDepth: 6,
+        // WIDTH is the dial that was raised here -- 300 to 2600, roughly 16x
+        // Low. Depth stays at 5, where it started.
+        //
+        // It was briefly 6, and that was a mistake: work per level is about
+        // (surviving nodes x childCount) and the survivors are capped by the
+        // engine's keepBest/keepWorst, so width costs LINEARLY while every
+        // extra ply MULTIPLIES. A serial plan at depth 6 did not finish
+        // inside ten minutes on a 30x30 board with ten units. Depth is the
+        // expensive dial and it is not the one that needed turning.
+        beamChildCounts: [2600, 1900, 1200, 800, 520],
+        beamDepth: 5,
     },
 };
 
