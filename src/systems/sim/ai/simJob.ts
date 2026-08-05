@@ -36,6 +36,24 @@ export interface SimJob {
     count: number;
     seed: number;
     genesPerUnit: number;
+    // How many children the caller can possibly select, so the rest never
+    // have to be shipped. Optional: omitted means "return everything", which
+    // is what the tests and any non-beam caller want.
+    //
+    // A profiled 20-second search moved 30.8 MB from the workers and threw
+    // away 99.8% of it -- 1900 children per job, each carrying a full event
+    // array, structured-cloned on both sides, sorted, and discarded down to
+    // a handful. The deserialize is what shows up as main-thread long tasks
+    // during "AI thinking" even though the search itself runs off-thread.
+    keep?: SimJobKeep;
+}
+
+// The three slices a beam level can take. Named after the beam's own options
+// because they must be the same numbers -- see pruneChildren.
+export interface SimJobKeep {
+    best: number;
+    worst: number;
+    opponent: number;
 }
 
 export interface SimJobChild {
@@ -102,7 +120,7 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
             value: scoreState(branch, job.scoreFor, weights),
         });
     }
-    return children;
+    return job.keep ? pruneChildren(children, job.keep) : children;
 }
 
 // The snapshot as plain data, for structured-clone to a worker. SimState
@@ -143,4 +161,42 @@ export function snapshotFromWire(wire: SnapshotWire): SimState {
         units: wire.units,
         buildings: wire.buildings,
     });
+}
+
+
+// Everything the caller could still choose, and nothing else.
+//
+// A SUPERSET, NOT A TOP-K. The obvious pruning -- return the best `keepBest`
+// -- would silently delete the beam's sacrifice slots: it keeps the WORST
+// children alongside the best on purpose, because a move that scores badly
+// now is exactly the one whose consequences need playing out, and greedy
+// selection deletes it first. It would also break the opponent levels, which
+// take the worst children of those that ACTED, and an idle child can be
+// globally worst without being in that set.
+//
+// So all three slices come home, sorted the way the caller sorts. The caller
+// re-sorts and slices as before and cannot tell the difference -- which the
+// neutrality fixtures check, since they hash the event log of whole matches
+// played by this beam.
+function pruneChildren(children: SimJobChild[], keep: SimJobKeep): SimJobChild[] {
+    const total = keep.best + keep.worst + keep.opponent;
+    if (children.length <= total) return children;
+
+    // The caller's comparator, exactly: value descending, index breaking ties.
+    const sorted = [...children].sort((a, b) => b.value - a.value || a.index - b.index);
+
+    const chosen = new Set<SimJobChild>();
+    for (const child of sorted.slice(0, keep.best)) chosen.add(child);
+    if (keep.worst > 0) {
+        for (const child of sorted.slice(keep.best).slice(-keep.worst)) chosen.add(child);
+    }
+    if (keep.opponent > 0) {
+        // `acted` is events.length > 0, the same test beam.ts makes.
+        const acting = sorted.filter((child) => child.events.length > 0);
+        const pool = acting.length > 0 ? acting : sorted;
+        for (const child of pool.slice(-keep.opponent)) chosen.add(child);
+    }
+
+    // Back into job order, so nothing downstream can depend on arrival.
+    return [...chosen].sort((a, b) => a.index - b.index);
 }

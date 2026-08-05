@@ -142,6 +142,9 @@ export function* beamPlanGen(
                 count: childCount,
                 seed: combineSeed(seed, depth, p),
                 genesPerUnit: beam.genesPerUnit,
+            // What this level can still choose. Everything else is scored
+            // and dropped inside the job instead of being shipped home.
+            keep: { best: beam.keepBest, worst: beam.keepWorst, opponent: beam.keepOpponent },
             }, { dialect, score: weights });
 
             return children.map((child) => ({

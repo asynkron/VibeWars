@@ -89,6 +89,9 @@ export async function beamPlanParallel(
             count,
             seed: combineSeed(seed, depth, nodeIndex),
             genesPerUnit: beam.genesPerUnit,
+            // What this level can still choose. Everything else is scored
+            // and dropped inside the job instead of being shipped home.
+            keep: { best: beam.keepBest, worst: beam.keepWorst, opponent: beam.keepOpponent },
         }));
 
         const results = await pool.run(jobs, config);

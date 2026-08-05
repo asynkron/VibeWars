@@ -719,11 +719,33 @@ export class SimState {
     // transport's entire value, and the reason a destroyed transport has to
     // take its passengers with it.
     getUnitAt(q: number, r: number): [number, SimUnit] | null {
-        for (const [i, unit] of this.liveUnits()) {
-            if (unit.carriedBy !== null) continue;
-            if (unit.q === q && unit.r === r) return [i, unit];
+        // INDEXED, NOT SCANNED. Profiling a real beam job put this at ~35%
+        // of all simulation CPU -- 160 calls per rollout, each re-walking
+        // every unit, at 14x the cost of getTile or getUnit. Movement,
+        // adjacency and blocking checks all land here.
+        //
+        // The index is built lazily and thrown away on any unit write, which
+        // pays for itself by a wide margin: a rollout does ~160 of these
+        // reads against roughly 4 writes, and a rebuild is one pass over ten
+        // units. Correctness does not depend on the arithmetic being right,
+        // only on the invalidation being total -- see setUnit.
+        let index = this.occupancy;
+        if (index === null) {
+            index = new Map<number, number>();
+            for (const [i, unit] of this.liveUnits()) {
+                if (unit.carriedBy !== null) continue;
+                // Cargo is deliberately absent, exactly as the scan had it:
+                // a carried unit shares its transport's hex and must not
+                // report as standing on it.
+                index.set(unit.r * this.cols + unit.q, i);
+            }
+            this.occupancy = index;
         }
-        return null;
+        if (q < 0 || q >= this.cols || r < 0 || r >= this.rows) return null;
+        const found = index.get(r * this.cols + q);
+        if (found === undefined) return null;
+        const unit = this.getUnit(found);
+        return unit ? [found, unit] : null;
     }
 
     get buildingCount(): number {
@@ -790,6 +812,9 @@ export class SimState {
         }
     }
 
+    // Lazily-built hex -> unit index, dropped on any unit write.
+    private occupancy: Map<number, number> | null = null;
+
     // Whether anything anywhere is burning. The cheap guard the movement
     // path checks before it bothers to reconstruct a route.
     get hasFire(): boolean {
@@ -831,6 +856,12 @@ export class SimState {
 
     private setUnit(index: number, unit: SimUnit): void {
         this.unitOverrides.set(index, unit);
+        // Total invalidation rather than a surgical patch. Every write that
+        // can move a unit, kill it, load it or put it down goes through
+        // here, and getting a targeted update wrong would put a phantom on a
+        // hex -- a bug that would look like the movement rules failing.
+        // Rebuilding is one pass over the roster.
+        this.occupancy = null;
     }
 
     private setBuilding(index: number, building: SimBuilding): void {
