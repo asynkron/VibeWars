@@ -151,12 +151,31 @@ describe('walking through fire', () => {
         expect(state.getUnit(1), 'the passenger outlived its burning ride').toBeNull();
     });
 
-    it('costs nothing to stand still in a fire', () => {
-        // "Passes over" is the rule -- the unit is in the gaps between the
-        // flames until it moves again.
+    it('costs a hit point every turn just to stand in it', () => {
+        // Changed after playtesting. Charging only for tiles ENTERED made
+        // fire feel like nothing -- one hit point, once, and then free to
+        // camp in a burning forest.
         const state = withFireAt(3, 1, [unit({ type: 'Pike', q: 3, r: 1, playerIndex: 0 })]);
         startTurn(state, 0, NEVER);
-        expect(state.getUnit(0)!.hp).toBe(6);
+        expect(state.getUnit(0)!.hp, 'standing in the flames was free').toBe(5);
+        startTurn(state, 0, NEVER);
+        expect(state.getUnit(0)!.hp).toBe(4);
+    });
+
+    it('does not burn a flier hovering over it, or the other side\'s units', () => {
+        const state = withFireAt(3, 1, [
+            unit({ type: 'Nightjar', q: 3, r: 1, playerIndex: 0 }),
+            unit({ type: 'Bulwark', q: 3, r: 1, playerIndex: 1 }),
+        ]);
+        startTurn(state, 0, NEVER);
+        expect(state.getUnit(0)!.hp, 'a helicopter was burned by ground fire').toBe(6);
+        expect(state.getUnit(1)!.hp, 'a unit burned on someone else\'s turn').toBe(6);
+    });
+
+    it('kills whoever will not leave', () => {
+        const state = withFireAt(3, 1, [unit({ type: 'Pike', q: 3, r: 1, playerIndex: 0, hp: 1 })]);
+        startTurn(state, 0, NEVER);
+        expect(state.getUnit(0), 'the fire never finished it off').toBeNull();
     });
 });
 

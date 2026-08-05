@@ -189,6 +189,29 @@ export function applyFireTick(board: FireBoard, tick: FireTick, burningTiles: Ar
     }
 }
 
+// Units of the side whose turn is beginning that are standing in fire.
+//
+// ADDED AFTER PLAYTESTING. The original rule charged only for tiles ENTERED,
+// which is defensible -- the unit is in the gaps between the flames -- but it
+// made fire feel like nothing: one hit point, once, and then free to camp in
+// the middle of a burning forest. Standing in a fire now costs the same as
+// walking into one, every turn, which is what makes burning ground something
+// to get off rather than scenery.
+//
+// Returns the units to burn rather than burning them, like everything else
+// here: the caller records it in the simulation and applies it live.
+export function unitsStandingInFire<T extends { q: number; r: number; playerIndex: number }>(
+    board: FireBoard, units: readonly T[], playerIndex: number, flies: (unit: T) => boolean
+): T[] {
+    const burnt: T[] = [];
+    for (const unit of units) {
+        if (unit.playerIndex !== playerIndex) continue;
+        if (flies(unit)) continue;
+        if (isBurning(board.getTile(unit.q, unit.r))) burnt.push(unit);
+    }
+    return burnt;
+}
+
 // Damage a unit takes for walking this path.
 //
 // Charged per burning tile ENTERED, so crossing a wall of fire costs more

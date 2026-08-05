@@ -21,7 +21,7 @@ import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
 import { simDijkstra, simCostFieldFrom, simPath } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
-import { burningTilesOf, canIgnite, firePathDamage, tickFires } from '../../shared/hexengine/fire';
+import { burningTilesOf, canIgnite, FIRE_DAMAGE, firePathDamage, isBurning, tickFires } from '../../shared/hexengine/fire';
 
 export type BuiltinGeneKind =
     | 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'standoff' | 'attack' | 'idle';
@@ -150,6 +150,22 @@ export function startTurn(state: SimState, playerIndex: number, rng: () => numbe
     // thread must rebuild the same board rather than re-throw the dice.
     const burning = burningTilesOf(state.fireView, state.cols, state.rows);
     if (burning.length === 0) return;
+
+    // Standing in it costs, before the fire moves. Charged first so a unit
+    // that is about to be caught by the spread is not burnt twice in one
+    // turn -- this turn it pays for where it already was.
+    for (const [index, unit] of state.activeUnits()) {
+        if (unit.playerIndex !== playerIndex) continue;
+        if (UnitSystem.unitTypesRecord[unit.type]?.unitClass === 'air') continue;
+        const tile = state.getTile(unit.q, unit.r);
+        if (!isBurning(tile)) continue;
+        state.record({ type: 'unitBurned', unitIndex: index, damage: FIRE_DAMAGE });
+        const after = state.getUnit(index);
+        // No wreck fire: the tile is already alight, and a corpse in a fire
+        // cannot set light to a fire.
+        if (after && after.hp <= 0) recordDeath(state, index, false);
+    }
+
     const tick = tickFires(state.fireView, burning, rng);
     state.record({ type: 'fireTicked', ignited: tick.ignited, burnedOut: tick.burnedOut, aged: burning });
 }

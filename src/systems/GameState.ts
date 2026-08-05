@@ -6,8 +6,9 @@ import { selectedMapProvider } from './maps/mapRegistry';
 import type { Building, GameUnit, GamePlayer, PlayerController } from '../types';
 import { NO_COOLDOWNS, tickCooldowns } from '../shared/hexengine/skills';
 import { refreshSkillBar } from './skillBar';
-import { applyFireTick, burningTilesOf, tickFires, type FireBoard } from '../shared/hexengine/fire';
+import { applyFireTick, burningTilesOf, FIRE_DAMAGE, tickFires, unitsStandingInFire, type FireBoard } from '../shared/hexengine/fire';
 import { FireSystem } from '../shared/hexengine/FireSystem';
+import { VisualizationSystem } from '../shared/hexengine/VisualizationSystem';
 
 class GameState {
     static readonly CPU_TURN_PAUSE_MS = 400;
@@ -183,6 +184,18 @@ class GameState {
 
         const burning = burningTilesOf(this.fireBoard, this.map.cols, this.map.rows);
         if (burning.length === 0) return;
+        // Standing in it costs, on the same schedule the simulation charges
+        // it, so a replayed plan and the live board agree about who is hurt.
+        for (const unit of unitsStandingInFire(
+            this.fireBoard, this.units, this.currentTurn,
+            (u) => UnitSystem.unitTypesRecord[u.type]?.unitClass === 'air'
+        )) {
+            unit.hp -= FIRE_DAMAGE;
+            UnitSystem.updateUnitVisuals(unit);
+            VisualizationSystem.showDamageNumber(unit, FIRE_DAMAGE);
+            if (unit.hp <= 0) UnitSystem.removeUnit(unit);
+        }
+
         const tick = tickFires(this.fireBoard, burning, Math.random);
         applyFireTick(this.fireBoard, tick, burning);
         FireSystem.sync(this.map);
