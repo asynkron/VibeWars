@@ -362,7 +362,11 @@ export const UNIT_TYPES = {
             maxDamage: 6,
             attack: 5,
             model: "assets/units/nightjar-attack-helo.glb",
-            scale: 0.11,
+            // 1.5x the original 0.11. Both aircraft read as too small beside
+            // the ground units -- they sit a whole hex-height above the
+            // terrain (flightAltitude below), so perspective shrinks them
+            // further than their scale suggests.
+            scale: 0.165,
             rotation: 0,
             flightAltitude: 1.2,  // hovers above terrain/units
             // Rocket flurry like the artillery barrage VISUALLY, but every
@@ -398,7 +402,9 @@ export const UNIT_TYPES = {
             maxDamage: 9,
             attack: 7,
             model: "assets/units/shrike-attack-jet.glb",
-            scale: 0.12,
+            // 1.5x the original 0.12, matching the Nightjar's bump. The
+            // Shrike cruises higher still, so it needs it more.
+            scale: 0.18,
             rotation: 0,
             flightAltitude: 2.5,  // cruises higher than the helicopter
             attackEffect: 'projectile',
