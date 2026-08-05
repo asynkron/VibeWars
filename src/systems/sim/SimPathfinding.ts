@@ -46,7 +46,37 @@ export function simMoveCost(state: SimState, unitType: string, q: number, r: num
     return cost ? cost : null;
 }
 
+// A one-entry memo of the last Dijkstra, keyed on everything that can change
+// its answer.
+//
+// It exists because of ONE call pattern: a move gene runs simDijkstra to
+// choose a destination, then recordSimMove immediately runs simPath over the
+// same unit from the same hex to count the burning tiles on the route. That
+// is the identical search twice, back to back, on the hottest path in the
+// engine -- and it is why a single fire on the map made a turn plan seven
+// times slower. Anything that could change the answer is in the key, so a
+// stale hit is not possible: the board's event count, the unit, where it is
+// standing, and the cost ceiling.
+const dijkstraMemo = new WeakMap<SimState, { key: string; result: SimDijkstraResult }>();
+
+function memoKey(state: SimState, unitIndex: number, maxCost: number): string | null {
+    const unit = state.getUnit(unitIndex);
+    if (!unit) return null;
+    return `${state.events.length}|${unitIndex}|${unit.q}|${unit.r}|${maxCost}`;
+}
+
 export function simDijkstra(state: SimState, unitIndex: number, maxCost: number = Infinity): SimDijkstraResult {
+    const key = memoKey(state, unitIndex, maxCost);
+    if (key !== null) {
+        const cached = dijkstraMemo.get(state);
+        if (cached && cached.key === key) return cached.result;
+    }
+    const result = simDijkstraUncached(state, unitIndex, maxCost);
+    if (key !== null) dijkstraMemo.set(state, { key, result });
+    return result;
+}
+
+function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number = Infinity): SimDijkstraResult {
     const distances = new Map<string, number>();
     const previous = new Map<string, string>();
     const reachable = new Set<string>();

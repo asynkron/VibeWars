@@ -26,7 +26,7 @@
 import * as TerrainSystem from '../../shared/hexengine/terrainStats';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { NO_COOLDOWNS, skillCost, tickCooldowns, type Cooldowns } from '../../shared/hexengine/skills';
-import { applyFireTick, burningTilesOf, ignite, type FireBoard, type FireTile } from '../../shared/hexengine/fire';
+import { applyFireTick, ignite, type FireBoard, type FireTile } from '../../shared/hexengine/fire';
 
 // Extends FireTile, so a SimTile can be handed straight to the shared fire
 // rules in shared/hexengine/fire.ts without an adapter. That is the point of
@@ -161,7 +161,12 @@ export type GameEvent =
     // The countdown is NOT carried: it is derivable from the board and
     // would add an entry per burning tile per turn to the log the
     // neutrality fixture hashes.
-    | { type: 'fireTicked'; ignited: Array<{ q: number; r: number }>; burnedOut: Array<{ q: number; r: number }> }
+    // `aged` is every tile that was alight when the turn began. It is
+    // carried rather than re-derived because apply() runs on the REPLAY
+    // path: the beam rebuilds each node by replaying its parents' events,
+    // once per child, on every worker. A full board scan there cost 20x on
+    // a 30x30 map with a single fire burning.
+    | { type: 'fireTicked'; ignited: Array<{ q: number; r: number }>; burnedOut: Array<{ q: number; r: number }>; aged: Array<{ q: number; r: number }> }
     // Hp a unit lost walking through fire, already counted over the path
     // the mover actually took.
     | { type: 'unitBurned'; unitIndex: number; damage: number };
@@ -174,6 +179,20 @@ export type GameEvent =
 // It exists so that the fire check on the movement path costs nothing on a
 // map with no fire on it, which is almost every map almost all of the time.
 const baseHasFire = new WeakMap<readonly SimTile[], boolean>();
+
+// Indices of the base tiles that were alight in this snapshot, computed once
+// per snapshot and shared by every fork of it -- same trick, same reason.
+const baseFireIndices = new WeakMap<readonly SimTile[], number[]>();
+
+function baseFireTiles(base: readonly SimTile[], _cols: number): readonly number[] {
+    let found = baseFireIndices.get(base);
+    if (found === undefined) {
+        found = [];
+        for (let i = 0; i < base.length; i++) if (base[i].burning > 0) found.push(i);
+        baseFireIndices.set(base, found);
+    }
+    return found;
+}
 
 export class SimState {
     // Hp repaired per turn for a unit starting its turn on an owned
@@ -531,11 +550,7 @@ export class SimState {
                 return;
             }
             case 'fireTicked': {
-                // Deterministic given the board -- the dice were thrown
-                // before this event was recorded -- so scanning for what is
-                // alight is allowed here for the same reason turnStarted's
-                // sweep over every unit is.
-                applyFireTick(this.fireBoard, event, burningTilesOf(this.fireBoard, this.cols, this.rows));
+                applyFireTick(this.fireBoard, event, event.aged);
                 return;
             }
             case 'unitBurned': {
@@ -753,6 +768,27 @@ export class SimState {
     }
 
     // ---- Private cache writers (only apply() calls these) ----
+
+    // Every tile currently alight, without scanning the map.
+    //
+    // Fires only ever START through an event, and every event writes a tile
+    // OVERRIDE -- so the burning set is (base fires) plus (overrides that
+    // burn), and the override map is a handful of entries in any branch.
+    // The base scan happens once per turn snapshot and is shared by every
+    // fork through the same WeakMap the hasFire check uses.
+    *burningTiles(): Generator<{ q: number; r: number }> {
+        for (const [idx, tile] of this.tileOverrides) {
+            if (tile.burning > 0) yield { q: idx % this.cols, r: Math.floor(idx / this.cols) };
+        }
+        for (const idx of baseFireTiles(this.baseTiles, this.cols)) {
+            // An override wins: a base fire that has since burnt out is
+            // already covered by the loop above.
+            const override = this.tileOverrides.get(idx);
+            if (override ? override.burning > 0 : true) {
+                if (!override) yield { q: idx % this.cols, r: Math.floor(idx / this.cols) };
+            }
+        }
+    }
 
     // Whether anything anywhere is burning. The cheap guard the movement
     // path checks before it bothers to reconstruct a route.
