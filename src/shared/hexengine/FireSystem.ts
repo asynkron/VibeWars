@@ -34,16 +34,16 @@ import type { TileLike } from '../../types';
 // body and a dark plume above it. The first version of this used untextured
 // procedural points and read as a handful of sparks -- the sprites are what
 // give it volume.
-const FLAMES_PER_TILE = 26;
-const SMOKE_PER_TILE = 14;
+const FLAMES_PER_TILE = 44;
+const SMOKE_PER_TILE = 18;
 
 // Point size is `base * (SIZE_SCALE / -viewZ)`, the same perspective
 // scaling createParticleEffect uses. The 300 is not decorative: at 26 the
 // sprites are a few pixels across at map zoom, which is exactly the "small
 // ember pixels" this replaced.
 const SIZE_SCALE = 300.0;
-const FLAME_SIZE = 0.42;
-const SMOKE_SIZE = 0.7;
+const FLAME_SIZE = 0.9;
+const SMOKE_SIZE = 1.2;
 
 // Seconds for one particle to travel its arc before it wraps. Flames are
 // quick and tight; smoke is slow and drifts higher.
@@ -57,12 +57,17 @@ const SMOKE_RISE = 2.4;
 // Emissive multiplier on the flame layer. Above render.ts's
 // BLOOM_THRESHOLD of 1.70, which is what makes the UnrealBloomPass halo it
 // into something that reads as heat rather than as an orange decal.
-// 1.9, not 2.6. Additive blending sums overlapping sprites, so an emissive
-// high enough to bloom a LONE particle clips every channel where twenty of
-// them overlap -- the column blew out to a white popcorn cloud. Just over
-// render.ts's BLOOM_THRESHOLD of 1.70 is enough to halo; the heat comes
-// from the bloom, not from the raw value.
-const FLAME_EMISSIVE = 1.9;
+// 1.8, not 2.6. Additive blending SUMS overlapping sprites, so a value
+// chosen to bloom one particle clips every channel where twenty overlap and
+// the column goes white.
+//
+// THE CURE IS BRIGHTNESS, NOT SIZE. The first attempt at this fixed the
+// white by shrinking the sprites and thinning the count as well, which
+// turned a fire into orange glitter -- the volume was never the problem.
+// Big sprites, many of them, each contributing less: that is a fire.
+// Just over render.ts's BLOOM_THRESHOLD of 1.70 is all it takes, because
+// the heat is supposed to come from the bloom pass.
+const FLAME_EMISSIVE = 1.8;
 
 const FLAME_HOT = 0xffa528;   // saturated amber at the base -- a paler
                               // hot colour washes straight to white once
@@ -282,10 +287,11 @@ class FireSystem {
                     vec3 color = mix(uHot, uCool, vLife);
                     // Fades in fast, out slow, so the base of the column
                     // stays solid and only the top dissolves.
-                    // Peaks well below 1: twenty overlapping additive
-                    // sprites reach full brightness long before any single
-                    // one does.
-                    float fade = 0.45 * smoothstep(0.0, 0.12, vLife) * (1.0 - smoothstep(0.35, 1.0, vLife));
+                    // Peaks well below 1, and this -- not the sprite size --
+                    // is what keeps a dense column from summing to white.
+                    // Forty overlapping additive sprites reach full
+                    // brightness long before any single one does.
+                    float fade = 0.30 * smoothstep(0.0, 0.10, vLife) * (1.0 - smoothstep(0.40, 1.0, vLife));
 
                     // THE SHAPE COMES FROM ALPHA, THE COLOUR FROM US.
                     // createParticleEffect multiplies by tex.rgb, which is
