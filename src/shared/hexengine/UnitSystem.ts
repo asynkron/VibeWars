@@ -803,12 +803,27 @@ class UnitSystem {
         FireSystem.sync(map);
     }
 
+    // Show or hide a unit, BADGE INCLUDED.
+    //
+    // A unit is two objects in the scene, not one: the model, and the sprite
+    // carrying its health bar and name -- and createUnit adds that sprite to
+    // the SCENE rather than parenting it to the model, so hiding the model
+    // leaves the badge floating exactly where the unit used to be. Which is
+    // what a loaded Pike did: it climbed into the APC and left its health
+    // bar standing in the trees.
+    private static setUnitVisible(unit: GameUnit, visible: boolean): void {
+        const visual = unit.visualUnit as any;
+        if (!visual) return;
+        visual.visible = visible;
+        if (visual.userData?.sprite) visual.userData.sprite.visible = visible;
+    }
+
     static loadPassenger(carrier: GameUnit, passenger: GameUnit): void {
         passenger.carriedBy = carrier;
         passenger.q = carrier.q;
         passenger.r = carrier.r;
         passenger.move = 0;
-        if (passenger.visualUnit) (passenger.visualUnit as any).visible = false;
+        this.setUnitVisible(passenger, false);
         this.chargeFor(carrier, skillById(carrier.type, DROVER_LOAD.id));
     }
 
@@ -826,7 +841,7 @@ class UnitSystem {
             this.setPosition(passenger.visualUnit, new HexCoord(q, r), hex);
         }
         passenger.move = 0;
-        if (passenger.visualUnit) (passenger.visualUnit as any).visible = true;
+        this.setUnitVisible(passenger, true);
         this.chargeFor(carrier, skillById(carrier.type, DROVER_UNLOAD.id));
     }
 
