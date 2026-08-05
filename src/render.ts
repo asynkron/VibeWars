@@ -1,5 +1,6 @@
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
+import { FireSystem } from './shared/hexengine/FireSystem';
 import { GlowSystem } from './shared/hexengine/GlowSystem';
 import { RotorSystem } from './shared/hexengine/RotorSystem';
 import { viewOptions } from './shared/hexengine/ViewOptions';
@@ -282,6 +283,11 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
 
     // Gutter the models' energy panels on the same clock.
     GlowSystem.animate(seconds);
+    // One call drives every burning tile, rather than a rAF chain
+
+    // per fire the way the one-shot effects do.
+
+    FireSystem.animate(seconds);
 
     // Spin the helicopters' rotors. Blades move every frame, so their
     // shadow is stale every frame -- but only while a helicopter is alive.

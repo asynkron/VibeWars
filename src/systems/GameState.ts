@@ -6,6 +6,8 @@ import { selectedMapProvider } from './maps/mapRegistry';
 import type { Building, GameUnit, GamePlayer, PlayerController } from '../types';
 import { NO_COOLDOWNS, tickCooldowns } from '../shared/hexengine/skills';
 import { refreshSkillBar } from './skillBar';
+import { applyFireTick, burningTilesOf, tickFires, type FireBoard } from '../shared/hexengine/fire';
+import { FireSystem } from '../shared/hexengine/FireSystem';
 
 class GameState {
     static readonly CPU_TURN_PAUSE_MS = 400;
@@ -118,6 +120,20 @@ class GameState {
             }
         });
 
+        // The wildfire, ticked HERE for the same reason cooldowns are: this
+        // is where a turn begins on the live board, and SimState.turnStarted
+        // is where it begins in the simulation. Anywhere else and the two
+        // disagree.
+        //
+        // NOT in the End Turn button handler, which is where the only other
+        // turn-lived visual system (FootprintSystem) is driven from. The AI
+        // never presses that button, so a fire ticked there would freeze
+        // solid for the whole of the CPU's turn.
+        //
+        // Math.random is right here and wrong in the simulation: this is the
+        // one real board, rolled once, with nothing to reproduce.
+        this.tickFire();
+
         // The badges are drawn from unit.cooldowns, so a bar left open
         // across the turn boundary would keep showing the old number until
         // something else happened to reselect. Refreshed once, after the
@@ -141,6 +157,30 @@ class GameState {
             // loop (microtask-only spin = frozen page). The delay also gives
             // AI-vs-AI matches a watchable pace.
             .finally(() => setTimeout(() => this.nextTurn(), GameState.CPU_TURN_PAUSE_MS));
+    }
+
+    // The live board, as something the shared fire rules can drive. Same
+    // interface SimState satisfies -- which is what lets one implementation
+    // of "what fire does" serve both.
+    private get fireBoard(): FireBoard {
+        const map = this.map;
+        return {
+            getTile: (q, r) => map.getTile(q, r),
+            // The live board really is mutable; there are no forks to
+            // protect here, unlike the simulation's copy-on-write.
+            setTile: (q, r, tile) => {
+                const existing = map.getTile(q, r);
+                if (existing) Object.assign(existing, tile);
+            },
+        };
+    }
+
+    private tickFire(): void {
+        const burning = burningTilesOf(this.fireBoard, this.map.cols, this.map.rows);
+        if (burning.length === 0) return;
+        const tick = tickFires(this.fireBoard, burning, Math.random);
+        applyFireTick(this.fireBoard, tick, burning);
+        FireSystem.sync(this.map);
     }
 
     private endGame(winner: number, reason: string): void {

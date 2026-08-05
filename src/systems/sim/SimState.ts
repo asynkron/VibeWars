@@ -26,8 +26,13 @@
 import * as TerrainSystem from '../../shared/hexengine/terrainStats';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { NO_COOLDOWNS, skillCost, tickCooldowns, type Cooldowns } from '../../shared/hexengine/skills';
+import { applyFireTick, burningTilesOf, ignite, type FireBoard, type FireTile } from '../../shared/hexengine/fire';
 
-export interface SimTile {
+// Extends FireTile, so a SimTile can be handed straight to the shared fire
+// rules in shared/hexengine/fire.ts without an adapter. That is the point of
+// the structural interface: one rule, and the simulation and the live map
+// tile both satisfy it.
+export interface SimTile extends FireTile {
     height: number;
     type: string;
     hasRoad: boolean;
@@ -136,7 +141,34 @@ export type GameEvent =
     // movement and may attack again (mirrors GameState.nextTurn's reset).
     // Used by the search's multi-turn lookahead rollouts; never part of the
     // executed first-turn plan.
-    | { type: 'turnStarted'; playerIndex: number };
+    | { type: 'turnStarted'; playerIndex: number }
+    // A unit set light to a tile. Carries the hex rather than a target
+    // index because the target IS terrain -- fire is the first skill in the
+    // game that does not point at a unit.
+    | { type: 'fireStarted'; q: number; r: number; casterIndex: number; skillId: string }
+    // One turn of wildfire, ALREADY ROLLED. The spread is the only genuinely
+    // random rule in the simulation, so the dice are thrown by the command
+    // layer and only the outcome travels -- exactly as resolveAttack does
+    // for damage. A beam node is replayed independently on every worker
+    // thread (see simJob.ts); an event that re-rolled on replay would
+    // reconstruct a different board on each one.
+    //
+    // The countdown is NOT carried: it is derivable from the board and
+    // would add an entry per burning tile per turn to the log the
+    // neutrality fixture hashes.
+    | { type: 'fireTicked'; ignited: Array<{ q: number; r: number }>; burnedOut: Array<{ q: number; r: number }> }
+    // Hp a unit lost walking through fire, already counted over the path
+    // the mover actually took.
+    | { type: 'unitBurned'; unitIndex: number; damage: number };
+
+// Is any tile in this base array alight? Keyed on the ARRAY, so the answer
+// is computed once per turn snapshot and shared by every one of the hundreds
+// of forks the search makes from it -- fork() passes baseTiles through by
+// reference, which is exactly what makes this cache free.
+//
+// It exists so that the fire check on the movement path costs nothing on a
+// map with no fire on it, which is almost every map almost all of the time.
+const baseHasFire = new WeakMap<readonly SimTile[], boolean>();
 
 export class SimState {
     // Hp repaired per turn for a unit starting its turn on an owned
@@ -199,6 +231,23 @@ export class SimState {
                     type: t.type,
                     hasRoad: t.hasRoad,
                     moveCost: t.moveCost,
+                    // THE FIRE MUST COME THROUGH HERE OR IT DOES NOT EXIST.
+                    // condense() round-trips its own tiles back through this
+                    // mapper, and it runs after every turnStarted on both hot
+                    // paths (headless.ts, search.ts) -- a field this function
+                    // forgets is a field that silently resets to nothing once
+                    // per turn. This is also the only channel by which a fire
+                    // burning on the live board reaches the AI at all.
+                    //
+                    // `vegetated` defaults false rather than being recomputed:
+                    // it is a fact about the scenery that was DRAWN, decided
+                    // once at map build from the height the tile had then, and
+                    // craters change the height afterwards without ever
+                    // redrawing. A tile whose source cannot answer has no
+                    // greenery as far as fire is concerned.
+                    vegetated: t.vegetated ?? false,
+                    burning: t.burning ?? 0,
+                    burned: t.burned ?? false,
                 };
             }
         }
@@ -460,6 +509,37 @@ export class SimState {
                 }
                 return;
             }
+            case 'fireStarted': {
+                ignite(this.fireBoard, event.q, event.r);
+                // The caster pays, through the same skillCost() every other
+                // cast goes through. Charging it here rather than in the
+                // gene is what stops a simulated Pike from burning the wood
+                // and shooting in the same turn while a replayed one cannot.
+                const caster = this.getUnit(event.casterIndex);
+                if (caster) {
+                    const skill = UnitSystem.skillById(caster.type, event.skillId);
+                    this.setUnit(event.casterIndex, {
+                        ...caster,
+                        ...(skill ? skillCost(caster, skill) : { hasAttacked: true }),
+                    });
+                }
+                return;
+            }
+            case 'fireTicked': {
+                // Deterministic given the board -- the dice were thrown
+                // before this event was recorded -- so scanning for what is
+                // alight is allowed here for the same reason turnStarted's
+                // sweep over every unit is.
+                applyFireTick(this.fireBoard, event, burningTilesOf(this.fireBoard, this.cols, this.rows));
+                return;
+            }
+            case 'unitBurned': {
+                const unit = this.getUnit(event.unitIndex);
+                // Like unitAttacked: hp goes down and stops there. Death is
+                // a separate explicit event from the command layer.
+                if (unit) this.setUnit(event.unitIndex, { ...unit, hp: unit.hp - event.damage });
+                return;
+            }
             case 'turnStarted': {
                 for (let i = 0; i < this.baseUnits.length; i++) {
                     const unit = this.getUnit(i);
@@ -668,6 +748,40 @@ export class SimState {
     }
 
     // ---- Private cache writers (only apply() calls these) ----
+
+    // Whether anything anywhere is burning. The cheap guard the movement
+    // path checks before it bothers to reconstruct a route.
+    get hasFire(): boolean {
+        let base = baseHasFire.get(this.baseTiles);
+        if (base === undefined) {
+            base = this.baseTiles.some((t) => t.burning > 0);
+            baseHasFire.set(this.baseTiles, base);
+        }
+        if (base) return true;
+        // Overrides are the fires lit since the snapshot. There are only
+        // ever a handful of them in a branch.
+        for (const tile of this.tileOverrides.values()) {
+            if (tile.burning > 0) return true;
+        }
+        return false;
+    }
+
+    // The read side of the fire board, public so the command layer can roll
+    // a spread before recording it. Writes stay behind the private setter:
+    // only apply() may change a board, and only from a recorded event.
+    get fireView(): FireBoard {
+        return this.fireBoard;
+    }
+
+    // SimState as a board the shared fire rules can drive. Reads go through
+    // getTile, writes through setTile's copy-on-write override -- which is
+    // the whole reason FireBoard takes a setter instead of mutating tiles.
+    private get fireBoard(): FireBoard {
+        return {
+            getTile: (q, r) => this.getTile(q, r),
+            setTile: (q, r, tile) => this.setTile(q, r, tile as SimTile),
+        };
+    }
 
     private setTile(q: number, r: number, tile: SimTile): void {
         const idx = this.tileIndex(q, r);

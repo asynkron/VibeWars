@@ -7,6 +7,7 @@ import { selectedMapProvider } from '../../systems/maps/mapRegistry';
 import { Tile } from '../../systems/maps/MapProvider';
 import { MAP_CONFIG } from '../../constants';
 import type { TileLike } from '../../types';
+import { hasVegetation } from './tileVegetation';
 
 class GameMap {
   rows: number;
@@ -17,6 +18,25 @@ class GameMap {
     this.rows = rows;
     this.cols = cols;
     this.tiles = selectedMapProvider().generate();
+
+    // Which tiles have greenery on them, decided ONCE here and never again.
+    //
+    // Here rather than in Tile's constructor because it is a question about
+    // a POSITION, and here rather than in each provider because every map
+    // must answer it the same way -- including the random ones nobody
+    // authored. hasVegetation replays the same rolls ProceduralDecorations
+    // will use to draw the scenery, so fire can only ever start where a
+    // player can actually see something to burn.
+    //
+    // Frozen at build time on purpose: craters lower tiles afterwards and
+    // the scenery is never redrawn, so asking again later would answer for
+    // trees that are not there.
+    for (let q = 0; q < this.cols; q++) {
+      for (let r = 0; r < this.rows; r++) {
+        const tile = this.tiles[q]?.[r];
+        if (tile) tile.vegetated = hasVegetation(tile.type, q, r, tile.height);
+      }
+    }
   }
 
   getTile(q: number, r: number): TileLike | null {

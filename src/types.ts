@@ -1,3 +1,4 @@
+import type { FireTile } from './shared/hexengine/fire';
 // Shared domain types for the hex engine and game. Introduced during the
 // "tighten any to real types" pass that followed the JS->TS module migration.
 //
@@ -210,7 +211,9 @@ export interface BuildingSpawn {
 }
 
 // A GameMap tile, see MapSystem's Tile class.
-export interface TileLike {
+// Extends FireTile so the live board satisfies the shared fire rules
+// structurally, exactly as SimTile does. One rule, two boards.
+export interface TileLike extends FireTile {
   height: number;
   type: string;
   color: number;

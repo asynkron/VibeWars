@@ -37,7 +37,7 @@
 // plans win; the reported score is the real, unpenalized horizon score.
 
 import { SimState, GameEvent } from './SimState';
-import { Gene, GeneDialect, DEFAULT_DIALECT, applyGene, randomGene, sweepAttacks } from './SimCommands';
+import { Gene, GeneDialect, DEFAULT_DIALECT, applyGene, randomGene, sweepAttacks, startTurn} from './SimCommands';
 import { mulberry32, combineSeed } from './resolveAttack';
 import { scoreState, ScoreWeights, DEFAULT_SCORE_WEIGHTS } from './score';
 
@@ -320,7 +320,7 @@ export function* planTurnGen(
             horizon = branch.fork();
             let side = opponentIndex;
             for (let ply = 0; ply < lookaheadPlies; ply++) {
-                horizon.record({ type: 'turnStarted', playerIndex: side });
+                startTurn(horizon, side, rolloutRng);
                 horizon = bestReply(horizon, side, rolloutRng, replyCandidates, dialect, scoreWeights, replyGenesPerUnit);
                 side = side === playerIndex ? opponentIndex : playerIndex;
             }
@@ -338,7 +338,9 @@ export function* planTurnGen(
         let state = candidate.branch.fork();
         let side = opponentIndex;
         for (let ply = 0; ply < deepPlies; ply++) {
-            state.record({ type: 'turnStarted', playerIndex: side });
+            // Same seed expression the nested planTurn below uses, so the
+            // deep rollout's fire rolls are as reproducible as its plans.
+            startTurn(state, side, mulberry32(combineSeed(seed, fingerprint(candidate.genes), ply)));
             const snap = state.condense();
             const reply = planTurn(snap, side, {
                 ...personality,

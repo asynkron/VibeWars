@@ -22,7 +22,8 @@ import { SimState, SimUnit } from './SimState';
 import { PlanTurnOptions } from './search';
 import { AIEngine } from './ai/AIEngine';
 import { DEFAULT_ENGINE } from './ai/engineRegistry';
-import { combineSeed } from './resolveAttack';
+import { combineSeed, mulberry32 } from './resolveAttack';
+import { startTurn } from './SimCommands';
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import type { MapProvider, StartingUnit } from '../maps/MapProvider';
@@ -254,7 +255,7 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
         // prize unit yielded last turn joins the fresh snapshot here
         // (condense can't add units, so the spawn rides in via a manual
         // re-snapshot of the condensed state).
-        state.record({ type: 'turnStarted', playerIndex: side });
+        startTurn(state, side, mulberry32(combineSeed(seed, turn)));
         let snapshot = state.condense();
         if (pendingSpawns.length > 0) {
             snapshot = SimState.snapshot({

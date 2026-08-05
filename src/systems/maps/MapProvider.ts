@@ -45,6 +45,16 @@ export class Tile implements TileLike {
     color: number;
     hasRoad: boolean;
     moveCost: number;
+    // The fire face, matching SimTile's, so the shared rules in
+    // shared/hexengine/fire.ts drive the live board and the simulated one
+    // through the same code.
+    //
+    // `vegetated` is filled in by GameMap once the whole grid exists, not
+    // here: it is a question about the tile at (q, r) and the constructor
+    // does not know where it is.
+    vegetated: boolean;
+    burning: number;
+    burned: boolean;
 
     constructor(height: number, type: string, color: number) {
         this.height = height;
@@ -52,5 +62,8 @@ export class Tile implements TileLike {
         this.color = color;
         this.hasRoad = false;
         this.moveCost = (TerrainSystem.terrainTypes as any)[type]?.moveCost ?? 1;
+        this.vegetated = false;
+        this.burning = 0;
+        this.burned = false;
     }
 }

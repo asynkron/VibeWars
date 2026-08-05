@@ -19,8 +19,9 @@
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
-import { simDijkstra, simCostFieldFrom } from './SimPathfinding';
+import { simDijkstra, simCostFieldFrom, simPath } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
+import { burningTilesOf, firePathDamage, tickFires } from '../../shared/hexengine/fire';
 
 export type BuiltinGeneKind =
     | 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'standoff' | 'attack' | 'idle';
@@ -129,6 +130,30 @@ export function nearestEnemyIndex(state: SimState, unitIndex: number): number | 
     return best;
 }
 
+// Begin a turn: the unit reset, and the wildfire.
+//
+// THE ONLY WAY A SIMULATED TURN SHOULD START. Four places used to record a
+// bare turnStarted -- the cheap rollout, the deep rollout, the beam's
+// per-child reset and the headless match loop -- and fire has to be rolled
+// at every one of them or the AI searches a game where fires never spread.
+// Collecting them here is the same move skillCost() made for skill costs.
+//
+// The rng is an ARGUMENT because each of those callers already owns a
+// seeded stream, and because the beam's children are evaluated on worker
+// threads whose results are merged as though they were comparable. A
+// Math.random() in this path would make a plan depend on which core ran it.
+export function startTurn(state: SimState, playerIndex: number, rng: () => number): void {
+    state.record({ type: 'turnStarted', playerIndex });
+
+    // Rolled here, in the command layer, and recorded as the outcome --
+    // apply() must stay mechanical, and a beam node replayed on another
+    // thread must rebuild the same board rather than re-throw the dice.
+    const burning = burningTilesOf(state.fireView, state.cols, state.rows);
+    if (burning.length === 0) return;
+    const tick = tickFires(state.fireView, burning, rng);
+    state.record({ type: 'fireTicked', ignited: tick.ignited, burnedOut: tick.burnedOut });
+}
+
 // A death, cargo included.
 //
 // A transport takes its passengers down with it. Without that a loaded APC
@@ -216,6 +241,11 @@ function resolveTargetIndex(state: SimState, unitIndex: number, gene: Gene): num
 // happen. No unit is spawned here -- the factory's content is hidden, so
 // the sim only records the capture and lets score.ts value it.
 export function recordSimMove(state: SimState, unitIndex: number, toQ: number, toR: number, moveSpent: number): void {
+    // Charged BEFORE the move is recorded, because the route is worked out
+    // from where the unit is standing NOW. Afterwards it is already at the
+    // far end and the path it took is gone.
+    chargeFireDamage(state, unitIndex, toQ, toR);
+
     state.record({ type: 'unitMoved', unitIndex, toQ, toR, moveSpent });
     const unit = state.getUnit(unitIndex);
     if (!unit || !unitCanCapture(unit)) return;
@@ -226,6 +256,36 @@ export function recordSimMove(state: SimState, unitIndex: number, toQ: number, t
     if (found && found[1].isEntrance && found[1].ownerIndex !== unit.playerIndex) {
         state.record({ type: 'buildingCaptured', buildingIndex: found[0], playerIndex: unit.playerIndex });
     }
+}
+
+// A unit pays for every burning tile it walks into.
+//
+// Behind state.hasFire, which is free when nothing is alight -- i.e. on
+// almost every board almost all of the time. Only when there IS a fire does
+// this reconstruct the route, and it has to reconstruct it: unitMoved
+// carries the destination alone, so the tiles crossed are not in the event.
+//
+// The DAMAGE is recorded, not the path. That keeps the log small and, more
+// importantly, keeps it a statement of fact -- the live game replays the
+// number rather than re-walking a route it might route differently.
+function chargeFireDamage(state: SimState, unitIndex: number, toQ: number, toR: number): void {
+    if (!state.hasFire) return;
+    const unit = state.getUnit(unitIndex);
+    if (!unit) return;
+
+    const route = simPath(state, unitIndex, toQ, toR);
+    if (!route) return;
+
+    const flies = UnitSystem.unitTypesRecord[unit.type]?.unitClass === 'air';
+    const damage = firePathDamage(state.fireView, route.path, flies);
+    if (damage <= 0) return;
+
+    state.record({ type: 'unitBurned', unitIndex, damage });
+    // Death is explicit and comes from the command layer, exactly as it does
+    // for an attack -- and through recordDeath, so a transport that burns to
+    // death still takes its passengers with it.
+    const after = state.getUnit(unitIndex);
+    if (after && after.hp <= 0) recordDeath(state, unitIndex);
 }
 
 // Apply one gene to the branch, recording events. Returns true if any

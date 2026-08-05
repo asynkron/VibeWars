@@ -28,6 +28,8 @@ import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT } from '../../systems/sim/res
 import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
 import { skillCost, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef } from './skills';
 import { showSkillsFor } from '../../systems/skillBar';
+import { canIgnite, firePathDamage, ignite } from './fire';
+import { FireSystem } from './FireSystem';
 import { skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
 class UnitSystem {
@@ -488,6 +490,27 @@ class UnitSystem {
                         rider.r = unit.r;
                     }
 
+                    // Fire is charged per tile ENTERED, here, as the unit
+                    // steps -- the same rule and the same shared function
+                    // the simulation charged over the route it planned. Both
+                    // sides walk a path and both count the burning tiles on
+                    // it, so an AI plan that cost 2 hp costs 2 hp when it is
+                    // replayed. (That is also why AIController deliberately
+                    // does NOT apply its unitBurned event: this already has.)
+                    const here = getGameState().map.getTile(unit.q, unit.r);
+                    const flies = UnitSystem.unitTypesRecord[unit.type]?.unitClass === 'air';
+                    const burn = firePathDamage(
+                        { getTile: (q, r) => getGameState().map.getTile(q, r), setTile: () => {} },
+                        [{ q: unit.q, r: unit.r }],
+                        flies
+                    );
+                    if (burn > 0 && here) {
+                        unit.hp -= burn;
+                        UnitSystem.updateUnitVisuals(unit);
+                        VisualizationSystem.showDamageNumber(unit, burn);
+                        if (unit.hp <= 0) UnitSystem.removeUnit(unit);
+                    }
+
                     // After the last movement step, recalculate highlights with a small delay
                     if (index === path.length - 1) {
                         // Capture check at the final resting tile: every
@@ -694,6 +717,30 @@ class UnitSystem {
     // Put a passenger aboard. The visual is hidden rather than removed:
     // the unit is still in gameState.units -- cargo is alive, just not on
     // the board -- and re-adding a removed model would mean rebuilding it.
+    // Set fire to a tile. The live executor the player's click and the AI's
+    // replay both call, so the cost is charged exactly once and in one way.
+    //
+    // The RULE is fire.ts's `ignite` -- how long a tile burns is not decided
+    // here. This function is the live board's plumbing around it: charge the
+    // caster, light the tile, make it visible.
+    static startFire(caster: GameUnit, q: number, r: number, skill: SkillDef): void {
+        const state = getGameState();
+        const map = state.map;
+        const board = {
+            getTile: (tq: number, tr: number) => map.getTile(tq, tr),
+            setTile: (tq: number, tr: number, tile: any) => {
+                const existing = map.getTile(tq, tr);
+                if (existing) Object.assign(existing, tile);
+            },
+        };
+        if (!canIgnite(map.getTile(q, r))) return;
+        ignite(board, q, r);
+        // Through chargeFor like every other cast: the three fields this
+        // spends were once written in four places and had already drifted.
+        this.chargeFor(caster, skill);
+        FireSystem.sync(map);
+    }
+
     static loadPassenger(carrier: GameUnit, passenger: GameUnit): void {
         passenger.carriedBy = carrier;
         passenger.q = carrier.q;

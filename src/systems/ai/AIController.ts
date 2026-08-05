@@ -22,6 +22,7 @@ import { AIEngine } from '../sim/ai/AIEngine';
 import { DEFAULT_ENGINE, getEngine, ENGINES } from '../sim/ai/engineRegistry';
 import { UnitSystem } from '../../shared/hexengine/UnitSystem';
 import { PathfindingSystem } from '../../shared/hexengine/PathfindingSystem';
+import { skillById } from '../../shared/hexengine/unitStats';
 import type { GameUnit, ResolvedAttackOutcome } from '../../types';
 
 const ACTION_PAUSE_MS = 300;
@@ -236,6 +237,38 @@ export class AIController {
                     }
                     await sleep(ACTION_PAUSE_MS);
                 }
+                i++;
+                continue;
+            }
+
+            if (event.type === 'fireStarted') {
+                const caster = liveRefs[event.casterIndex];
+                const skill = skillById(caster?.type ?? '', event.skillId);
+                if (isAlive(caster) && skill) {
+                    // The same executor the player's click calls, which is
+                    // what charges the cost exactly once and in one way.
+                    UnitSystem.startFire(caster, event.q, event.r, skill);
+                    await sleep(ACTION_PAUSE_MS);
+                }
+                i++;
+                continue;
+            }
+
+            if (event.type === 'unitBurned') {
+                // Deliberately NOT executed. The damage was charged as the
+                // replayed unitMoved above walked its path -- UnitSystem.move
+                // applies it step by step, exactly as the simulation charged
+                // it over the route it planned. Applying the event as well
+                // would burn the unit twice.
+                i++;
+                continue;
+            }
+
+            if (event.type === 'fireTicked') {
+                // Never reaches here: the beam only ever returns depth-0
+                // events and a turn start is not one of them. Armed anyway
+                // so it cannot fall through to the warning below and read as
+                // a divergence that is not one.
                 i++;
                 continue;
             }

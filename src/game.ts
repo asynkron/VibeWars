@@ -640,9 +640,21 @@ export function castArmedSkill(actor: GameUnit, q: number, r: number): boolean {
     const target = state.getUnitAt(q, r);
     // The shared rule, so the click, the gene guard and the highlight
     // cannot drift apart.
+    // The ground facts, resolved HERE from the live map -- the shared rule
+    // never reaches into a board, which is what lets the gene layer answer
+    // the same question from a SimState.
+    const ground = state.map.getTile(q, r);
     if (!skillAccepts(skill, actor, target
         ? { ...target, unitClass: UnitSystem.unitTypesRecord[target.type]?.unitClass ?? '' }
-        : null)) return false;
+        : null,
+        ground ? { vegetated: ground.vegetated, burning: ground.burning > 0, burned: ground.burned } : null
+    )) return false;
+
+    if (skill.effect.kind === 'startFire') {
+        UnitSystem.startFire(actor, q, r, skill);
+        UnitSystem.handleSelection(actor);
+        return true;
+    }
 
     if (skill.effect.kind === 'repair') {
         if (!target) return false;

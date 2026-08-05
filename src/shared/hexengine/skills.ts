@@ -29,6 +29,7 @@
 // casting them at random and putting them on a three-turn cooldown.
 
 import type { UnitClass } from '../../types';
+import { FIRE_DURATION } from './fire';
 
 // Who a skill may be pointed at.
 //
@@ -49,7 +50,11 @@ export type SkillTarget =
         onlyDamaged?: boolean;
         includeSelf?: boolean;
     }
-    | { kind: 'emptyHex' };
+    | { kind: 'emptyHex' }
+    // Ground worth setting light to. The first target in the game that is
+    // TERRAIN rather than a unit, which is why skillAccepts had to grow a
+    // hex argument -- see there.
+    | { kind: 'vegetatedHex' };
 
 export type SkillEffect =
     // Every attack in the game today. `attackEffect` keeps its exact
@@ -58,7 +63,17 @@ export type SkillEffect =
     | { kind: 'attack'; minDamage: number; maxDamage: number; attackEffect: string }
     | { kind: 'repair'; hp: number }
     | { kind: 'load' }
-    | { kind: 'unload' };
+    | { kind: 'unload' }
+    // Set fire to a tile. `turns` lives here, on the data, rather than as a
+    // constant in whichever layer happens to light it -- the simulation and
+    // the live game must burn for the same number of turns, and the surest
+    // way to guarantee that is to give them one number to read.
+    //
+    // NOT the cooldown. See the HARD LIMIT note on SkillDef.cooldown: a
+    // cooldown longer than the default engine is deep is invisible to the
+    // search. The burn DURATION is unconstrained by that; the cooldown is
+    // not, and confusing the two fails skills.test.ts.
+    | { kind: 'startFire'; turns: number };
     // No status-effect member. Neither codebase has anywhere to store
     // "frozen until turn N", and the reference's two attempts at one are
     // the empty Apply bodies above. The union is the hook; do not add a
@@ -230,6 +245,42 @@ export const PIKE_REPAIR: SkillDef = {
     effect: { kind: 'repair', hp: 3 },
 };
 
+// Pike's torch. The owner's "pike unit picks an adjacent tile with
+// trees/bushes and it starts burning".
+//
+// THE TARGET IS THE SCENERY, NOT THE TERRAIN TYPE. That is the owner's rule
+// verbatim -- "vad det är för typ av tile spelar ingen roll" -- and it is
+// also the honest one, because the scenery is procedural: a wooded mountain
+// foot is greener than half the grassland, and a sand tile's decoration is
+// always stones. shared/hexengine/tileVegetation.ts answers what was drawn,
+// and both sides ask it.
+//
+// SIX TURNS OF BURNING, THREE TURNS OF COOLDOWN, and those are different
+// numbers for a reason. The duration is free to be long; the cooldown is
+// not, because a cooldown past the default engine's depth is invisible to
+// the search and gets spent as though it were free. See the HARD LIMIT note
+// on SkillDef.cooldown -- and note the beam cannot see the burnout either,
+// so the AI plays a lit fire as though it were permanent. That is a known
+// and acceptable blind spot: it makes the AI slightly over-value its own
+// fires, never under-value the danger of walking into one.
+export const PIKE_FIRE: SkillDef = {
+    id: 'Pike:fire',
+    name: 'Start Fire',
+    glyph: '🔥',
+    target: { kind: 'vegetatedHex' },
+    // Adjacent only, and not the Pike's own hex -- a unit does not set fire
+    // to the ground it is standing on.
+    minRange: 1,
+    maxRange: 1,
+    cooldown: 3,
+    // Lighting a fire is the turn's action, like Repair. Without this a Pike
+    // could burn the map and still shoot, and the skill would dominate every
+    // other thing infantry can do.
+    spendsAction: true,
+    endsMovement: false,
+    effect: { kind: 'startFire', turns: FIRE_DURATION },
+};
+
 // The Drover's ramp. Two halves of one mechanic, and both are skills so the
 // sidebar, the legality rules and the gene layer all come for free.
 //
@@ -311,12 +362,36 @@ export function inSkillRange(skill: SkillDef, distance: number): boolean {
     return distance >= skill.minRange && distance <= skill.maxRange;
 }
 
-// Whether a unit standing at the target hex is a legal target. `null` means
-// the hex is empty, which only an emptyHex skill accepts.
-export function skillAccepts(skill: SkillDef, caster: SkillCaster, target: SkillTargetUnit | null): boolean {
+// The ground at the target hex, as far as any skill needs to care.
+//
+// Resolved by the CALLER -- the live game reads its map, the gene reads the
+// SimState -- and passed in already answered. Same discipline as the rest of
+// this layer: the shared rule does not reach into either board, so it can
+// stay import-free and worker-safe while still being the only copy.
+export interface SkillTargetHex {
+    vegetated: boolean;
+    burning: boolean;
+    burned: boolean;
+}
+
+// Whether the target hex is legal. `target` null means no unit stands there,
+// which is what emptyHex wants; `hex` carries the ground facts, which is
+// what vegetatedHex wants.
+//
+// The hex argument is optional so the three existing skills' call sites did
+// not all have to change, but a vegetatedHex skill asked without one is
+// answered NO rather than yes -- a caller that has not resolved the ground
+// has not proved the cast is legal.
+export function skillAccepts(
+    skill: SkillDef, caster: SkillCaster, target: SkillTargetUnit | null, hex?: SkillTargetHex | null
+): boolean {
     switch (skill.target.kind) {
         case 'emptyHex':
             return target === null;
+        case 'vegetatedHex':
+            // Nothing about who is standing there: a Pike can light the
+            // ground under an enemy, which is most of the point.
+            return !!hex && hex.vegetated && !hex.burning && !hex.burned;
         case 'enemyUnit':
             return !!target && target.playerIndex !== caster.playerIndex;
         case 'allyUnit': {

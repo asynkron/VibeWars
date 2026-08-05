@@ -17,7 +17,7 @@
 
 import { SimState, GameEvent } from '../SimState';
 import { randomPlanFor } from '../search';
-import { applyGene, sweepAttacks, GeneDialect, DEFAULT_DIALECT } from '../SimCommands';
+import { applyGene, sweepAttacks, GeneDialect, DEFAULT_DIALECT, startTurn} from '../SimCommands';
 import { scoreState, ScoreWeights, DEFAULT_SCORE_WEIGHTS } from '../score';
 import { mulberry32, combineSeed } from '../resolveAttack';
 import { extrasFromKinds } from './genes/registry';
@@ -83,9 +83,13 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
     const children: SimJobChild[] = [];
     for (let index = 0; index < job.count; index++) {
         const branch = parent.fork();
-        if (job.resetTurn) branch.record({ type: 'turnStarted', playerIndex: job.side });
-
+        // The child's own stream, created BEFORE the reset because the turn
+        // start now rolls the wildfire and must draw from it. Serial and
+        // parallel share this function, which is what keeps a beam node's
+        // board identical however it was evaluated.
         const rng = mulberry32(combineSeed(job.seed, index));
+        if (job.resetTurn) startTurn(branch, job.side, rng);
+
         for (const gene of randomPlanFor(branch, job.side, rng, job.genesPerUnit, dialect)) {
             applyGene(branch, gene, dialect.extras);
         }

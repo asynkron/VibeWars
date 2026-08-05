@@ -31,7 +31,13 @@ describe('SimState.snapshot', () => {
         const sim = SimState.snapshot(makeSource());
         expect(sim.cols).toBe(4);
         expect(sim.rows).toBe(4);
-        expect(sim.getTile(0, 0)).toEqual({ height: 1.0, type: 'GRASS', hasRoad: false, moveCost: 1 });
+        // The fire fields ride along deliberately -- see the note in
+        // snapshot(). A tile that loses them here is a tile whose fire
+        // condense() would put out once per turn.
+        expect(sim.getTile(0, 0)).toEqual({
+            height: 1.0, type: 'GRASS', hasRoad: false, moveCost: 1,
+            vegetated: false, burning: 0, burned: false,
+        });
         expect(sim.getTile(0, 3)!.type).toBe('WATER');
         expect(sim.unitCount).toBe(2);
         expect(sim.getUnit(0)!.type).toBe('Bulwark');

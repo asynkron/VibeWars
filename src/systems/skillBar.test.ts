@@ -21,7 +21,7 @@ describe('the skill bar', () => {
 
     it('shows one button per skill, attack first', () => {
         showSkillsFor(unit('Pike'));
-        expect(buttons().map((b) => b.dataset.skill)).toEqual(['Pike:attack', 'Pike:repair']);
+        expect(buttons().map((b) => b.dataset.skill)).toEqual(['Pike:attack', 'Pike:repair', 'Pike:fire']);
     });
 
     it('arms the attack by default', () => {
