@@ -76,14 +76,27 @@ const DIFFICULTY_BUDGETS = {
         beamDepth: 4,
     },
     hard: {
-        population: 64,
-        rounds: 7,
-        finalists: 10,
-        deepPlies: 5,
-        replyPopulation: 18,
+        population: 96,
+        rounds: 9,
+        finalists: 14,
+        deepPlies: 6,
+        replyPopulation: 24,
         replyRounds: 3,
-        beamChildCounts: [300, 220, 130, 90, 64],
-        beamDepth: 5,
+        // Six entries for six plies. A shorter list is not an error --
+        // childCountAt clamps to the last entry -- but it would silently
+        // give the deepest, most expensive levels the width meant for a
+        // shallower one.
+        // WIDTH IS THE CHEAP DIAL. Work per level is roughly (surviving
+        // nodes x childCount), and the survivors are capped by the engine's
+        // keepBest/keepWorst -- so width scales the cost LINEARLY while each
+        // extra ply of depth multiplies it. Spending the budget here buys
+        // far more searching per second of thinking.
+        // 2600 wide, not 9000. Measured: a synchronous plan at width 9000
+        // and depth 6 did not finish inside 30 seconds and locked the tab.
+        // This is roughly 16x Low's width and two plies deeper, and a whole
+        // CPU turn on a 30x30 map lands around two seconds end to end.
+        beamChildCounts: [2600, 1900, 1200, 800, 520, 340],
+        beamDepth: 6,
     },
 };
 
