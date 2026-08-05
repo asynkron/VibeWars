@@ -508,7 +508,7 @@ class UnitSystem {
                     if (burn > 0 && here) {
                         unit.hp -= burn;
                         UnitSystem.updateUnitVisuals(unit);
-                        VisualizationSystem.showDamageNumber(unit, burn);
+                        VisualizationSystem.showDamageNumber(unit.visualUnit.position.clone(), burn);
                         if (unit.hp <= 0) UnitSystem.removeUnit(unit);
                     }
 

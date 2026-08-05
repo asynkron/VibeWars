@@ -192,7 +192,7 @@ class GameState {
         )) {
             unit.hp -= FIRE_DAMAGE;
             UnitSystem.updateUnitVisuals(unit);
-            VisualizationSystem.showDamageNumber(unit, FIRE_DAMAGE);
+            VisualizationSystem.showDamageNumber(unit.visualUnit.position.clone(), FIRE_DAMAGE);
             if (unit.hp <= 0) UnitSystem.removeUnit(unit);
         }
 
