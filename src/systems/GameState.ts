@@ -176,6 +176,11 @@ class GameState {
     }
 
     private tickFire(): void {
+        // The smoke tail first, and OUTSIDE the early return below: it runs
+        // precisely on the turns when nothing is burning any more, so a
+        // guard that skipped it would leave a burnt tile smoking forever.
+        FireSystem.tickSmoulder();
+
         const burning = burningTilesOf(this.fireBoard, this.map.cols, this.map.rows);
         if (burning.length === 0) return;
         const tick = tickFires(this.fireBoard, burning, Math.random);

@@ -103,8 +103,31 @@ const DECOR_FRAGMENT = /* glsl */ `
 
 // kind: 0 = generic surface (bark, rock), 1 = conifer foliage,
 // 2 = deciduous/bush leaves.
+// Burning a tile down to bare stems.
+//
+// The foliage is DISCARDED rather than darkened. Sooty leaves still read as
+// a living canopy from map height -- what says "this burned" is the silhouette
+// changing, so the crowns go and the trunks stay, blackened.
+//
+// vDecorKind is already carried through to the fragment shader for the
+// banding patterns, so the burn costs one uniform and two lines: kind 0 is
+// bark and rock, anything above is leaves or needles.
+const DECOR_BURN_GLSL = `
+    if (uBurn > 0.5) {
+        if (vDecorKind > 0.5) discard;
+        diffuseColor.rgb *= mix(1.0, 0.16, uBurn);
+    }
+`;
+
 function applyOrganicDetail(material: any): void {
+    // Created eagerly and kept on the material, because onBeforeCompile does
+    // not run until the material is first rendered -- and FireSystem may
+    // need to set this before the tile has ever been drawn. The material is
+    // per TILE (see mergeDecorations), so this blackens one hex and not the
+    // map.
+    material.userData.burnUniform = { value: 0 };
     material.onBeforeCompile = (shader: any) => {
+        shader.uniforms.uBurn = material.userData.burnUniform;
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying float vDecorKind;\n attribute vec3 aDecorLocal;\n attribute float aDecorKind;')
             .replace(
@@ -117,8 +140,8 @@ function applyOrganicDetail(material: any): void {
                 '#include <begin_vertex>\n vDecorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorKind = aDecorKind;'
             );
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n' + DECOR_NOISE_GLSL)
-            .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT);
+            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n uniform float uBurn;\n' + DECOR_NOISE_GLSL)
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT + DECOR_BURN_GLSL);
     };
     material.customProgramCacheKey = () => 'decor-organic';
 }

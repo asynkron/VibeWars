@@ -27,7 +27,7 @@ import { scene } from '../../render';
 import { GridSystem } from './GridSystem';
 import { VisualizationSystem } from './VisualizationSystem';
 import { HexCoord } from './HexCoord';
-import { isBurning } from './fire';
+import { FIRE_DURATION, isBurning } from './fire';
 import type { TileLike } from '../../types';
 
 // A fire is two layers, the way createExplosion is: a bright textured flame
@@ -88,6 +88,24 @@ const SMOKE_TEXTURES = [
     'assets/textures/smoke4.png',
 ];
 
+// A fire's size over its life, indexed by how many turns it has been
+// burning: catches small, roars in the middle, dies back down. The owner's
+// curve -- small, medium, large, huge, large, medium -- rather than a fire
+// that arrives at full size and stays there, which is what it did before
+// and which read as a switch being flipped.
+//
+// One entry per turn of FIRE_DURATION. A shorter table would silently clamp
+// the tail of a longer fire to full size, so tileScale() asserts nothing and
+// simply reads the last entry when it runs off the end.
+const FIRE_GROWTH = [0.34, 0.62, 0.88, 1.20, 0.88, 0.62];
+
+// After the flames are out the tile keeps smoking for a couple of turns:
+// medium, then thin. Purely cosmetic -- the tile is already ash and already
+// harmless by then, so this deliberately never enters the simulation or the
+// event log the neutrality digest hashes.
+const SMOULDER_TURNS = 2;
+const SMOULDER_SCALE = [0.85, 0.45];
+
 // How dark burnt scenery goes. Not fully black -- charcoal still catches
 // the sun, and a pure black silhouette reads as a hole in the map.
 const SOOT = 0.18;
@@ -95,7 +113,12 @@ const SOOT = 0.18;
 interface Fire {
     q: number;
     r: number;
+    // [flame, smoke]. The flame layer is hidden once the tile stops
+    // burning; the smoke layer outlives it by SMOULDER_TURNS.
     layers: Array<{ points: any; material: any }>;
+    // Turns of smoke left after the flames go out. -1 while still alight.
+    smoulder: number;
+    charred: boolean;
 }
 
 class FireSystem {
@@ -132,21 +155,64 @@ class FireSystem {
                 if (!isBurning(tile)) continue;
                 alive.add(this.key(q, r));
                 if (!this.fires.has(this.key(q, r))) this.light(q, r, tile.height);
+                const fire = this.fires.get(this.key(q, r))!;
+                this.setScale(fire, this.growthOf(tile.burning));
+                // The stems blacken on the fire's LAST burning turn, not
+                // after it -- the owner's step 6 is "medium, sooty trunk
+                // left", so the char has to land while it is still alight.
+                if (tile.burning <= 1 && !fire.charred) {
+                    this.char(q, r);
+                    fire.charred = true;
+                }
             }
         }
 
         for (const [key, fire] of [...this.fires]) {
             if (alive.has(key)) continue;
-            this.extinguish(key, fire);
             const tile = map.getTile(fire.q, fire.r);
-            if (tile?.burned) this.char(fire.q, fire.r);
+            if (tile?.burned && fire.smoulder < 0) {
+                // Burnt out rather than merely gone: drop the flames, keep
+                // the plume, and let tickSmoulder count it down.
+                if (!fire.charred) { this.char(fire.q, fire.r); fire.charred = true; }
+                fire.smoulder = SMOULDER_TURNS;
+                fire.layers[0].points.visible = false;
+                this.setScale(fire, SMOULDER_SCALE[0]);
+                continue;
+            }
+            if (fire.smoulder > 0) continue;   // still smoking
+            this.extinguish(key, fire);
+        }
+    }
+
+    // How big a fire that has `burning` turns left should be drawn.
+    private static growthOf(burning: number): number {
+        const age = FIRE_DURATION - burning;   // 0 on the turn it is lit
+        return FIRE_GROWTH[Math.min(Math.max(age, 0), FIRE_GROWTH.length - 1)];
+    }
+
+    private static setScale(fire: Fire, scale: number): void {
+        for (const layer of fire.layers) layer.material.uniforms.uScale.value = scale;
+    }
+
+    // One turn of the smoke tail, called from GameState.nextTurn beside the
+    // board's own fire tick.
+    //
+    // Separate from sync() because sync is also called the moment a player
+    // lights a fire, and a countdown living in there would burn a turn of
+    // smoke every time somebody struck a match somewhere else on the map.
+    static tickSmoulder(): void {
+        for (const [key, fire] of [...this.fires]) {
+            if (fire.smoulder < 0) continue;
+            fire.smoulder--;
+            if (fire.smoulder <= 0) { this.extinguish(key, fire); continue; }
+            this.setScale(fire, SMOULDER_SCALE[SMOULDER_TURNS - fire.smoulder] ?? SMOULDER_SCALE[SMOULDER_SCALE.length - 1]);
         }
     }
 
     private static light(q: number, r: number, height: number): void {
         const world = new HexCoord(q, r).getWorldPosition();
         const base = { x: world.x, y: height + 0.04, z: world.z };
-        const fire: Fire = { q, r, layers: [] };
+        const fire: Fire = { q, r, layers: [], smoulder: -1, charred: false };
 
         fire.layers.push(this.layer({
             base,
@@ -237,6 +303,11 @@ class FireSystem {
                 // whole effect drew nothing at all with no console error to
                 // say so. Uniforms are typed; template literals are not.
                 uSizeScale: { value: SIZE_SCALE },
+                // The life curve, driven per turn from sync(). A uniform
+                // rather than a rebuild: a growing fire that reallocated its
+                // geometry every turn would restart every particle's phase
+                // and visibly stutter.
+                uScale: { value: FIRE_GROWTH[0] },
             },
             vertexShader: `
                 attribute float aPhase;
@@ -247,6 +318,7 @@ class FireSystem {
                 uniform float uLife;
                 uniform float uRise;
                 uniform float uSizeScale;
+                uniform float uScale;
                 varying float vLife;
                 varying float vTexIndex;
                 void main() {
@@ -255,7 +327,7 @@ class FireSystem {
                     vTexIndex = aTexIndex;
 
                     vec3 p = position;
-                    p.y += vLife * uRise;
+                    p.y += vLife * uRise * uScale;
                     // Lean as it rises, so the column curls instead of
                     // standing like a pillar.
                     p.xz += aDrift * vLife * vLife;
@@ -266,7 +338,7 @@ class FireSystem {
                     // explosion uses -- a sprite that only ever shrinks
                     // reads as debris rather than as flame.
                     float swell = sin(vLife * 3.14159);
-                    gl_PointSize = aSize * (0.35 + swell) * (uSizeScale / -mv.z);
+                    gl_PointSize = aSize * uScale * (0.35 + swell) * (uSizeScale / -mv.z);
                 }
             `,
             fragmentShader: `
@@ -342,19 +414,15 @@ class FireSystem {
     private static char(q: number, r: number): void {
         const hex = GridSystem.findHex(q, r);
         const decor = hex?.userData?.decorator;
-        if (!decor?.material) return;
-        decor.material.color?.multiplyScalar?.(SOOT);
-        decor.material.emissive?.setScalar?.(0);
-        if (decor.material.vertexColors) {
-            // The merged geometry carries per-vertex colour; darken it too
-            // or the vertex colours would fight the material's.
-            const colors = decor.geometry?.attributes?.color;
-            if (colors) {
-                for (let i = 0; i < colors.count * colors.itemSize; i++) colors.array[i] *= SOOT;
-                colors.needsUpdate = true;
-            }
-        }
-        decor.material.needsUpdate = true;
+        if (!decor?.material?.userData?.burnUniform) return;
+        // One uniform on the tile's own decoration material. The foliage is
+        // discarded in the fragment shader and the bark darkens, so what is
+        // left is bare blackened stems -- darkening the leaves instead still
+        // read as a canopy from map height.
+        decor.material.userData.burnUniform.value = 1;
+        // Transparency is driven separately (a unit standing here dims the
+        // scenery), so re-apply whatever it should currently be.
+        GridSystem.updateDecoratorTransparency?.(hex);
     }
 
     // Per-frame, from render.ts's frame loop -- ONE call driving every fire,
