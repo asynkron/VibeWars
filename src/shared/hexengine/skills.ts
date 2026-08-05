@@ -330,3 +330,29 @@ export function skillAccepts(skill: SkillDef, caster: SkillCaster, target: Skill
         }
     }
 }
+
+// What using a skill costs its caster: the action, the movement, and the
+// cooldown.
+//
+// One function because the three had already drifted apart. They were set
+// in four separate places -- SimState.apply's branches, UnitSystem's
+// executors -- and one of them charged the cooldown while forgetting the
+// action, so a player could Repair and then still shoot while the
+// simulation believed the turn was spent. That is a live/sim divergence,
+// the worst kind here, and it was invisible because both halves looked
+// right on their own.
+//
+// endsMovement is honoured here too. No skill sets it today, which is why
+// it had quietly become a field that nothing read -- the reference sets
+// MovesLeft = 0 on EVERY cast, inside a method named Animate*, and keeping
+// it as a per-skill property was the right call. Wiring it means the next
+// skill that wants it gets it, rather than discovering the field is a lie.
+export function skillCost<T extends { hasAttacked: boolean; move: number; cooldowns?: Cooldowns }>(
+    caster: T, skill: SkillDef
+): { hasAttacked: boolean; move: number; cooldowns: Cooldowns } {
+    return {
+        hasAttacked: skill.spendsAction ? true : caster.hasAttacked,
+        move: skill.endsMovement ? 0 : caster.move,
+        cooldowns: chargeSkill(caster.cooldowns, skill),
+    };
+}

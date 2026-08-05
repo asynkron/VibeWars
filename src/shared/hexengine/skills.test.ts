@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import { UNIT_TYPES, unitTypesRecord, skillsFor, primarySkill, skillById } from './unitStats';
 import {
     NO_COOLDOWNS, chargeSkill, isReady, tickCooldowns, skillReady, inSkillRange, skillAccepts,
-    PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef,
+    skillCost, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef,
 } from './skills';
 
 const TYPES = Object.keys(UNIT_TYPES);
@@ -173,5 +173,43 @@ describe('who a skill may be pointed at', () => {
         const artillery = primarySkill('Kestrel')!;
         expect(inSkillRange(artillery, 1)).toBe(false);
         expect(inSkillRange(artillery, 3)).toBe(true);
+    });
+});
+
+describe('what a skill costs its caster', () => {
+    // One function, because the three costs -- action, movement, cooldown --
+    // were set in four separate places and had already drifted: one of them
+    // charged the cooldown and forgot the action, so a player could Repair
+    // and then still shoot while the simulation believed the turn was gone.
+    const caster = { hasAttacked: false, move: 3, cooldowns: NO_COOLDOWNS };
+
+    it('spends the action when the skill says so', () => {
+        expect(skillCost(caster, PIKE_REPAIR).hasAttacked).toBe(true);
+        expect(skillCost(caster, DROVER_UNLOAD).hasAttacked).toBe(false);
+    });
+
+    it('never un-spends an action already spent', () => {
+        const spent = { ...caster, hasAttacked: true };
+        expect(skillCost(spent, DROVER_UNLOAD).hasAttacked).toBe(true);
+    });
+
+    it('charges the cooldown, and nothing for a free skill', () => {
+        expect(skillCost(caster, PIKE_REPAIR).cooldowns[PIKE_REPAIR.id]).toBe(PIKE_REPAIR.cooldown);
+        expect(skillCost(caster, DROVER_LOAD).cooldowns).toBe(NO_COOLDOWNS);
+    });
+
+    it('ends movement only when the skill says so', () => {
+        // No shipped skill sets endsMovement, which is exactly how the field
+        // became one that nothing read. Proven against a synthetic skill so
+        // the wiring is covered before anything depends on it.
+        expect(skillCost(caster, PIKE_REPAIR).move).toBe(3);
+        const grounding: SkillDef = { ...PIKE_REPAIR, id: 'test:grounding', endsMovement: true };
+        expect(skillCost(caster, grounding).move).toBe(0);
+    });
+
+    it('leaves the caster untouched', () => {
+        const before = { ...caster };
+        skillCost(caster, PIKE_REPAIR);
+        expect(caster).toEqual(before);
     });
 });

@@ -27,7 +27,6 @@ import { isReady, type SkillDef } from '../shared/hexengine/skills';
 let bar: HTMLDivElement | null = null;
 let selectedUnit: GameUnit | null = null;
 let selectedSkillId: string | null = null;
-let onSelect: ((skill: SkillDef) => void) | null = null;
 
 function element(): HTMLDivElement {
     // Re-attached rather than merely remembered. Holding the node in a
@@ -47,10 +46,6 @@ function element(): HTMLDivElement {
 export function armedSkill(): SkillDef | null {
     if (!selectedUnit || !selectedSkillId) return null;
     return skillsFor(selectedUnit.type).find((s) => s.id === selectedSkillId) ?? null;
-}
-
-export function onSkillSelected(handler: (skill: SkillDef) => void): void {
-    onSelect = handler;
 }
 
 // Show the bar for a unit, or hide it when nothing is selected.
@@ -115,7 +110,6 @@ export function showSkillsFor(unit: GameUnit | null): void {
             if (!ready) return;
             selectedSkillId = skill.id;
             repaint();
-            onSelect?.(skill);
         });
 
         root.appendChild(button);
@@ -125,7 +119,7 @@ export function showSkillsFor(unit: GameUnit | null): void {
 // Repaint selection state without rebuilding, so clicking a skill does not
 // flicker the row.
 function repaint(): void {
-    if (!bar) return;
+    if (!bar?.isConnected) return;
     for (const child of Array.from(bar.children)) {
         const button = child as HTMLButtonElement;
         button.classList.toggle('is-selected', button.dataset.skill === selectedSkillId);

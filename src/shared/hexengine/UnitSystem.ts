@@ -26,7 +26,7 @@ import { getGameState } from '../../systems/gameStateStore';
 // it that way.
 import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT } from '../../systems/sim/resolveAttack';
 import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
-import { chargeSkill, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef } from './skills';
+import { skillCost, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef } from './skills';
 import { showSkillsFor } from '../../systems/skillBar';
 import { skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
@@ -474,6 +474,20 @@ class UnitSystem {
                     // Ensure final position and rotation are exact and create footprints
                     this.setPosition(unit.visualUnit, coord, hex, targetRotation);
 
+                    // CARGO RIDES ALONG. SimState.apply does this for the
+                    // simulation's unitMoved; without the same loop here, a
+                    // PLAYER driving a loaded transport left the passenger's
+                    // coordinates at the hex it boarded on. Everything then
+                    // reads a lie -- who is standing where, how far it is
+                    // from a depot, where it can be dropped -- and the two
+                    // sides of the resolve-first design disagree about the
+                    // board, which is the failure that leaves no trace.
+                    for (const rider of getGameState().units) {
+                        if (rider.carriedBy !== unit) continue;
+                        rider.q = unit.q;
+                        rider.r = unit.r;
+                    }
+
                     // After the last movement step, recalculate highlights with a small delay
                     if (index === path.length - 1) {
                         // Capture check at the final resting tile: every
@@ -665,21 +679,7 @@ class UnitSystem {
         // the AI's replay go through -- one place, so the two cannot drift.
         // The reference has two casting implementations and they already
         // have.
-        if (healer) {
-            const skill = skillById(healer.type, PIKE_REPAIR.id);
-            if (skill) {
-                healer.cooldowns = chargeSkill(healer.cooldowns, skill);
-                // AND it costs the action, when the skill says so. Charging
-                // the cooldown without spending the action let a Pike
-                // repair and then still shoot -- while SimState.apply, which
-                // reads the same spendsAction flag, believed the action was
-                // gone. The simulation and the live game disagreeing about
-                // what a unit has left is the exact fault the resolve-first
-                // design exists to prevent, and it was invisible because
-                // both halves looked right on their own.
-                if (skill.spendsAction) this.setHasAttacked(healer, true);
-            }
-        }
+        if (healer) this.chargeFor(healer, skillById(healer.type, PIKE_REPAIR.id));
         const restored = Math.min(hp, target.maxHp - target.hp);
         if (restored <= 0) return;
         target.hp += restored;
@@ -700,11 +700,7 @@ class UnitSystem {
         passenger.r = carrier.r;
         passenger.move = 0;
         if (passenger.visualUnit) (passenger.visualUnit as any).visible = false;
-        const skill = skillById(carrier.type, DROVER_LOAD.id);
-        if (skill) {
-            carrier.cooldowns = chargeSkill(carrier.cooldowns, skill);
-            if (skill.spendsAction) this.setHasAttacked(carrier, true);
-        }
+        this.chargeFor(carrier, skillById(carrier.type, DROVER_LOAD.id));
     }
 
     static unloadPassenger(carrier: GameUnit, passenger: GameUnit, q: number, r: number): void {
@@ -722,11 +718,22 @@ class UnitSystem {
         }
         passenger.move = 0;
         if (passenger.visualUnit) (passenger.visualUnit as any).visible = true;
-        const skill = skillById(carrier.type, DROVER_UNLOAD.id);
-        if (skill) {
-            carrier.cooldowns = chargeSkill(carrier.cooldowns, skill);
-            if (skill.spendsAction) this.setHasAttacked(carrier, true);
-        }
+        this.chargeFor(carrier, skillById(carrier.type, DROVER_UNLOAD.id));
+    }
+
+    // Bill a unit for using a skill: the action, the movement and the
+    // cooldown, from the SAME function SimState.apply uses. That is the
+    // point -- the three were set in four separate places and had already
+    // drifted, letting a player Repair and then still shoot while the
+    // simulation believed the turn was spent.
+    private static chargeFor(caster: GameUnit, skill: SkillDef | undefined): void {
+        if (!skill) return;
+        const cost = skillCost(caster, skill);
+        caster.cooldowns = cost.cooldowns;
+        caster.move = cost.move;
+        // Through setHasAttacked, so visualUnit.userData stays in step --
+        // a bare assignment leaves the dimming stale.
+        if (cost.hasAttacked !== caster.hasAttacked) this.setHasAttacked(caster, cost.hasAttacked);
     }
 
     static applyDamage(unit: GameUnit, damage: number): void {
@@ -970,6 +977,24 @@ class UnitSystem {
     }
 
     static removeUnit(unit: GameUnit): void {
+        // A destroyed transport takes its passengers down with it, exactly
+        // as the attack gene does in the simulation.
+        //
+        // Without it a loaded APC is an invulnerable warehouse: cargo is
+        // hidden from getUnitAt, so nothing can shoot it, and the carrier
+        // dying would leave it alive, invisible, and pointing at a unit
+        // that is no longer on the board -- still counted by the score,
+        // never able to act, never able to die. Removing the ride is what
+        // makes carrying a RISK the search can weigh.
+        //
+        // Collected first: removeUnit splices gameState.units, so iterating
+        // it while recursing would skip entries.
+        const riders = getGameState().units.filter((u) => u.carriedBy === unit);
+        for (const rider of riders) {
+            rider.carriedBy = null;
+            this.removeUnit(rider);
+        }
+
         // Get the hex before removing the unit
         const hex = HexCoord.findHex(unit.q, unit.r);
 

@@ -25,7 +25,7 @@
 
 import * as TerrainSystem from '../../shared/hexengine/terrainStats';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
-import { NO_COOLDOWNS, chargeSkill, tickCooldowns, type Cooldowns } from '../../shared/hexengine/skills';
+import { NO_COOLDOWNS, skillCost, tickCooldowns, type Cooldowns } from '../../shared/hexengine/skills';
 
 export interface SimTile {
     height: number;
@@ -342,8 +342,7 @@ export class SimState {
                         : UnitSystem.primarySkill(attacker.type);
                     this.setUnit(event.attackerIndex, {
                         ...attacker,
-                        hasAttacked: skill ? skill.spendsAction : true,
-                        cooldowns: skill ? chargeSkill(attacker.cooldowns, skill) : attacker.cooldowns,
+                        ...(skill ? skillCost(attacker, skill) : { hasAttacked: true }),
                     });
                 }
                 if (defender) this.setUnit(event.defenderIndex, { ...defender, hp: defender.hp - event.damage });
@@ -359,8 +358,7 @@ export class SimState {
                     const skill = UnitSystem.skillById(repairer.type, event.skillId);
                     this.setUnit(event.repairerIndex, {
                         ...repairer,
-                        hasAttacked: skill ? skill.spendsAction : true,
-                        cooldowns: skill ? chargeSkill(repairer.cooldowns, skill) : repairer.cooldowns,
+                        ...(skill ? skillCost(repairer, skill) : { hasAttacked: true }),
                     });
                 }
                 // Clamped again here rather than trusted. The event is
@@ -382,8 +380,7 @@ export class SimState {
                     const skill = UnitSystem.skillById(carrier.type, event.skillId);
                     this.setUnit(event.carrierIndex, {
                         ...carrier,
-                        hasAttacked: skill ? skill.spendsAction : carrier.hasAttacked,
-                        cooldowns: skill ? chargeSkill(carrier.cooldowns, skill) : carrier.cooldowns,
+                        ...(skill ? skillCost(carrier, skill) : {}),
                     });
                 }
                 if (passenger && carrier) {
@@ -406,8 +403,7 @@ export class SimState {
                     const skill = UnitSystem.skillById(carrier.type, event.skillId);
                     this.setUnit(event.carrierIndex, {
                         ...carrier,
-                        hasAttacked: skill?.spendsAction ? true : carrier.hasAttacked,
-                        cooldowns: skill ? chargeSkill(carrier.cooldowns, skill) : carrier.cooldowns,
+                        ...(skill ? skillCost(carrier, skill) : {}),
                     });
                 }
                 if (passenger) {

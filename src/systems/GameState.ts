@@ -5,6 +5,7 @@ import { AIController } from './ai/AIController';
 import { selectedMapProvider } from './maps/mapRegistry';
 import type { Building, GameUnit, GamePlayer, PlayerController } from '../types';
 import { NO_COOLDOWNS, tickCooldowns } from '../shared/hexengine/skills';
+import { refreshSkillBar } from './skillBar';
 
 class GameState {
     static readonly CPU_TURN_PAUSE_MS = 400;
@@ -116,6 +117,12 @@ class GameState {
                 }
             }
         });
+
+        // The badges are drawn from unit.cooldowns, so a bar left open
+        // across the turn boundary would keep showing the old number until
+        // something else happened to reselect. Refreshed once, after the
+        // whole side has ticked.
+        refreshSkillBar();
         if (this.getCurrentPlayer().controller === 'cpu') {
             this.cpuTurn();
         }
