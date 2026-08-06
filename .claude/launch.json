@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "vibewars",
+      "name": "vibewars-dev",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
-      "port": 5173
+      "runtimeArgs": ["run", "dev", "--", "--port", "5273", "--strictPort"],
+      "port": 5273
     }
   ]
 }
