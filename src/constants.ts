@@ -19,6 +19,7 @@ const MAP_SIZES: Record<string, { rows: number; cols: number }> = {
     // maps/ChokeMapProvider.ts and systems/sim/scenarios/.
     choke: { rows: 10, cols: 7 },
     chokeRetreat: { rows: 10, cols: 7 },
+    chokeTwin: { rows: 9, cols: 8 },
 };
 
 const DEFAULT_MAP_KEY = 'rotor12x18';

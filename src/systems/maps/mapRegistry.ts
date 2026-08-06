@@ -8,7 +8,7 @@ import { ford10MapProvider } from './Ford10MapProvider';
 import { crown14MapProvider } from './Crown14MapProvider';
 import { mirror8MapProvider } from './Mirror8MapProvider';
 import { rotor12x18MapProvider } from './Rotor12x18MapProvider';
-import { chokeMapProvider, chokeRetreatMapProvider } from './ChokeMapProvider';
+import { chokeMapProvider, chokeRetreatMapProvider, chokeTwinMapProvider } from './ChokeMapProvider';
 import {
     randomLargeMapProvider,
     randomMediumMapProvider,
@@ -41,6 +41,7 @@ export const RANDOM_PROVIDERS: MapProvider[] = [
 export const SCENARIO_PROVIDERS: MapProvider[] = [
     chokeMapProvider,
     chokeRetreatMapProvider,
+    chokeTwinMapProvider,
 ];
 
 // Default first: selectedMapProvider() falls back to providers[0] when the

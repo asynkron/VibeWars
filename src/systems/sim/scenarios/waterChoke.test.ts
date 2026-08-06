@@ -97,6 +97,26 @@ describe('the retreat: walk back through the door and shut it', () => {
         console.log(`retreat hold ${held}/6: ${outcomes.join(' | ')}`);
         expect(held, outcomes.join(' | ')).toBe(0);
     }, 480_000);
+
+    it('bastion finds it: the blockade gene lifts the board off zero', () => {
+        // The gene built FROM this board's autopsy, gated at its measured
+        // truth: 2 of 6 -- not solved, but no longer unspeakable. Parthian
+        // stays pinned at 0 above; the day bastion's rate rises, raise
+        // this gate with it.
+        const engine = requireEngine('bastion');
+        let held = 0;
+        const outcomes: string[] = [];
+        for (const seed of [1, 2, 3, 4, 5, 6]) {
+            const result = runHeadlessMatch(RETREAT, {
+                seed, maxTurns: 80, engines: [engine, engine], plan: PLAN,
+            });
+            const ok = result.winner === 0 && result.survivors[0].includes('Pyramid');
+            if (ok) held++;
+            outcomes.push(`seed ${seed}: ${ok ? 'held' : `BROKE (${result.reason}, ${result.turns}t)`}`);
+        }
+        console.log(`retreat bastion ${held}/6: ${outcomes.join(' | ')}`);
+        expect(held, outcomes.join(' | ')).toBeGreaterThanOrEqual(2);
+    }, 480_000);
 });
 
 // SCENARIO_SURVEY=1 -- not part of the suite: run the same board across

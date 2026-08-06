@@ -20,10 +20,11 @@ import { talusEngine } from './engines/talus';
 import { parthianEngine } from './engines/parthian';
 import { quickdrawEngine } from './engines/quickdraw';
 import { vanguardEngine } from './engines/vanguard';
+import { bastionEngine } from './engines/bastion';
 
 export const ENGINES: readonly AIEngine[] = [baselineEngine, wolfpackEngine, gambitEngine, feintEngine, aegisEngine,
     menderEngine, dredgeEngine, gatekeeperEngine, sapperEngine, fitterEngine, convoyEngine, mirageEngine, talusEngine,
-    parthianEngine, quickdrawEngine, vanguardEngine];
+    parthianEngine, quickdrawEngine, vanguardEngine, bastionEngine];
 
 // What the live game plays unless told otherwise.
 //

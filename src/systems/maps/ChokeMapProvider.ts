@@ -113,3 +113,26 @@ export const RETREAT_PICTURE: string[] = [
 
 export const chokeRetreatMapProvider: MapProvider = providerFrom(
     'chokeRetreat', 'Reträtten (7x10)', RETREAT_PICTURE, CHOKE_LEGEND);
+
+// THE TWIN PASS. Roger's escalation: TWO middle tiles, TWO Klosses. One
+// body in a two-wide pass buys almost nothing -- the hex metric prices
+// the detour around one of two adjacent tiles at zero -- so the exam is
+// COMPOSITION: the pair is worth everything, each half alone is worth
+// nothing, and the second blocker can only see its value on a board
+// where the first is already standing. Sequential gene application is
+// the mechanism under test; blockade.test.ts pins it at the gene level,
+// this board asks whether the full search finds it under fire.
+export const TWIN_PICTURE: string[] = [
+    'B.......',
+    '........',
+    '........',
+    '........',
+    '~~~..~~~',
+    '........',
+    '...KK...',
+    '........',
+    '...A....',
+];
+
+export const chokeTwinMapProvider: MapProvider = providerFrom(
+    'chokeTwin', 'Tvillingpasset (8x9)', TWIN_PICTURE, CHOKE_LEGEND);
