@@ -22,9 +22,11 @@
 // The opposite of the header's own prediction -- the spread was expected
 // to need large widths and instead only shows at small ones, where the
 // remainder is short and its absolute bottom is at its most degenerate.
-// Never measured WORSE than Feint at any width, so it holds the DEFAULT
-// seat (see engineRegistry.ts) -- but at the live widths of 1400-2600 the
-// honest claim is "at least as good", not "better".
+// Never measured WORSE than Feint at any width, which is what put it in
+// the DEFAULT seat for a while -- until Parthian (this engine plus the
+// hit-and-run gene) beat it at every width and took the chair. See
+// engineRegistry.ts for the lineage. At the live widths of 1400-2600 the
+// honest claim against Feint remains "at least as good", not "better".
 //
 // The parallel planner runs it as a TWO-PHASE level, because the spread
 // selects from the node's whole ranking and the worker keep-pruning ships

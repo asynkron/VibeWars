@@ -11,10 +11,12 @@
 //     DataCloneError: applicable(){} could not be cloned.
 //
 // That is aegis, dredge, gatekeeper, mender and sapper -- five of the nine
-// engines. It stayed invisible because DEFAULT_ENGINE is a Feint-family engine, whose extras
-// are empty, and because the tests run under jsdom where `Worker` is
-// undefined, so the pool falls back to the serial path and never posts
-// anything.
+// engines of the day. It stayed invisible because the default engine back
+// then had empty extras, and because the tests run under jsdom where
+// `Worker` is undefined, so the pool falls back to the serial path and
+// never posts anything. The default carries a custom gene NOW (parthian's
+// hit-and-run), which makes this registry load-bearing for every live
+// game rather than only for the ?ai= variants.
 //
 // So the wire carries NAMES, and the worker looks the behaviour up on its
 // own side. The name is data; the function never crosses.

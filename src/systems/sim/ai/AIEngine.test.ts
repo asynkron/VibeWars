@@ -212,11 +212,12 @@ describe('engine registry', () => {
     });
 
     it('defaults the live game to the engine that measured best', () => {
-        // Talus: 62.0% against feint over 400 matches (95% 57.2-66.6%) at
-        // compute parity. If this ever changes, the tournament numbers in
-        // engineRegistry.ts must change with it -- a default picked on
-        // anything but a measured result is how an AI quietly regresses.
-        expect(DEFAULT_ENGINE.id).toBe('talus');
+        // Parthian: 58.5% against talus over 400 matches (95% 53.6-63.2%),
+        // effect size held at six times the width. If this ever changes,
+        // the tournament numbers in engineRegistry.ts must change with it
+        // -- a default picked on anything but a measured result is how an
+        // AI quietly regresses.
+        expect(DEFAULT_ENGINE.id).toBe('parthian');
     });
 
     it('names the alternatives when asked for one that does not exist', () => {

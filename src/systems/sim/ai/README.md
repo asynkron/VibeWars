@@ -13,7 +13,10 @@ engines/wolfpack.ts  a challenger: baseline with different weights + a gene
 engines/gambit.ts    a challenger that changes the SEARCH, not the weights
 engines/feint.ts     gambit at depth 3 -- the ablation that held the default
 engines/mirage.ts    feint with duplicate child outcomes collapsed
-engines/talus.ts     feint with spread sacrifice slots -- now the default
+engines/talus.ts     feint with spread sacrifice slots
+engines/parthian.ts  talus + the hit-and-run gene -- now the default
+engines/quickdraw.ts parthian with NO sweep -- the refuted counter-hypothesis
+genes/hitAndRun.ts   step into the bracket, shoot, fall back out of reach
 genes/regroup.ts     a gene only wolfpack registers
 planners/beam.ts     a beam tree search, used by every feint-family engine
 tournament.ts        seed pairs played from both seatings + significance test
@@ -136,10 +139,12 @@ the wide rows in the table above were played.
 ?ai=baseline:feint       one engine per side
 ```
 
-The default is **talus** — chosen on the measured result above: decisively
-better than feint at batch width, never measured worse at any width, and
-the same engine apart from one selection value. Its spread picks need the
-node's whole ranking, which the worker protocol prunes away, so the live
-game runs it as a two-phase level: metadata first, selection in the
+The default is **parthian** — chosen on the measured results above: it
+beat the previous default at batch width and held the same effect size at
+six times the width, which is the signature of a real tactic rather than
+a selection artifact. It inherits talus's spread sacrifice slots, so the
+live game runs its levels two-phase: metadata first, selection in the
 planner, then a recompute of just the picked children by absolute index —
-proven event-identical to the serial planner in beamParallel.test.ts.
+proven event-identical to the serial planner in beamParallel.test.ts. Its
+hit-and-run gene crosses to the workers by name through genes/registry.ts,
+like every custom gene.

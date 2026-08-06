@@ -26,24 +26,19 @@ export const ENGINES: readonly AIEngine[] = [baselineEngine, wolfpackEngine, gam
 
 // What the live game plays unless told otherwise.
 //
-// Talus rather than Feint, on measured grounds: 400 matches on the shipped
-// map at the tournament budget, 248 wins to 152, a 62.0% share with a 95%
-// interval of 57.2-66.6% -- clear of 50% by a wide margin -- at 1.02x
-// compute parity. At six times the width the two are not separable (120
-// matches, feint 53.8%, interval spanning 50%), so at live widths the
-// claim is "at least as good, decisively better at batch width". Talus IS
-// Feint apart from one value (the sacrifice slots sample the worse half
-// of the ranking instead of its absolute bottom -- see engines/talus.ts),
-// so everything Feint measured against baseline still describes this
-// engine's cost and shape.
+// Parthian rather than Talus, on measured grounds: 232 wins to 164 over
+// 400 matches at the tournament width -- a 58.5% share, 95% interval
+// 53.6-63.2% -- and the SAME effect size at six times the width (58.8%
+// over 120, one match short of certifying), at 1.07x compute. Holding its
+// size where the selection tweaks collapsed is what makes the hit-and-run
+// gene a tactic rather than an artifact; see engines/parthian.ts.
 //
-// Feint earned the seat before it: 72.5% against baseline over 80 matches
-// (95% 61.9-81.1%) and cheaper per turn than the hillclimb it replaced.
-// Mirage (duplicate outcomes collapsed) also beat Feint -- 55.9%, interval
-// 51.0-60.7% -- but by less than Talus did, and the two changes cannot be
-// combined today: dedup needs event logs the spread protocol does not
-// ship. See beam.ts.
-export const DEFAULT_ENGINE: AIEngine = talusEngine;
+// The seat's lineage, every step a measurement: Feint beat baseline
+// (72.5% over 80, and cheaper); Talus beat Feint (62.0% over 400 at batch
+// width, not separable at 6x); Parthian beat Talus as above. Quickdraw --
+// Parthian without the attack sweep -- lost at BOTH widths (61.5% and
+// 60.8% to Parthian), which is why the sweep stays in every engine here.
+export const DEFAULT_ENGINE: AIEngine = parthianEngine;
 
 export function getEngine(id: string): AIEngine | undefined {
     return ENGINES.find((engine) => engine.id === id);
