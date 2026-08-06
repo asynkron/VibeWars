@@ -27,6 +27,7 @@
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
+import { isVital } from '../../shared/hexengine/unitStats';
 
 export interface ScoreWeights {
     // Flat value of a unit being alive at all, before its hp is counted.
@@ -55,6 +56,13 @@ export interface ScoreWeights {
     // aggression gradient -- a capture is worth a unit, closing with the
     // enemy is worth a tiebreak.
     capturePull: number;
+    // What a living VITAL unit is worth beyond its material -- the score
+    // mirror of the hard rule that losing your last one loses the match
+    // outright (see unitStats.isVital and both match loops). Large enough
+    // to dominate every material swing a scenario board can offer, so the
+    // search treats the rule as law rather than preference. Boards without
+    // vital units never feel the term.
+    vitalWorth?: number;
     // Optional multiplier on a unit's whole material value, by type. A
     // missing entry is 1.0, which is what the flat model always did: every
     // unit worth unitBase + hp*hpWeight regardless of what it is good at.
@@ -72,6 +80,7 @@ export const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
     captureYield: 150,
     buildingBlockPenalty: 15,
     capturePull: 3,
+    vitalWorth: 1500,
 };
 
 export function scoreState(
@@ -85,7 +94,8 @@ export function scoreState(
 
     for (const [, unit] of state.liveUnits()) {
         const value = (weights.unitBase + unit.hp * weights.hpWeight)
-            * (weights.typeValue?.[unit.type] ?? 1);
+            * (weights.typeValue?.[unit.type] ?? 1)
+            + (isVital(unit.type) ? (weights.vitalWorth ?? 0) : 0);
         if (unit.playerIndex === playerIndex) {
             score += value;
             own.push(unit);

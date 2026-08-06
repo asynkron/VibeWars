@@ -434,14 +434,18 @@ export const UNIT_TYPES = {
             symbol: "K",
             name: "Kloss",
             unitClass: 'tank' as const,
-            maxHp: 30,
-            hp: 30,
+            // Pure architecture: it deals NOTHING and nearly cannot die,
+            // so a Kloss can never win a fight and never lose one -- the
+            // only thing it has ever produced is where it stands. That is
+            // the whole exam.
+            maxHp: 99,
+            hp: 99,
             move: 2,
             minRange: 1,
             maxRange: 1,
             minDamage: 0,
-            maxDamage: 2,
-            attack: 1,
+            maxDamage: 0,
+            attack: 0,
             model: "primitive:box",
             scale: 1.0,
             rotation: 0,
@@ -464,6 +468,8 @@ export const UNIT_TYPES = {
             symbol: "A",
             name: "Pyramid",
             unitClass: 'artillery' as const,
+            // The crown jewel: lose it and the match is OVER, hard rule.
+            vital: true,
             maxHp: 2,
             hp: 2,
             move: 2,
@@ -573,6 +579,13 @@ export function getClassModifier(attackerType: string, defenderType: string): nu
 
 export function getMovementCost(type: string, terrainType: string): number | null | undefined {
     return unitTypesRecord[type].terrainCosts[terrainType];
+}
+
+// The hard rule's read side: a side that spawned vital units and has none
+// left has lost outright -- checked by both match loops (headless.ts and
+// GameState.nextTurn), so the sim batteries and the live banner agree.
+export function isVital(type: string): boolean {
+    return !!unitTypesRecord[type]?.vital;
 }
 
 // ---------------------------------------------------------------------

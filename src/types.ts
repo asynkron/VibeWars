@@ -55,6 +55,10 @@ export interface UnitTypeConfig {
   // standing on their tile (design rule: infantry only). Consumed by the
   // upcoming buildings/factory feature.
   canCapture?: boolean;
+  // A VITAL unit is its side's whole reason to exist: lose the last one
+  // and the match ends immediately, whatever else is still standing. The
+  // scenario boards' hard rule -- the Pyramid dies, the Boll has won.
+  vital?: boolean;
   symbol: string;
   name: string;
   maxHp: number;

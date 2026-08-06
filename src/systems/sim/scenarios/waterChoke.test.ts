@@ -1,19 +1,21 @@
 // THE WATER CHOKE. A river seals the map except for one crossing. South
-// of it: a Kloss (30 hp, deals nothing) and a Pyramid (kills in three
-// hits, dies to a touch, and cannot shoot anything adjacent). North: a
-// Boll -- fast enough to cross and one-shot the Pyramid the moment the
-// crossing is open.
+// of it: a Kloss (99 hp, deals NOTHING -- pure architecture) and a
+// Pyramid (kills, dies to a touch, cannot shoot anything adjacent).
+// North: a Boll -- fast enough to cross and one-shot the Pyramid the
+// moment the crossing is open. The board's economy is skewed on purpose
+// (see gambit.ts typeValue): the Pyramid's death is the attacker's whole
+// win and rings like a klaxon through every rollout, while chipping the
+// Kloss earns nothing -- position is the only currency.
 //
 // The right play is a formation, not a move: the Kloss STANDS ON the
 // crossing -- an occupied hex is impassable, so the door is shut -- and
 // the Pyramid stands exactly two hexes behind it, where it can shell the
 // only hex the Boll can threaten from (the crossing's lone northern
 // neighbour) while nothing can ever reach it. Held, the formation wins the
-// long game with the WEAKER army: the Boll either stands in the shelling
-// and dies in three turns, or keeps out of range and loses the stalemate
-// on points, 32 hp to 14. Broken -- the crossing left open even once
-// before turn one ends -- the Boll walks through, deletes the Pyramid,
-// and grinds the Kloss down at leisure: 6 damage a turn against 1 back.
+// long game: the Boll either stands in the shelling and dies, or keeps
+// out of range and loses the stalemate on points. Broken -- the crossing
+// left open even once -- the Boll walks through and deletes the Pyramid,
+// which under the skewed economy is the whole match.
 //
 // So one match answers the question the tournaments cannot: not "is this
 // engine better", but "does it actually find the right move". Over in a
@@ -24,7 +26,7 @@ import { describe, it, expect } from 'vitest';
 import { scenario } from './scenario';
 import { runHeadlessMatch } from '../headless';
 import { requireEngine } from '../ai/engineRegistry';
-import { CHOKE_PICTURE, RETREAT_PICTURE, CHOKE_LEGEND } from '../../maps/ChokeMapProvider';
+import { CHOKE_PICTURE, RETREAT_PICTURE, TWIN_PICTURE, CHOKE_LEGEND } from '../../maps/ChokeMapProvider';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -46,6 +48,9 @@ describe('water choke: block the door, shell over the wall', () => {
     // old hillclimb and the sweepless quickdraw lose every seed, a
     // healthy engine holds most. The gate sits between those, so it
     // catches a class regression without flaking on dice.
+    // Re-measured under the skewed economy: the klaxon lifted plain
+    // parthian to 6/6 -- the payoff signal now drowns the aggression
+    // noise. The gate stays at 4 to absorb dice.
     it('the default engine holds the crossing most of the time', () => {
         const engine = requireEngine('parthian');
         let held = 0;
@@ -116,6 +121,48 @@ describe('the retreat: walk back through the door and shut it', () => {
         }
         console.log(`retreat bastion ${held}/6: ${outcomes.join(' | ')}`);
         expect(held, outcomes.join(' | ')).toBeGreaterThanOrEqual(2);
+    }, 480_000);
+});
+
+describe('the twin pass: two tiles, two Klosses, one answer', () => {
+    // Roger's pair exam. One body in a two-wide pass buys nothing -- the
+    // hex metric prices the detour around one of two adjacent tiles at
+    // zero -- so the only winning line is COMPOSED: both Klosses in the
+    // cut, placed across turns by genes that see each other's bodies.
+    const TWIN = scenario('choke-twin', TWIN_PICTURE, CHOKE_LEGEND);
+
+    it('is UNSOLVED by the default engine', () => {
+        // Pinned at the failure, retreat-style: red here means something
+        // taught the default composition, and this must become a gate.
+        const engine = requireEngine('parthian');
+        let held = 0;
+        const outcomes: string[] = [];
+        for (const seed of [1, 2, 3, 4, 5, 6]) {
+            const result = runHeadlessMatch(TWIN, {
+                seed, maxTurns: 80, engines: [engine, engine], plan: PLAN,
+            });
+            const ok = result.winner === 0 && result.survivors[0].includes('Pyramid');
+            if (ok) held++;
+            outcomes.push(`seed ${seed}: ${ok ? 'held' : 'BROKE'}`);
+        }
+        console.log(`twin parthian ${held}/6: ${outcomes.join(' | ')}`);
+        expect(held, outcomes.join(' | ')).toBe(0);
+    }, 480_000);
+
+    it('bastion composes the pair: measured at 3 of 6', () => {
+        const engine = requireEngine('bastion');
+        let held = 0;
+        const outcomes: string[] = [];
+        for (const seed of [1, 2, 3, 4, 5, 6]) {
+            const result = runHeadlessMatch(TWIN, {
+                seed, maxTurns: 80, engines: [engine, engine], plan: PLAN,
+            });
+            const ok = result.winner === 0 && result.survivors[0].includes('Pyramid');
+            if (ok) held++;
+            outcomes.push(`seed ${seed}: ${ok ? 'held' : 'BROKE'}`);
+        }
+        console.log(`twin bastion ${held}/6: ${outcomes.join(' | ')}`);
+        expect(held, outcomes.join(' | ')).toBeGreaterThanOrEqual(3);
     }, 480_000);
 });
 

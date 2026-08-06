@@ -91,8 +91,10 @@ describe.skipIf(!process.env.PROBE2)('robustness: engines x seeds x widths', () 
 describe.skipIf(!process.env.PROBE6)('bastion against the boards', () => {
     it('measures the blockade engine where parthian failed', async () => {
         const { bastionEngine } = await import('../ai/engines/bastion');
+        const { TWIN_PICTURE } = await import('../../maps/ChokeMapProvider');
         const RETREAT = scenario('bastion-retreat', RETREAT_PICTURE, CHOKE_LEGEND);
-        for (const [name, board] of [['retreat', RETREAT], ['choke', CHOKE]] as const) {
+        const TWIN = scenario('bastion-twin', TWIN_PICTURE, CHOKE_LEGEND);
+        for (const [name, board] of [['twin', TWIN], ['retreat', RETREAT], ['choke', CHOKE]] as const) {
             for (const engine of [bastionEngine, parthianEngine]) {
                 let held = 0;
                 const fails: number[] = [];

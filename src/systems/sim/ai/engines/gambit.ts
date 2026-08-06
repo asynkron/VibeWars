@@ -79,6 +79,8 @@ export const gambitEngine = createEngine({
             captureYield: 150,
             buildingBlockPenalty: 15,
             capturePull: 3,
+            // The hard rule's score mirror -- see ScoreWeights.vitalWorth.
+            vitalWorth: 1500,
 
             // ...except for this. Roughly: reach and speed are worth more
             // than raw hit points, which the flat model already counts.
@@ -99,12 +101,14 @@ export const gambitEngine = createEngine({
                 Pike: 1.2,      // captures; nothing else does
                 Road: 1.1,
                 Gunboat: 0.9,
-                // The scenario units, at DELIBERATELY neutral 1.0: every
-                // choke hold-rate was calibrated before they had entries
-                // (a missing type reads as 1.0), and a value here changes
-                // how the search prices them. Tune only with the scenario
-                // battery re-run beside the change.
-                Kloss: 1.0,
+                // The scenario units. The Pyramid's crown-jewel status is
+                // NOT priced here -- it is vital (unitStats), and the
+                // score's vitalWorth term mirrors the hard rule for every
+                // engine at once, which beats hand-tuning one table. What
+                // remains here is the anti-grind: the Kloss is worthless
+                // as a TARGET (chipping its mountain of hp earns nothing)
+                // and priceless only through where it stands.
+                Kloss: 0.05,
                 Pyramid: 1.0,
                 Boll: 1.0,
             },

@@ -236,8 +236,30 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
         return finish(winner, `${reason} (points: ${totals.join(' vs ')})`, turns);
     };
 
+    // The hard rule's ledger: which sides fielded VITAL units at the
+    // start. A side that had them and has none left has lost outright --
+    // sides that never had any play by the ordinary rules.
+    const vitalSpawned: [boolean, boolean] = [false, false];
+    for (const [, unit] of state.liveUnits()) {
+        if (UnitSystem.isVital(unit.type)) vitalSpawned[unit.playerIndex] = true;
+    }
+
     for (let turn = 0; turn < maxTurns; turn++) {
         const side = turn % 2;
+
+        // The hard rule first: a lost vital unit ends the match whatever
+        // else is still standing. The Pyramid dies, the Boll has won.
+        if (vitalSpawned[0] || vitalSpawned[1]) {
+            const vitalAlive: [boolean, boolean] = [false, false];
+            for (const [, unit] of state.liveUnits()) {
+                if (UnitSystem.isVital(unit.type)) vitalAlive[unit.playerIndex] = true;
+            }
+            const lost = [0, 1].filter((p) => vitalSpawned[p] && !vitalAlive[p]);
+            if (lost.length > 0) {
+                const winner = lost.length === 2 ? -1 : 1 - lost[0];
+                return finish(winner, 'vital unit lost', turn);
+            }
+        }
 
         // Victory by elimination?
         const alive: [boolean, boolean] = [false, false];

@@ -1,5 +1,6 @@
 // GameState.js - Manages the overall game state
 import { UnitSystem } from '../shared/hexengine/UnitSystem';
+import { isVital } from '../shared/hexengine/unitStats';
 import { GameMap } from '../shared/hexengine/MapSystem';
 import { AIController } from './ai/AIController';
 import { selectedMapProvider } from './maps/mapRegistry';
@@ -32,6 +33,10 @@ class GameState {
     // stalemate detection in AI-vs-AI matches.
     idleCpuTurns = 0;
     turnsWithoutCombat = 0;
+    // Which sides fielded VITAL units when the match began. Captured
+    // lazily on the first victory check, because units spawn after the
+    // constructor runs. null = not yet captured.
+    private vitalSpawned: boolean[] | null = null;
 
     // Each side can be driven by a human or by the search AI -- picked in
     // the start menu (human vs cpu, cpu vs cpu to watch the AI fight
@@ -64,6 +69,26 @@ class GameState {
         // Victory check: a side with no units left has lost. Without this,
         // an AI-vs-AI match would keep exchanging empty turns forever.
         if (this.units.length > 0) {
+            // The hard rule first: a side that fielded VITAL units and has
+            // none left has lost outright, whatever else still stands --
+            // the scenario boards' law: the Pyramid dies, the Boll has
+            // won. Same rule, same order as headless.ts.
+            if (this.vitalSpawned === null) {
+                this.vitalSpawned = this.players.map((p) =>
+                    this.units.some((u) => u.playerIndex === p.id && isVital(u.type)));
+            }
+            if (this.vitalSpawned.some(Boolean)) {
+                const vitalAlive = this.players.map((p) =>
+                    this.units.some((u) => u.playerIndex === p.id && isVital(u.type)));
+                const lost = this.players.map((_, i) => i)
+                    .filter((i) => this.vitalSpawned![i] && !vitalAlive[i]);
+                if (lost.length > 0) {
+                    const winner = lost.length === this.players.length ? -1 : this.players.findIndex((_, i) => !lost.includes(i));
+                    this.endGame(winner, 'vital unit lost');
+                    return;
+                }
+            }
+
             const alive = this.players.map((p) => this.units.some((u) => u.playerIndex === p.id));
             const losers = alive.filter((a) => !a).length;
             if (losers > 0) {
