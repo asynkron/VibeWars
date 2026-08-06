@@ -25,9 +25,20 @@ class ModelSystem {
                 const config: any = Object.values(modelConfigs).find((cfg: any) => cfg.model === filepath);
                 let loadedModel: any;
 
-                // Step 1: Load the raw model based on file type
-                const extension: string = filepath.split('.').pop().toLowerCase();
+                // Step 1: Load the raw model based on file type.
+                // 'primitive:<shape>' skips the loaders entirely -- the
+                // scenario units (Boll, Kloss, Pyramid) ARE their shapes,
+                // and a sphere needs no asset pipeline. The result flows
+                // through the same material/normalize steps as any loaded
+                // model, so team tinting and grounding just work.
+                const extension: string = filepath.startsWith('primitive:')
+                    ? 'primitive'
+                    : filepath.split('.').pop().toLowerCase();
                 switch (extension) {
+                    case 'primitive':
+                        loadedModel = this.buildPrimitive(filepath.slice('primitive:'.length));
+                        break;
+
                     case 'fbx':
                         loadedModel = await new Promise((resolve, reject) => {
                             fbxLoader.load(
@@ -183,6 +194,25 @@ class ModelSystem {
                 console.error(`Failed to load model ${filepath}:`, error);
             }
         }
+    }
+
+    // The scenario units' bodies. MeshStandardMaterial so lighting, shadows
+    // and usePlayerColor tinting behave exactly as for authored models.
+    // Sized against HEX_RADIUS 1: a hex is ~1.73 across flats, so these sit
+    // at roughly two thirds of a tile, like the vehicles do.
+    static buildPrimitive(shape: string): any {
+        const material = new THREE.MeshStandardMaterial({ color: 0xbfc6d4, roughness: 0.55, metalness: 0.15 });
+        let geometry: any;
+        switch (shape) {
+            case 'sphere': geometry = new THREE.SphereGeometry(0.5, 24, 16); break;
+            case 'box': geometry = new THREE.BoxGeometry(0.95, 0.8, 0.95); break;
+            case 'pyramid': geometry = new THREE.ConeGeometry(0.68, 1.05, 4); break;
+            default: throw new Error(`Unknown primitive shape "${shape}"`);
+        }
+        const mesh = new THREE.Mesh(geometry, material);
+        const group = new THREE.Group();
+        group.add(mesh);
+        return group;
     }
 
     static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null, teamColorMaterial: string | null = null) {

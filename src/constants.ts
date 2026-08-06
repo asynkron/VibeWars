@@ -15,6 +15,10 @@ const MAP_SIZES: Record<string, { rows: number; cols: number }> = {
     random20: { rows: 20, cols: 20 },
     random30: { rows: 30, cols: 30 },
     random50: { rows: 50, cols: 50 },
+    // Scenario boards -- asymmetric tactical questions. See
+    // maps/ChokeMapProvider.ts and systems/sim/scenarios/.
+    choke: { rows: 10, cols: 7 },
+    chokeRetreat: { rows: 10, cols: 7 },
 };
 
 const DEFAULT_MAP_KEY = 'rotor12x18';

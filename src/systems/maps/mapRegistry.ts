@@ -8,6 +8,7 @@ import { ford10MapProvider } from './Ford10MapProvider';
 import { crown14MapProvider } from './Crown14MapProvider';
 import { mirror8MapProvider } from './Mirror8MapProvider';
 import { rotor12x18MapProvider } from './Rotor12x18MapProvider';
+import { chokeMapProvider, chokeRetreatMapProvider } from './ChokeMapProvider';
 import {
     randomLargeMapProvider,
     randomMediumMapProvider,
@@ -33,12 +34,22 @@ export const RANDOM_PROVIDERS: MapProvider[] = [
     randomLargeMapProvider,
 ];
 
+// The scenario maps: deliberately ASYMMETRIC tactical questions with a
+// known right answer, shared with the sim scenario tests. Their own list
+// because the authored battery would (correctly) fail them on fairness --
+// unfairness is the exercise.
+export const SCENARIO_PROVIDERS: MapProvider[] = [
+    chokeMapProvider,
+    chokeRetreatMapProvider,
+];
+
 // Default first: selectedMapProvider() falls back to providers[0] when the
 // URL asks for a key nobody registered.
 const providers: MapProvider[] = [
     rotor12x18MapProvider,
     ...AUTHORED_PROVIDERS.filter((p) => p !== rotor12x18MapProvider),
     ...RANDOM_PROVIDERS,
+    ...SCENARIO_PROVIDERS,
 ];
 
 export function allMapProviders(): MapProvider[] {

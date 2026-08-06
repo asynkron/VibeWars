@@ -31,7 +31,7 @@ import { initViewToolbar } from './systems/viewToolbar';
 import { renderFrame } from './render';
 import { LightPool } from './shared/hexengine/LightPool';
 import { setGameState, getGameState } from './systems/gameStateStore';
-import { AUTHORED_PROVIDERS, RANDOM_PROVIDERS, selectedMapProvider } from './systems/maps/mapRegistry';
+import { AUTHORED_PROVIDERS, RANDOM_PROVIDERS, SCENARIO_PROVIDERS, selectedMapProvider } from './systems/maps/mapRegistry';
 import { armedSkill, setArmedListener } from './systems/skillBar';
 import { skillReady, inSkillRange, skillAccepts } from './shared/hexengine/skills';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
@@ -784,6 +784,13 @@ function showStartMenu() {
         ...RANDOM_PROVIDERS.map((provider) => ({
             key: provider.key,
             label: provider.name,
+            note: sideNote(provider),
+        })),
+        // Scenario boards: asymmetric tactical exercises. The human holds
+        // the side with the right answer to find.
+        ...SCENARIO_PROVIDERS.map((provider) => ({
+            key: provider.key,
+            label: `Scenario — ${provider.name}`,
             note: sideNote(provider),
         })),
     ];

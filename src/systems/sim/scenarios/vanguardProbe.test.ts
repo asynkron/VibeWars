@@ -13,8 +13,8 @@
 
 import '../../../test/threeStub';
 import { describe, it } from 'vitest';
-import { registerScenarioUnits } from './testUnits';
 import { scenario } from './scenario';
+import { CHOKE_PICTURE, CHOKE_LEGEND } from '../../maps/ChokeMapProvider';
 import { runHeadlessMatch } from '../headless';
 import { createEngine } from '../ai/AIEngine';
 import { beamPlanGen } from '../ai/planners/beam';
@@ -27,23 +27,7 @@ import { STORM_CAPTURE, stormCaptureGene } from '../ai/genes/stormCapture';
 
 declare const process: { env: Record<string, string | undefined> };
 
-registerScenarioUnits();
-
-const CHOKE = scenario('water-choke-probe', [
-    '...B...',
-    '.......',
-    '.......',
-    '.......',
-    '~~~.~~~',
-    '.......',
-    '...K...',
-    '.......',
-    '...A...',
-], {
-    K: { type: 'Kloss', player: 0 },
-    A: { type: 'Pyramid', player: 0 },
-    B: { type: 'Boll', player: 1 },
-});
+const CHOKE = scenario('water-choke-probe', CHOKE_PICTURE, CHOKE_LEGEND);
 
 const PLAN = { beamChildCounts: [48, 24, 12], beamDepth: 3 };
 

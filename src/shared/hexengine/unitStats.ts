@@ -422,6 +422,109 @@ export const UNIT_TYPES = {
                 movement: 'jet',
                 attack: 'rlauncher3'
             }
+        },
+
+        // --- The scenario units: a ball, a block and a pyramid. Each is
+        // --- one tactical property turned all the way up, for boards that
+        // --- ask a question with a known right answer (see
+        // --- systems/sim/scenarios/). Real units on the real roster --
+        // --- their bodies are primitives (ModelSystem 'primitive:'), team
+        // --- tinted, and no regular map spawns them.
+        "Kloss": {
+            symbol: "K",
+            name: "Kloss",
+            unitClass: 'tank' as const,
+            maxHp: 30,
+            hp: 30,
+            move: 2,
+            minRange: 1,
+            maxRange: 1,
+            minDamage: 0,
+            maxDamage: 2,
+            attack: 1,
+            model: "primitive:box",
+            scale: 1.0,
+            rotation: 0,
+            attackEffect: 'cannon',
+            footprintTexture: 'assets/textures/tracks2.png',
+            terrainCosts: {
+                WATER: null,
+                SAND: 1,
+                GRASS: 1,
+                FOREST: 1.5,
+                MOUNTAIN: null
+            },
+            usePlayerColor: true,
+            sounds: {
+                movement: 'engine_heavy',
+                attack: 'rlauncher2'
+            }
+        },
+        "Pyramid": {
+            symbol: "A",
+            name: "Pyramid",
+            unitClass: 'artillery' as const,
+            maxHp: 2,
+            hp: 2,
+            move: 2,
+            // Range 2 EXACTLY: adjacent is a dead zone, so anything that
+            // reaches it wins. Its value is what stands in front of it.
+            minRange: 2,
+            maxRange: 2,
+            minDamage: 4,
+            maxDamage: 6,
+            attack: 5,
+            model: "primitive:pyramid",
+            scale: 1.0,
+            rotation: 0,
+            attackEffect: 'cannon',
+            footprintTexture: 'assets/textures/tracks2.png',
+            terrainCosts: {
+                WATER: null,
+                SAND: 1,
+                GRASS: 1,
+                FOREST: 1.5,
+                MOUNTAIN: null
+            },
+            usePlayerColor: true,
+            sounds: {
+                movement: 'engine_heavy',
+                attack: 'rlauncher2'
+            }
+        },
+        "Boll": {
+            symbol: "B",
+            name: "Boll",
+            unitClass: 'tank' as const,
+            maxHp: 14,
+            hp: 14,
+            // 4, not 5: fast enough to punish an unguarded Pyramid, slow
+            // enough that it can NEVER cross the choke before the defence
+            // can be standing on it -- the ball reaching the door on turn
+            // one with the door already shut IS the scenario.
+            move: 4,
+            minRange: 1,
+            maxRange: 1,
+            minDamage: 5,
+            maxDamage: 7,
+            attack: 6,
+            model: "primitive:sphere",
+            scale: 1.0,
+            rotation: 0,
+            attackEffect: 'cannon',
+            footprintTexture: 'assets/textures/tracks2.png',
+            terrainCosts: {
+                WATER: null,
+                SAND: 1,
+                GRASS: 1,
+                FOREST: 1.5,
+                MOUNTAIN: null
+            },
+            usePlayerColor: true,
+            sounds: {
+                movement: 'engine_heavy',
+                attack: 'rlauncher2'
+            }
         }
     };
 

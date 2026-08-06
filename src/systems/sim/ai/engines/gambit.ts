@@ -99,6 +99,14 @@ export const gambitEngine = createEngine({
                 Pike: 1.2,      // captures; nothing else does
                 Road: 1.1,
                 Gunboat: 0.9,
+                // The scenario units, at DELIBERATELY neutral 1.0: every
+                // choke hold-rate was calibrated before they had entries
+                // (a missing type reads as 1.0), and a value here changes
+                // how the search prices them. Tune only with the scenario
+                // battery re-run beside the change.
+                Kloss: 1.0,
+                Pyramid: 1.0,
+                Boll: 1.0,
             },
         },
 
