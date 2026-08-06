@@ -13,8 +13,8 @@ import { SimState } from '../../SimState';
 import { drivePlanner } from '../../search';
 import { beamPlanGen } from './beam';
 import { beamPlanParallel } from './beamParallel';
-import { SimWorkerPool } from '../workerPool';
-import { runSimJob, snapshotToWire, snapshotFromWire } from '../simJob';
+import { SimWorkerPool, SimJobRunner } from '../workerPool';
+import { runSimJob, snapshotToWire, snapshotFromWire, SimJob, SimJobConfig } from '../simJob';
 import { unitTypesRecord } from '../../../../shared/hexengine/unitStats';
 
 const mk = (type: string, q: number, r: number, playerIndex: number) => {
@@ -96,6 +96,62 @@ describe('the parallel beam plays the same game as the serial one', () => {
         const pool = new SimWorkerPool(0);
         await expect(pool.run([], {})).rejects.toThrow(/setSnapshot/);
     });
+});
+
+describe('chunked dispatch', () => {
+    // jsdom has no Worker, and the real pool's fallback deliberately never
+    // chunks -- so a stub that CLAIMS to be parallel is the only way to
+    // drive the chunk-building and reassembly code at all. It runs the
+    // same runSimJob inline, like a pool of very obedient workers.
+    const stubRunner = (size: number): SimJobRunner => {
+        let snapshot: SimState | null = null;
+        return {
+            parallel: true,
+            size,
+            setSnapshot(s: SimState) { snapshot = s; },
+            run: async (jobs: SimJob[], config: SimJobConfig) =>
+                jobs.map((job) => runSimJob(snapshot!, job, config)),
+        };
+    };
+
+    it('chunks of a node reproduce the whole node child for child', () => {
+        // The seed contract: a child's stream comes from (seed, ABSOLUTE
+        // index), so where the chunk boundaries fall cannot matter.
+        const state = board([mk('Bulwark', 3, 3, 0), mk('Halberd', 7, 7, 1)]);
+        const job = { parentEvents: [], side: 0, scoreFor: 0, resetTurn: false, seed: 5, genesPerUnit: 3 };
+        const whole = runSimJob(state, { ...job, count: 30 });
+        const chunked = [0, 10, 20].flatMap((start) =>
+            runSimJob(state, { ...job, count: 10, startIndex: start }));
+        expect(chunked).toEqual(whole);
+    });
+
+    it('the chunked planner returns the unchunked plan', async () => {
+        // Wide enough that the chunker genuinely splits (MIN_CHUNK is 32),
+        // against the serial planner as ground truth -- at the engine's own
+        // odd depth and at an even depth, so the final-level readout is
+        // held to the identity guarantee too.
+        const wide = [96, 48, 24];
+        for (const seed of [1, 13]) {
+            for (const beamDepth of [undefined, 4]) {
+                const opts = { seed, beam: BEAM, beamChildCounts: wide, beamDepth };
+                const serial = drivePlanner(beamPlanGen(setup(), 0, opts));
+                const chunked = await beamPlanParallel(setup(), 0, opts, undefined, stubRunner(4));
+                expect(chunked.events, `seed ${seed} depth ${beamDepth ?? BEAM.depth}`).toEqual(serial.events);
+                expect(chunked.score, `seed ${seed} depth ${beamDepth ?? BEAM.depth}`).toBeCloseTo(serial.score, 6);
+            }
+        }
+    }, 60_000);
+
+    it('plays the budget depth, not the engine depth', async () => {
+        // REGRESSION: this planner read beam.depth alone, so the live
+        // difficulty's depth never reached a real game -- Hard was Feint's
+        // own 3, only wider. The serial planner's depth test could not
+        // catch it, because only the browser takes this code path.
+        const pool = new SimWorkerPool(0);
+        const totals: number[] = [];
+        await beamPlanParallel(setup(), 0, { seed: 3, beam: BEAM, beamDepth: 5 }, (p) => totals.push(p.total), pool);
+        expect(totals).toEqual([5, 5, 5, 5, 5]);
+    }, 60_000);
 });
 
 describe('the snapshot survives the trip to a worker', () => {

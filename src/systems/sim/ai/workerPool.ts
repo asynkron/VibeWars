@@ -30,7 +30,21 @@ interface Pending {
     reject: (error: Error) => void;
 }
 
-export class SimWorkerPool {
+// What the parallel planner needs from a pool: enough to fan jobs out and
+// get ordered results back. SimWorkerPool is the real one; tests hand in a
+// stub that claims `parallel: true` and runs runSimJob inline -- the only
+// way jsdom (which has no Worker) can exercise the chunked dispatch path,
+// since the real pool's fallback deliberately refuses to chunk.
+export interface SimJobRunner {
+    readonly parallel: boolean;
+    // Worker count, 0 when the fallback runs everything on this thread.
+    // The planner sizes its chunk fan-out from this.
+    readonly size: number;
+    setSnapshot(snapshot: SimState): void;
+    run(jobs: SimJob[], config: SimJobConfig): Promise<SimJobChild[][]>;
+}
+
+export class SimWorkerPool implements SimJobRunner {
     private workers: Worker[] = [];
     private idle: Worker[] = [];
     private queue: Array<{ job: SimJob; config: SimJobConfig; pending: Pending }> = [];
@@ -45,6 +59,10 @@ export class SimWorkerPool {
 
     constructor(size: number = defaultWorkerCount()) {
         this.parallel = this.spawn(size);
+    }
+
+    get size(): number {
+        return this.workers.length;
     }
 
     private spawn(size: number): boolean {

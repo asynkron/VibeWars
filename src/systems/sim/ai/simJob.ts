@@ -36,6 +36,12 @@ export interface SimJob {
     count: number;
     seed: number;
     genesPerUnit: number;
+    // First child index this job covers, for a job that is one CHUNK of a
+    // node's children. Child seeds derive from (seed, ABSOLUTE index), so a
+    // node split across workers produces bit-identical children to the same
+    // node run whole -- which is what lets the planner chunk a wide level
+    // without the plan changing. Omitted means 0: the whole node.
+    startIndex?: number;
     // How many children the caller can possibly select, so the rest never
     // have to be shipped. Optional: omitted means "return everything", which
     // is what the tests and any non-beam caller want.
@@ -98,8 +104,10 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
     for (const event of job.parentEvents) parent.record(event);
     const parentEventCount = parent.events.length;
 
+    const first = job.startIndex ?? 0;
     const children: SimJobChild[] = [];
-    for (let index = 0; index < job.count; index++) {
+    for (let offset = 0; offset < job.count; offset++) {
+        const index = first + offset;
         const branch = parent.fork();
         // The child's own stream, created BEFORE the reset because the turn
         // start now rolls the wildfire and must draw from it. Serial and

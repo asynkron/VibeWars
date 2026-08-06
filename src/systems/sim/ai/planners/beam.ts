@@ -29,7 +29,11 @@
 //
 // Opponent levels keep the children that are WORST for us, i.e. the
 // opponent's own best replies -- so the line is scored against an opponent
-// playing well rather than against one flailing.
+// playing well rather than against one flailing. When an opponent level is
+// the LAST one, the root is read off it: the kept reply's value is the
+// line's score AFTER the opponent's answer, which is the number the whole
+// design says a move must be judged by. An even depth used to compute that
+// final level and throw it away.
 
 import { SimState, GameEvent } from '../../SimState';
 import { PlanTurnOptions, PlanProgress, TurnPlanResult } from '../../search';
@@ -184,19 +188,32 @@ export function* beamPlanGen(
                 // reply flatters our line for no reason.
                 const acting = group.filter((entry: any) => entry.acted);
                 const pool = acting.length > 0 ? acting : group;
-                for (const entry of pool.slice(-beam.keepOpponent)) nextLevel.push(entry.node);
+                for (const entry of pool.slice(-beam.keepOpponent)) {
+                    nextLevel.push(entry.node);
+                    // At the LAST level their kept reply is the line's final
+                    // word -- our score after their best answer -- so the
+                    // root is read off it. An even depth used to compute
+                    // this whole level and throw it away, returning the
+                    // pre-reply pick as if the level had never run.
+                    if (depth === beamDepth - 1 && (!levelBest || entry.value > levelBest.value)) {
+                        levelBest = entry;
+                    }
+                }
             }
         }
 
         if (nextLevel.length === 0) break;
 
-        // The line to play is read off OUR levels only, and re-read at each
-        // one so an early break still leaves a usable answer. Never off an
-        // intermediate opponent level, and never off a single node's score
-        // before the reply to it has been played: a turn-1 gain that has
-        // not paid for its consequences yet is exactly what a greedy search
-        // would pick, and the whole point here is not to be one.
-        if (isOwnLevel && levelBest) {
+        // The line to play is read off OUR levels -- re-read at each one so
+        // an early break still leaves a usable answer -- and off the FINAL
+        // level whichever side it is. Never off an intermediate opponent
+        // level, and never off a single node's score before the reply to it
+        // has been played: a turn-1 gain that has not paid for its
+        // consequences yet is exactly what a greedy search would pick, and
+        // the whole point here is not to be one. Ending on the opponent's
+        // reply is the one case where the after-reply number exists, and
+        // reading it is what makes an even depth mean something.
+        if ((isOwnLevel || depth === beamDepth - 1) && levelBest) {
             best = levelBest.node;
             bestValue = levelBest.value;
         }

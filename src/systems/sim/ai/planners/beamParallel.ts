@@ -24,8 +24,22 @@ import { scoreState, DEFAULT_SCORE_WEIGHTS } from '../../score';
 import { DEFAULT_DIALECT } from '../../SimCommands';
 import { combineSeed } from '../../resolveAttack';
 import { DEFAULT_BEAM } from './beam';
-import { SimJob } from '../simJob';
-import { SimWorkerPool, getSimWorkerPool } from '../workerPool';
+import { SimJob, SimJobChild } from '../simJob';
+import { SimJobRunner, getSimWorkerPool } from '../workerPool';
+
+// A level's parallelism is its job count, and the top of the tree has ONE
+// node -- so without chunking the WIDEST level of the whole search (the
+// root's) ran on a single worker while the rest sat idle. Chunks carry an
+// absolute startIndex, so a split node's children are bit-identical to the
+// same node run whole -- see SimJob.startIndex.
+//
+// Never slice finer than this: a chunk re-clones the whole parent event
+// path across postMessage, so tiny chunks spend more on cloning than they
+// buy in overlap.
+const MIN_CHUNK = 32;
+// Aim for this many chunks per worker, so one unlucky long chunk evens out
+// across the pool instead of parking the level on a single core.
+const CHUNKS_PER_WORKER = 4;
 
 interface Node {
     // Every event from the snapshot to this node, so a job can replay it.
@@ -40,7 +54,7 @@ export async function beamPlanParallel(
     playerIndex: number,
     options: PlanTurnOptions,
     onProgress?: (progress: PlanProgress) => void,
-    pool: SimWorkerPool = getSimWorkerPool()
+    pool: SimJobRunner = getSimWorkerPool()
 ): Promise<TurnPlanResult> {
     const {
         seed = 1,
@@ -49,6 +63,12 @@ export async function beamPlanParallel(
         beam = DEFAULT_BEAM,
     } = options;
     const childCounts = options.beamChildCounts ?? beam.childCounts;
+    // The live depth dial, mirroring beam.ts exactly. This planner read
+    // `beam.depth` alone for a while, and the failure was silent and total:
+    // every difficulty played the engine's own depth in the browser, and
+    // only in the browser -- the serial planner honoured the budget, the
+    // tests pin the serial planner, and the tournament passes no depth.
+    const beamDepth = options.beamDepth ?? beam.depth;
 
     const hasUnits = [...snapshot.liveUnits()].some(([, u]) => u.playerIndex === playerIndex);
     if (!hasUnits) {
@@ -73,28 +93,65 @@ export async function beamPlanParallel(
     let level: Node[] = [{ path: [], rootEvents: [] }];
     let best: { node: Node; value: number } | null = null;
 
-    for (let depth = 0; depth < beam.depth; depth++) {
+    for (let depth = 0; depth < beamDepth; depth++) {
         const side = depth % 2 === 0 ? playerIndex : opponentIndex;
         const isOwnLevel = side === playerIndex;
         const count = childCountAt(depth);
 
-        const jobs: SimJob[] = level.map((node, nodeIndex) => ({
-            parentEvents: node.path,
-            side,
-            // Always the searching side, at every depth, so one number is
-            // comparable the whole way down.
-            scoreFor: playerIndex,
-            // The snapshot arrives already reset for the side to move.
-            resetTurn: depth > 0,
-            count,
-            seed: combineSeed(seed, depth, nodeIndex),
-            genesPerUnit: beam.genesPerUnit,
-            // What this level can still choose. Everything else is scored
-            // and dropped inside the job instead of being shipped home.
-            keep: { best: beam.keepBest, worst: beam.keepWorst, opponent: beam.keepOpponent },
-        }));
+        // How finely to split each node's children -- see MIN_CHUNK. Sized
+        // so the LEVEL, not the node, fills the pool: one root node at
+        // width 2600 becomes dozens of chunks instead of one worker's
+        // afternoon. Deep levels with many nodes already saturate the pool
+        // and get one chunk per node, i.e. exactly the old shape. The
+        // serial fallback never chunks -- same work either way, and the
+        // per-chunk parent replay is pure overhead with no one to share it.
+        const targetChunks = pool.parallel ? Math.max(1, pool.size) * CHUNKS_PER_WORKER : 1;
+        const chunksPerNode = Math.max(1, Math.min(
+            Math.ceil(targetChunks / level.length),
+            Math.ceil(count / MIN_CHUNK)
+        ));
+        const chunkSize = Math.ceil(count / chunksPerNode);
 
-        const results = await pool.run(jobs, config);
+        const jobs: SimJob[] = [];
+        // Which node each chunk belongs to, for reassembly below.
+        const owner: number[] = [];
+        level.forEach((node, nodeIndex) => {
+            for (let start = 0; start < count; start += chunkSize) {
+                jobs.push({
+                    parentEvents: node.path,
+                    side,
+                    // Always the searching side, at every depth, so one number
+                    // is comparable the whole way down.
+                    scoreFor: playerIndex,
+                    // The snapshot arrives already reset for the side to move.
+                    resetTurn: depth > 0,
+                    count: Math.min(chunkSize, count - start),
+                    startIndex: start,
+                    // Per NODE, not per chunk: child seeds come from
+                    // (this, absolute index), so the split is invisible.
+                    seed: combineSeed(seed, depth, nodeIndex),
+                    genesPerUnit: beam.genesPerUnit,
+                    // What this level can still choose. Everything else is
+                    // scored and dropped inside the job instead of being
+                    // shipped home.
+                    keep: { best: beam.keepBest, worst: beam.keepWorst, opponent: beam.keepOpponent },
+                });
+                owner.push(nodeIndex);
+            }
+        });
+
+        const chunkResults = await pool.run(jobs, config);
+        // Reassemble per node. Each chunk pruned to the keep-superset over
+        // its OWN children; every child the whole-node prune would keep is
+        // in some chunk's superset (top-k of the union is top-k in its own
+        // chunk, and likewise from the bottom), and the selection below
+        // re-sorts and slices with the same comparator -- so the survivors
+        // are identical to the unchunked planner's, which the chunked
+        // identity test in beamParallel.test.ts holds it to.
+        const results: SimJobChild[][] = level.map(() => []);
+        chunkResults.forEach((children, jobIndex) => {
+            results[owner[jobIndex]].push(...children);
+        });
 
         const nextLevel: Node[] = [];
         let levelBest: { node: Node; value: number } | null = null;
@@ -126,15 +183,27 @@ export async function beamPlanParallel(
                 // that actually did something.
                 const acting = group.filter((child) => child.events.length > 0);
                 const usable = acting.length > 0 ? acting : group;
-                for (const child of usable.slice(-beam.keepOpponent)) nextLevel.push(toNode(child));
+                for (const child of usable.slice(-beam.keepOpponent)) {
+                    nextLevel.push(toNode(child));
+                    // At the LAST level their kept reply is the line's final
+                    // word -- our score after their best answer -- so the
+                    // root is read off it. An even depth used to compute
+                    // this whole level and throw it away, returning the
+                    // pre-reply pick as if the level had never run.
+                    if (depth === beamDepth - 1 && (!levelBest || child.value > levelBest.value)) {
+                        levelBest = { node: toNode(child), value: child.value };
+                    }
+                }
             }
         }
 
         if (nextLevel.length === 0) break;
-        if (isOwnLevel && levelBest) best = levelBest;
+        // Own levels as before, plus the final level whichever side it is
+        // -- mirroring beam.ts exactly, which the identity test enforces.
+        if ((isOwnLevel || depth === beamDepth - 1) && levelBest) best = levelBest;
 
         level = nextLevel;
-        onProgress?.({ done: depth + 1, total: beam.depth, label: depth === 0 ? 'search' : 'verify' });
+        onProgress?.({ done: depth + 1, total: beamDepth, label: depth === 0 ? 'search' : 'verify' });
     }
 
     if (!best) return { events: [], score: scoreState(snapshot, playerIndex, weights), genes: [] };

@@ -95,6 +95,46 @@ describe('beam planner finds matchups the evaluation never mentions', () => {
     }, 60_000);
 });
 
+describe('an even depth ends on the reply, and the reply counts', () => {
+    // beamDepth 2 is "my turn, then their answer". Before the final-level
+    // readout the answer was computed and discarded, so depth 2 played
+    // exactly like depth 1 -- pure greedy -- at three times the cost.
+    //
+    // The position: a Lynx at 2 hp stands next to a full Bulwark. Greedy
+    // takes the shot (+3 expected damage now) and stands there; the
+    // Bulwark's reply kills the Lynx (expected 5 into 2 hp). The only line
+    // that survives the reply is fleeing beyond the Bulwark's reach of
+    // move 2 + range 1 -- which costs points NOW, lives in the sacrifice
+    // slots at depth 0, and only an after-reply readout can prefer.
+    const READOUT = { depth: 2, childCounts: [40, 20], keepBest: 4, keepWorst: 2, keepOpponent: 1, genesPerUnit: 3 };
+    const BULWARK_REACH = 3; // move 2 + range 1
+
+    const position = () => board([{ ...mk('Lynx', 4, 4, 0), hp: 2 }, mk('Bulwark', 5, 4, 1)]);
+
+    const lynxDistanceAfter = (beam: any, seed: number) => {
+        const state = position();
+        const plan = drivePlanner(beamPlanGen(state, 0, { seed, beam }));
+        const after = state.fork();
+        for (const event of plan.events) after.record(event);
+        const lynx = after.getUnit(0)!;
+        return HexCoord.getDistance(lynx.q, lynx.r, 5, 4);
+    };
+
+    it('depth 1 stays greedy: shoot and stand in the kill zone', () => {
+        for (const seed of [1, 2, 3]) {
+            expect(lynxDistanceAfter({ ...READOUT, depth: 1 }, seed), `seed ${seed}`)
+                .toBeLessThanOrEqual(BULWARK_REACH);
+        }
+    }, 60_000);
+
+    it('depth 2 reads the reply and walks the Lynx out of it', () => {
+        for (const seed of [1, 2, 3]) {
+            expect(lynxDistanceAfter(READOUT, seed), `seed ${seed}`)
+                .toBeGreaterThan(BULWARK_REACH);
+        }
+    }, 60_000);
+});
+
 describe('beam planner mechanics', () => {
     it('is deterministic in its seed', () => {
         const build = () => board([mk('Bulwark', 5, 2, 0), mk('Nightjar', 3, 3, 0), mk('Halberd', 5, 7, 1)]);
