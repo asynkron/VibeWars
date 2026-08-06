@@ -377,7 +377,7 @@ export class SimState {
     // (both usually a handful of entries). Mutating the fork never affects
     // this state or sibling forks.
     fork(): SimState {
-        return new SimState(
+        const copy = new SimState(
             this.cols,
             this.rows,
             this.baseTiles,
@@ -388,6 +388,10 @@ export class SimState {
             new Map(this.unitOverrides),
             new Map(this.buildingOverrides)
         );
+        // The overrides came along, so the fact that one of them changed
+        // the terrain must come along too.
+        copy.terrainChanged = this.terrainChanged;
+        return copy;
     }
 
     // The change history of this branch relative to the turn snapshot.
@@ -815,6 +819,33 @@ export class SimState {
     // Lazily-built hex -> unit index, dropped on any unit write.
     private occupancy: Map<number, number> | null = null;
 
+    // True once a tile write changed type or hasRoad -- see
+    // hasTerrainOverrides. Set by setTile, carried across fork().
+    private terrainChanged = false;
+
+    // The base tile array as an IDENTITY, for per-snapshot caches outside
+    // this file (SimPathfinding's cost-field cache keys a WeakMap on it,
+    // exactly as baseHasFire does below). Every fork shares the array by
+    // reference, so "same identity" means "same map, same turn snapshot".
+    // It is NOT a read path -- getTile is, and it knows about overrides.
+    get tileIdentity(): readonly SimTile[] {
+        return this.baseTiles;
+    }
+
+    // Whether this branch has changed what PATHFINDING sees on any tile --
+    // the veto a movement-cost cache must check before trusting
+    // tileIdentity alone. Movement reads exactly two tile facts, type and
+    // hasRoad, so only a write that changes one of those counts. The
+    // distinction matters: FIRE writes tile overrides on every simulated
+    // turn of a board with one wreck burning (burning/burned counters),
+    // and a veto on "any override at all" killed the cost-field cache in
+    // precisely the midgame states that need it most -- measured at 19x on
+    // the depth-4 opponent level. Craters that flip a tile to WATER still
+    // veto, which is the case the veto exists for.
+    get hasTerrainOverrides(): boolean {
+        return this.terrainChanged;
+    }
+
     // Whether anything anywhere is burning. The cheap guard the movement
     // path checks before it bothers to reconstruct a route.
     get hasFire(): boolean {
@@ -851,7 +882,14 @@ export class SimState {
 
     private setTile(q: number, r: number, tile: SimTile): void {
         const idx = this.tileIndex(q, r);
-        if (idx !== null) this.tileOverrides.set(idx, tile);
+        if (idx === null) return;
+        // Fire writes burning counters through here every simulated turn;
+        // only a change to what movement reads flips the cache veto.
+        const previous = this.tileOverrides.get(idx) ?? this.baseTiles[idx];
+        if (previous.type !== tile.type || previous.hasRoad !== tile.hasRoad) {
+            this.terrainChanged = true;
+        }
+        this.tileOverrides.set(idx, tile);
     }
 
     private setUnit(index: number, unit: SimUnit): void {

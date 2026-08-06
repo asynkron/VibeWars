@@ -57,18 +57,20 @@ export const regroupGene: GeneDefinition = {
         const allies = alliesOf(state, gene.unitIndex);
         if (allies.length === 0) return false;
 
+        const cols = state.cols;
+        const startKey = unit.r * cols + unit.q;
         const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
         // Staying put is the bar to beat, exactly as in moveTowards: a gene
         // that "acts" without improving anything just burns movement the
         // rest of the plan could have used.
         let bestSpread = spreadAt(unit.q, unit.r, allies);
         let bestCost = Infinity;
-        let bestKey: string | null = null;
+        let bestKey: number | null = null;
 
         for (const key of reachable) {
-            const [q, r] = key.split(',').map(Number);
-            if (q === unit.q && r === unit.r) continue;
-            const spread = spreadAt(q, r, allies);
+            if (key === startKey) continue;
+            const q = key % cols;
+            const spread = spreadAt(q, (key - q) / cols, allies);
             const cost = distances.get(key)!;
             // Tighter wins; among equally tight hexes the cheapest wins, but
             // only once some hex has already beaten standing still.
@@ -80,8 +82,8 @@ export const regroupGene: GeneDefinition = {
         }
 
         if (bestKey === null) return false;
-        const [toQ, toR] = bestKey.split(',').map(Number);
-        recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
+        const toQ = bestKey % cols;
+        recordSimMove(state, gene.unitIndex, toQ, (bestKey - toQ) / cols, bestCost);
         return true;
     },
 };

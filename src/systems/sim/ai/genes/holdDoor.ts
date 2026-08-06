@@ -90,7 +90,7 @@ export const holdDoorGene: GeneDefinition = {
         // nothing, since the enemy walks past. So this gene either reaches
         // the hex or does not fire, unlike the movement genes that inch
         // toward a target over several turns.
-        const key = `${door.q},${door.r}`;
+        const key = door.r * state.cols + door.q;
         if (!reachable.has(key)) return false;
         if (door.q === unit.q && door.r === unit.r) return false;
 

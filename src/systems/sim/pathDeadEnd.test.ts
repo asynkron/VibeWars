@@ -24,6 +24,8 @@ import { rotor12x18MapProvider as MAP } from '../maps/Rotor12x18MapProvider';
 
 const tiles = MAP.generate();
 const TARGET = { q: 6, r: 16 };
+// Cost fields key by hex index (r * cols + q) -- see SimPathfinding.
+const key = (q: number, r: number) => r * MAP.cols + q;
 
 function stateWith(type: string, q: number, r: number): SimState {
     const s = unitTypesRecord[type];
@@ -77,13 +79,13 @@ describe('a ground unit can cross the shipped map', () => {
         // cannot see.
         const state = stateWith('Bulwark', 5, 11);
         const field = simCostFieldFrom(state, 'Bulwark', TARGET.q, TARGET.r);
-        const before = { hex: HexCoord.getDistance(5, 11, TARGET.q, TARGET.r), path: field.get('5,11')! };
+        const before = { hex: HexCoord.getDistance(5, 11, TARGET.q, TARGET.r), path: field.get(key(5, 11))! };
 
         applyGene(state, { kind: 'moveTowards', unitIndex: 0, targetIndex: 1, seed: 1 });
         const unit = state.getUnit(0)!;
         const after = {
             hex: HexCoord.getDistance(unit.q, unit.r, TARGET.q, TARGET.r),
-            path: field.get(`${unit.q},${unit.r}`)!,
+            path: field.get(key(unit.q, unit.r))!,
         };
 
         expect(after.path).toBeLessThan(before.path);
@@ -115,7 +117,7 @@ describe('simCostFieldFrom', () => {
         const field = simCostFieldFrom(state, 'Bulwark', TARGET.q, TARGET.r);
         // The jam hex is 5 hexes from the target but much further to walk.
         expect(HexCoord.getDistance(5, 11, TARGET.q, TARGET.r)).toBe(5);
-        expect(field.get('5,11')!).toBeGreaterThan(5);
+        expect(field.get(key(5, 11))!).toBeGreaterThan(5);
     });
 
     it('leaves impassable ground out entirely', () => {
@@ -124,7 +126,7 @@ describe('simCostFieldFrom', () => {
         for (let q = 0; q < MAP.cols; q++) {
             for (let r = 0; r < MAP.rows; r++) {
                 if (unitTypesRecord.Bulwark.terrainCosts[tiles[q][r].type] != null) continue;
-                expect(field.has(`${q},${r}`), `${q},${r} is impassable`).toBe(false);
+                expect(field.has(key(q, r)), `${q},${r} is impassable`).toBe(false);
             }
         }
     });
@@ -134,6 +136,6 @@ describe('simCostFieldFrom', () => {
         // that skipped occupied hexes would have no destination at all.
         const state = stateWith('Bulwark', 5, 11);
         const field = simCostFieldFrom(state, 'Bulwark', TARGET.q, TARGET.r);
-        expect(field.get(`${TARGET.q},${TARGET.r}`)).toBe(0);
+        expect(field.get(key(TARGET.q, TARGET.r))).toBe(0);
     });
 });

@@ -447,8 +447,10 @@ export function applyGene(
             const threatStats = UnitSystem.unitTypesRecord[target.type];
             const safeDist = threatStats.move + threatStats.maxRange;
 
+            const cols = state.cols;
+            const startKey = unit.r * cols + unit.q;
             const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
-            let bestKey: string | null = null;
+            let bestKey: number | null = null;
             let bestDist = gene.kind === 'moveTowards'
                 ? HexCoord.getDistance(unit.q, unit.r, target.q, target.r)
                 : -Infinity;
@@ -457,8 +459,9 @@ export function applyGene(
                 && HexCoord.getDistance(unit.q, unit.r, target.q, target.r) > safeDist;
 
             for (const key of reachable) {
-                const [q, r] = key.split(',').map(Number);
-                if (q === unit.q && r === unit.r) continue;
+                if (key === startKey) continue;
+                const q = key % cols;
+                const r = (key - q) / cols;
                 const dist = HexCoord.getDistance(q, r, target.q, target.r);
                 const cost = distances.get(key)!;
                 let better: boolean;
@@ -507,10 +510,9 @@ export function applyGene(
             // and because where the greedy rule works it is already right.
             if (bestKey === null && gene.kind === 'moveTowards') {
                 const field = simCostFieldFrom(state, unit.type, target.q, target.r);
-                let bestField = field.get(`${unit.q},${unit.r}`) ?? Infinity;
+                let bestField = field.get(startKey) ?? Infinity;
                 for (const key of reachable) {
-                    const [q, r] = key.split(',').map(Number);
-                    if (q === unit.q && r === unit.r) continue;
+                    if (key === startKey) continue;
                     const value = field.get(key);
                     if (value === undefined) continue;
                     const cost = distances.get(key)!;
@@ -523,8 +525,8 @@ export function applyGene(
             }
 
             if (bestKey === null) return false; // nothing better than staying
-            const [toQ, toR] = bestKey.split(',').map(Number);
-            recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
+            const toQ = bestKey % cols;
+            recordSimMove(state, gene.unitIndex, toQ, (bestKey - toQ) / cols, bestCost);
             return true;
         }
 
@@ -539,15 +541,18 @@ export function applyGene(
             const target = state.getUnit(targetIndex)!;
             if (!UnitSystem.canTarget(unit.type, target.type)) return false;
 
+            const cols = state.cols;
+            const startKey = unit.r * cols + unit.q;
             const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
-            let bestKey: string | null = null;
+            let bestKey: number | null = null;
             let bestDist = -Infinity;
             let bestCost = Infinity;
             const currentDist = HexCoord.getDistance(unit.q, unit.r, target.q, target.r);
 
             for (const key of reachable) {
-                const [q, r] = key.split(',').map(Number);
-                if (q === unit.q && r === unit.r) continue;
+                if (key === startKey) continue;
+                const q = key % cols;
+                const r = (key - q) / cols;
                 const dist = HexCoord.getDistance(q, r, target.q, target.r);
                 if (dist < unit.minRange || dist > unit.maxRange) continue;
                 const cost = distances.get(key)!;
@@ -561,8 +566,8 @@ export function applyGene(
 
             // Already parked at the ideal distance? Nothing to do.
             if (bestKey === null || (currentDist === unit.maxRange && bestDist <= currentDist)) return false;
-            const [toQ, toR] = bestKey.split(',').map(Number);
-            recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
+            const toQ = bestKey % cols;
+            recordSimMove(state, gene.unitIndex, toQ, (bestKey - toQ) / cols, bestCost);
             return true;
         }
 
@@ -581,13 +586,16 @@ export function applyGene(
             // Same best-reachable-hex logic as moveTowards, aimed at the
             // building tile -- which, unlike an enemy's hex, is itself
             // enterable, so "reach it exactly" (the capture) wins outright.
+            const cols = state.cols;
+            const startKey = unit.r * cols + unit.q;
             const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
-            let bestKey: string | null = null;
+            let bestKey: number | null = null;
             let bestDist = HexCoord.getDistance(unit.q, unit.r, building.q, building.r);
             let bestCost = Infinity;
             for (const key of reachable) {
-                const [q, r] = key.split(',').map(Number);
-                if (q === unit.q && r === unit.r) continue;
+                if (key === startKey) continue;
+                const q = key % cols;
+                const r = (key - q) / cols;
                 const dist = HexCoord.getDistance(q, r, building.q, building.r);
                 const cost = distances.get(key)!;
                 if (dist < bestDist || (dist === bestDist && cost < bestCost && bestKey !== null)) {
@@ -601,10 +609,9 @@ export function applyGene(
             // would otherwise stop at it forever.
             if (bestKey === null) {
                 const field = simCostFieldFrom(state, unit.type, building.q, building.r);
-                let bestField = field.get(`${unit.q},${unit.r}`) ?? Infinity;
+                let bestField = field.get(startKey) ?? Infinity;
                 for (const key of reachable) {
-                    const [q, r] = key.split(',').map(Number);
-                    if (q === unit.q && r === unit.r) continue;
+                    if (key === startKey) continue;
                     const value = field.get(key);
                     if (value === undefined) continue;
                     const cost = distances.get(key)!;
@@ -617,20 +624,22 @@ export function applyGene(
             }
 
             if (bestKey === null) return false;
-            const [toQ, toR] = bestKey.split(',').map(Number);
-            recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
+            const toQ = bestKey % cols;
+            recordSimMove(state, gene.unitIndex, toQ, (bestKey - toQ) / cols, bestCost);
             return true;
         }
 
         case 'moveRandom': {
             if (unit.move <= 0) return false;
+            const cols = state.cols;
+            const startKey = unit.r * cols + unit.q;
             const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
-            const options = [...reachable].filter((key) => key !== `${unit.q},${unit.r}`);
+            const options = [...reachable].filter((key) => key !== startKey);
             if (options.length === 0) return false;
             const rng = mulberry32(gene.seed);
             const key = options[Math.floor(rng() * options.length)];
-            const [toQ, toR] = key.split(',').map(Number);
-            recordSimMove(state, gene.unitIndex, toQ, toR, distances.get(key)!);
+            const toQ = key % cols;
+            recordSimMove(state, gene.unitIndex, toQ, (key - toQ) / cols, distances.get(key)!);
             return true;
         }
 

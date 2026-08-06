@@ -99,14 +99,16 @@ export const screenGene: GeneDefinition = {
             return HexCoord.getDistance(q, r, threat.q, threat.r);
         };
 
+        const cols = state.cols;
+        const startKey = unit.r * cols + unit.q;
         let bestScore = scoreOf(unit.q, unit.r);
         let bestCost = Infinity;
-        let bestKey: string | null = null;
+        let bestKey: number | null = null;
 
         for (const key of reachable) {
-            const [q, r] = key.split(',').map(Number);
-            if (q === unit.q && r === unit.r) continue;
-            const value = scoreOf(q, r);
+            if (key === startKey) continue;
+            const q = key % cols;
+            const value = scoreOf(q, (key - q) / cols);
             const cost = distances.get(key)!;
             if (value < bestScore || (value === bestScore && cost < bestCost && bestKey !== null)) {
                 bestScore = value;
@@ -116,7 +118,8 @@ export const screenGene: GeneDefinition = {
         }
 
         if (bestKey === null) return false;
-        const [toQ, toR] = bestKey.split(',').map(Number);
+        const toQ = bestKey % cols;
+        const toR = (bestKey - toQ) / cols;
         // Through recordSimMove, so a screening infantryman that happens to
         // land on an enemy building still captures it.
         recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);

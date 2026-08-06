@@ -123,14 +123,16 @@ export const repairGene: GeneDefinition = {
         // together, which is exactly the coincidence a search cannot rely
         // on.
         if (unit.move <= 0) return false;
+        const cols = state.cols;
+        const startKey = unit.r * cols + unit.q;
         const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
-        let bestKey: string | null = null;
+        let bestKey: number | null = null;
         let bestDistance = distance;
         let bestCost = Infinity;
         for (const key of reachable) {
-            const [q, r] = key.split(',').map(Number);
-            if (q === unit.q && r === unit.r) continue;
-            const d = HexCoord.getDistance(q, r, target.q, target.r);
+            if (key === startKey) continue;
+            const q = key % cols;
+            const d = HexCoord.getDistance(q, (key - q) / cols, target.q, target.r);
             const cost = distances.get(key)!;
             if (d < bestDistance || (d === bestDistance && cost < bestCost && bestKey !== null)) {
                 bestDistance = d;
@@ -139,8 +141,8 @@ export const repairGene: GeneDefinition = {
             }
         }
         if (bestKey === null) return false;
-        const [toQ, toR] = bestKey.split(',').map(Number);
-        recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
+        const toQ = bestKey % cols;
+        recordSimMove(state, gene.unitIndex, toQ, (bestKey - toQ) / cols, bestCost);
         return true;
     },
 };

@@ -27,7 +27,8 @@ function makeState(tileAt: (q: number, r: number) => any, units: any[]): SimStat
     });
 }
 
-const key = (q: number, r: number) => `${q},${r}`;
+// Dijkstra results key by hex index (r * cols + q) -- the 6x6 grid above.
+const key = (q: number, r: number) => r * 6 + q;
 
 describe('simMoveCost', () => {
     it('roads cost 0.5 regardless of terrain and unit type', () => {

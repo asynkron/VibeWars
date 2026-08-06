@@ -33,11 +33,18 @@ export function hexToCube(q: number, r: number): { x: number; y: number; z: numb
     return { x, y, z };
 }
 
-// Steps between two hexes.
+// Steps between two hexes. Written out rather than composed from
+// hexToCube: the AI search asks this for every (unit, enemy) pair in every
+// scored child, millions of times per turn, and two cube objects per call
+// were pure GC pressure. Same arithmetic as hexToCube, same answers --
+// with x = q, the y axis is -x - z, so dy = -dx - dz.
 export function hexDistance(q1: number, r1: number, q2: number, r2: number): number {
-    const a = hexToCube(q1, r1);
-    const b = hexToCube(q2, r2);
-    return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y), Math.abs(a.z - b.z));
+    const z1 = r1 - (q1 - (q1 & 1)) / 2;
+    const z2 = r2 - (q2 - (q2 & 1)) / 2;
+    const dx = q1 - q2;
+    const dz = z1 - z2;
+    const dy = -dx - dz;
+    return Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz));
 }
 
 // Aliases under HexCoord's own names, so the simulation layer can do

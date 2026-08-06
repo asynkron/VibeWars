@@ -72,14 +72,16 @@ export const mendGene: GeneDefinition = {
         // rest of the plan could have used. Reaching the tile exactly is
         // what pays -- the heal is for standing ON it -- so plain distance
         // is the right measure and landing on it wins outright at 0.
+        const cols = state.cols;
+        const startKey = unit.r * cols + unit.q;
         let bestDist = HexCoord.getDistance(unit.q, unit.r, home.q, home.r);
         let bestCost = Infinity;
-        let bestKey: string | null = null;
+        let bestKey: number | null = null;
 
         for (const key of reachable) {
-            const [q, r] = key.split(',').map(Number);
-            if (q === unit.q && r === unit.r) continue;
-            const dist = HexCoord.getDistance(q, r, home.q, home.r);
+            if (key === startKey) continue;
+            const q = key % cols;
+            const dist = HexCoord.getDistance(q, (key - q) / cols, home.q, home.r);
             const cost = distances.get(key)!;
             if (dist < bestDist || (dist === bestDist && cost < bestCost && bestKey !== null)) {
                 bestDist = dist;
@@ -89,8 +91,8 @@ export const mendGene: GeneDefinition = {
         }
 
         if (bestKey === null) return false;
-        const [toQ, toR] = bestKey.split(',').map(Number);
-        recordSimMove(state, gene.unitIndex, toQ, toR, bestCost);
+        const toQ = bestKey % cols;
+        recordSimMove(state, gene.unitIndex, toQ, (bestKey - toQ) / cols, bestCost);
         return true;
     },
 };

@@ -14,16 +14,24 @@
 // (the live version initializes all cols x rows entries up front). With
 // small move budgets the search stays local and cheap, which matters when
 // hillclimbing evaluates hundreds of candidate plans per AI turn.
+//
+// KEYS ARE HEX INDICES (r * cols + q) -- the same arithmetic SimState's
+// tile store and occupancy index use -- not "q,r" strings. This is the
+// innermost loop of the whole AI: every movement gene runs a dijkstra and
+// then walks its `reachable` set, and the beam applies tens of thousands
+// of genes per turn. String keys meant a template allocation per visited
+// hex and a split-and-parse per read-back, which profiled as pure GC
+// pressure. A number decodes with one modulo: q = key % cols, and
+// r = (key - q) / cols.
 
 import { PriorityQueue } from '../../shared/hexengine/priorityQueue';
-import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
-import { SimState } from './SimState';
+import { SimState, SimTile } from './SimState';
 
 export interface SimDijkstraResult {
-    distances: Map<string, number>;
-    previous: Map<string, string>;
-    reachable: Set<string>;
+    distances: Map<number, number>;
+    previous: Map<number, number>;
+    reachable: Set<number>;
 }
 
 export interface SimPathResult {
@@ -32,8 +40,29 @@ export interface SimPathResult {
     cost: number;
 }
 
-function keyOf(q: number, r: number): string {
-    return `${q},${r}`;
+// hexNeighbors' six directions as parallel delta tables, split by column
+// parity (odd-q offset: odd columns sit half a row lower). SAME ORDER as
+// hexMath.hexNeighbors, and the order is load-bearing: expansion order
+// decides Map insertion order, insertion order decides which of two
+// equally-good hexes a movement gene picks, and the neutrality fixtures
+// hash the events that follow from that pick. Tables rather than the
+// function because the function allocates six objects per visited hex.
+const NEIGHBOR_DQ = [-1, 0, 1, 1, 0, -1];
+const NEIGHBOR_DR_EVEN = [-1, -1, -1, 0, 1, 0];
+const NEIGHBOR_DR_ODD = [0, -1, 0, 1, 1, 1];
+
+// tile.type is stored upper-case everywhere a SimState is built, but the
+// live rule upper-cases defensively and this must stay behaviour-identical
+// -- so the conversion survives, memoised per distinct string so the hot
+// loop stops allocating a fresh copy of "GRASS" per visited hex.
+const upperOf = new Map<string, string>();
+function terrainKey(type: string): string {
+    let upper = upperOf.get(type);
+    if (upper === undefined) {
+        upper = type.toUpperCase();
+        upperOf.set(type, upper);
+    }
+    return upper;
 }
 
 // Mirror of TerrainSystem.getMoveCost against SimState data. Returns null
@@ -42,7 +71,7 @@ export function simMoveCost(state: SimState, unitType: string, q: number, r: num
     const tile = state.getTile(q, r);
     if (!tile) return null;
     if (tile.hasRoad) return 0.5;
-    const cost = UnitSystem.getMovementCost(unitType, tile.type.toUpperCase());
+    const cost = UnitSystem.getMovementCost(unitType, terrainKey(tile.type));
     return cost ? cost : null;
 }
 
@@ -77,19 +106,27 @@ export function simDijkstra(state: SimState, unitIndex: number, maxCost: number 
 }
 
 function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number = Infinity): SimDijkstraResult {
-    const distances = new Map<string, number>();
-    const previous = new Map<string, string>();
-    const reachable = new Set<string>();
+    const distances = new Map<number, number>();
+    const previous = new Map<number, number>();
+    const reachable = new Set<number>();
 
     const unit = state.getUnit(unitIndex);
     if (!unit) return { distances, previous, reachable };
 
-    const closed = new Set<string>();
-    const startKey = keyOf(unit.q, unit.r);
+    const cols = state.cols;
+    const rows = state.rows;
+    // Hoisted out of the neighbor loop: the record is per unit TYPE, and
+    // this loop is the hottest in the engine. SimState.apply already
+    // indexes unitTypesRecord by this type unguarded, so an unknown type
+    // cannot reach here alive.
+    const costs = UnitSystem.unitTypesRecord[unit.type].terrainCosts;
+
+    const closed = new Set<number>();
+    const startKey = unit.r * cols + unit.q;
     distances.set(startKey, 0);
     reachable.add(startKey);
 
-    const frontier = new PriorityQueue<string>();
+    const frontier = new PriorityQueue<number>();
     frontier.enqueue(startKey, 0);
 
     while (!frontier.isEmpty()) {
@@ -100,17 +137,23 @@ function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number
         const currentDistance = distances.get(currentKey)!;
         if (currentDistance > maxCost) break;
 
-        const [cq, cr] = currentKey.split(',').map(Number);
-        for (const n of HexCoord.getNeighbors(cq, cr)) {
-            if (n.q < 0 || n.q >= state.cols || n.r < 0 || n.r >= state.rows) continue;
-            const neighborKey = keyOf(n.q, n.r);
+        const cq = currentKey % cols;
+        const cr = (currentKey - cq) / cols;
+        const drTable = cq % 2 === 1 ? NEIGHBOR_DR_ODD : NEIGHBOR_DR_EVEN;
+        for (let d = 0; d < 6; d++) {
+            const nq = cq + NEIGHBOR_DQ[d];
+            const nr = cr + drTable[d];
+            if (nq < 0 || nq >= cols || nr < 0 || nr >= rows) continue;
+            const neighborKey = nr * cols + nq;
             if (closed.has(neighborKey)) continue;
             // Occupied hexes are skipped entirely, mirroring the live
             // dijkstra's coord.isOccupied() filter. Note this sees the
             // simulated positions/deaths in this branch, not the live world.
-            if (state.getUnitAt(n.q, n.r)) continue;
+            if (state.getUnitAt(nq, nr)) continue;
 
-            const cost = simMoveCost(state, unit.type, n.q, n.r);
+            const tile = state.getTile(nq, nr);
+            if (!tile) continue;
+            const cost = tile.hasRoad ? 0.5 : costs[terrainKey(tile.type)];
             if (!cost) continue;
 
             const newDistance = currentDistance + cost;
@@ -140,21 +183,45 @@ export function simPath(
 ): SimPathResult | null {
     const unit = state.getUnit(unitIndex);
     if (!unit) return null;
+    // Out of bounds can never be reachable. Explicit now that keys are
+    // indices: a negative q would otherwise alias a real hex one row down.
+    if (toQ < 0 || toQ >= state.cols || toR < 0 || toR >= state.rows) return null;
 
     const { distances, previous, reachable } = simDijkstra(state, unitIndex, maxCost);
-    const endKey = keyOf(toQ, toR);
+    const endKey = toR * state.cols + toQ;
     if (!reachable.has(endKey)) return null;
 
     const path: { q: number; r: number }[] = [];
     let currentKey = endKey;
     while (previous.has(currentKey)) {
-        const [q, r] = currentKey.split(',').map(Number);
-        path.unshift({ q, r });
+        const q = currentKey % state.cols;
+        path.unshift({ q, r: (currentKey - q) / state.cols });
         currentKey = previous.get(currentKey)!;
     }
 
     return { path, cost: distances.get(endKey)! };
 }
+
+// The cost fields already computed for this turn snapshot, keyed on the
+// base tile array's identity -- shared by every fork of the snapshot, the
+// same trick SimState's fire caches use.
+//
+// The field reads nothing but tiles, so within one snapshot it is a pure
+// function of (unit type, start hex) -- and the moveTowards/moveToBuilding
+// dead-end fallback asks for the same handful of fields once per child
+// rollout, thousands of times per beam turn. On the shipped map MOST
+// starts dead-end into the fallback (see pathDeadEnd.test.ts), so this
+// full-map dijkstra was being rebuilt identically for every child. A
+// TERRAIN override vetoes the cache: a branch that cratered a tile into
+// water computes fresh rather than trusting a stale field. Fire overrides
+// do not veto -- burning changes nothing movement reads -- and that is
+// load-bearing: a board with one wreck alight writes fire overrides into
+// every branch, which under a blanket veto starved the cache exactly in
+// the midgame states that lean on the fallback hardest.
+//
+// Callers receive a SHARED map and must treat it as read-only. Every
+// caller only .get()s -- see SimCommands' fallbacks and pathDeadEnd.test.
+const costFieldCache = new WeakMap<readonly SimTile[], Map<string, Map<number, number>>>();
 
 // Cost to reach every hex FROM a given coordinate, for a given unit type.
 //
@@ -170,33 +237,57 @@ export function simCostFieldFrom(
     unitType: string,
     fromQ: number,
     fromR: number
-): Map<string, number> {
-    const field = new Map<string, number>();
-    const closed = new Set<string>();
-    const startKey = keyOf(fromQ, fromR);
+): Map<number, number> {
+    const cols = state.cols;
+    const cacheable = !state.hasTerrainOverrides;
+    const cacheKey = `${unitType}|${fromR * cols + fromQ}`;
+    if (cacheable) {
+        const hit = costFieldCache.get(state.tileIdentity)?.get(cacheKey);
+        if (hit) return hit;
+    }
+
+    const field = new Map<number, number>();
+    const closed = new Set<number>();
+    const costs = UnitSystem.unitTypesRecord[unitType].terrainCosts;
+    const startKey = fromR * cols + fromQ;
     field.set(startKey, 0);
 
-    const frontier = new PriorityQueue<string>();
+    const frontier = new PriorityQueue<number>();
     frontier.enqueue(startKey, 0);
 
     while (!frontier.isEmpty()) {
         const currentKey = frontier.dequeue()!;
         if (closed.has(currentKey)) continue;
         closed.add(currentKey);
-        const [cq, cr] = currentKey.split(',').map(Number);
+        const cq = currentKey % cols;
+        const cr = (currentKey - cq) / cols;
         const currentCost = field.get(currentKey)!;
 
-        for (const n of HexCoord.getNeighbors(cq, cr)) {
-            if (n.q < 0 || n.q >= state.cols || n.r < 0 || n.r >= state.rows) continue;
-            const step = simMoveCost(state, unitType, n.q, n.r);
-            if (step == null) continue;
-            const nextKey = keyOf(n.q, n.r);
+        const drTable = cq % 2 === 1 ? NEIGHBOR_DR_ODD : NEIGHBOR_DR_EVEN;
+        for (let d = 0; d < 6; d++) {
+            const nq = cq + NEIGHBOR_DQ[d];
+            const nr = cr + drTable[d];
+            if (nq < 0 || nq >= cols || nr < 0 || nr >= state.rows) continue;
+            const tile = state.getTile(nq, nr);
+            if (!tile) continue;
+            const step = tile.hasRoad ? 0.5 : costs[terrainKey(tile.type)];
+            if (!step) continue;
+            const nextKey = nr * cols + nq;
             const next = currentCost + step;
             if (next < (field.get(nextKey) ?? Infinity)) {
                 field.set(nextKey, next);
                 frontier.enqueue(nextKey, next);
             }
         }
+    }
+
+    if (cacheable) {
+        let perBase = costFieldCache.get(state.tileIdentity);
+        if (!perBase) {
+            perBase = new Map();
+            costFieldCache.set(state.tileIdentity, perBase);
+        }
+        perBase.set(cacheKey, field);
     }
     return field;
 }
