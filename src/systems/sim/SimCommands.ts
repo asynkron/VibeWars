@@ -57,9 +57,18 @@ export interface GeneDefinition {
     // MUST route any movement through recordSimMove, or captures are lost.
     apply(state: SimState, gene: Gene): boolean;
     // Optional guard consulted by randomGene: when it returns false the roll
-    // falls back to moveTowards, exactly like the builtin moveToBuilding and
-    // standoff guards. Without it the kind is always considered rollable.
+    // falls back to `fallback` (moveTowards when undeclared), exactly like
+    // the builtin moveToBuilding and standoff guards. Without it the kind
+    // is always considered rollable.
     applicable?(state: SimState, unitIndex: number): boolean;
+    // What an inapplicable roll becomes. Default is moveTowards -- the
+    // convention every earlier gene was measured under -- and that default
+    // is NOT neutral: a narrow gene that can never apply on a given board
+    // silently adds its whole weight to the army's advance. A gene that
+    // would rather not exist than press declares 'idle' here, which is
+    // what makes adding it to a dialect ADDITIVE instead of a hidden
+    // aggression tilt on every board where it never fires.
+    fallback?: GeneKind;
 }
 
 // How an engine generates and applies genes. Everything an engine may want
@@ -777,10 +786,11 @@ export function randomGene(
     if (kind === 'standoff' && (!unit || nearestTargetableEnemyIndex(state, unitIndex) === null)) {
         kind = 'moveTowards';
     }
-    // Engine-registered kinds get the same treatment via their own guard.
+    // Engine-registered kinds get the same treatment via their own guard,
+    // falling back to the kind they declare -- see GeneDefinition.fallback.
     const custom = dialect.extras[kind];
     if (custom?.applicable && !custom.applicable(state, unitIndex)) {
-        kind = 'moveTowards';
+        kind = custom.fallback ?? 'moveTowards';
     }
     if (enemies.length === 0 && (kind === 'attack' || kind === 'moveTowards' || kind === 'moveAway')) {
         kind = 'moveRandom';
