@@ -21,6 +21,8 @@ import { beamPlanGen, DEFAULT_BEAM } from './beam';
 import { gambitEngine } from '../engines/gambit';
 import { baselineEngine } from '../engines/baseline';
 import { feintEngine } from '../engines/feint';
+import { mirageEngine } from '../engines/mirage';
+import { talusEngine } from '../engines/talus';
 
 const mk = (type: string, q: number, r: number, playerIndex: number) => {
     const s = UnitSystem.unitTypesRecord[type];
@@ -236,6 +238,33 @@ describe('feint is an ablation of gambit, not a second variant', () => {
         }
         expect(feint, `feint ${feint}ms vs gambit ${gambit}ms`).toBeLessThan(gambit);
     }, 120_000);
+});
+
+describe('mirage and talus are ablations of feint', () => {
+    // Same contract the feint-vs-gambit test pins: one changed value, or
+    // the tournament result cannot say what caused it.
+    const beamAblation = (variant: any, flag: string) => {
+        const { beam: variantBeam, ...variantRest } = variant.options as any;
+        const { beam: feintBeam, ...feintRest } = feintEngine.options as any;
+        expect(variantRest).toEqual(feintRest);
+        const { [flag]: changed, ...variantBeamRest } = variantBeam;
+        expect(variantBeamRest).toEqual(feintBeam);
+        expect(changed).toBe(true);
+    };
+
+    it('mirage changes exactly beam.dedupeChildren', () => {
+        beamAblation(mirageEngine, 'dedupeChildren');
+    });
+
+    it('talus changes exactly beam.spreadWorst', () => {
+        beamAblation(talusEngine, 'spreadWorst');
+    });
+
+    it('talus plans deterministically through the serial planner', () => {
+        const build = () => board([mk('Bulwark', 5, 2, 0), mk('Nightjar', 3, 3, 0), mk('Halberd', 5, 7, 1)]);
+        const run = () => talusEngine.planTurn(build(), 0, 9).events;
+        expect(run()).toEqual(run());
+    }, 60_000);
 });
 
 describe('gambit engine', () => {

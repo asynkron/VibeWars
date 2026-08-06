@@ -15,25 +15,32 @@ import { gatekeeperEngine } from './engines/gatekeeper';
 import { sapperEngine } from './engines/sapper';
 import { fitterEngine } from './engines/fitter';
 import { convoyEngine } from './engines/convoy';
+import { mirageEngine } from './engines/mirage';
+import { talusEngine } from './engines/talus';
 
 export const ENGINES: readonly AIEngine[] = [baselineEngine, wolfpackEngine, gambitEngine, feintEngine, aegisEngine,
-    menderEngine, dredgeEngine, gatekeeperEngine, sapperEngine, fitterEngine, convoyEngine];
+    menderEngine, dredgeEngine, gatekeeperEngine, sapperEngine, fitterEngine, convoyEngine, mirageEngine, talusEngine];
 
 // What the live game plays unless told otherwise.
 //
-// Feint rather than baseline, on measured grounds: 80 matches on the
-// shipped map, 58.0 points to 22.0, a 72.5% share with a 95% interval of
-// 61.9-81.1%. It is also FASTER at the live budget -- 0.71 s per turn
-// against baseline's 2.06 -- because a three-level beam does less work
-// than a hillclimb with a deep finalist stage. Stronger and cheaper, so
-// there is no trade to weigh.
+// Talus rather than Feint, on measured grounds: 400 matches on the shipped
+// map at the tournament budget, 248 wins to 152, a 62.0% share with a 95%
+// interval of 57.2-66.6% -- clear of 50% by a wide margin -- at 1.02x
+// compute parity. At six times the width the two are not separable (120
+// matches, feint 53.8%, interval spanning 50%), so at live widths the
+// claim is "at least as good, decisively better at batch width". Talus IS
+// Feint apart from one value (the sacrifice slots sample the worse half
+// of the ranking instead of its absolute bottom -- see engines/talus.ts),
+// so everything Feint measured against baseline still describes this
+// engine's cost and shape.
 //
-// Not Gambit, which is the same engine two levels deeper: it beats
-// baseline by the same margin (71.9%) for 4.4x Feint's thinking time, and
-// 80 matches could not separate the two head to head (58.1%, interval
-// 47.2-68.3%). Until that interval clears 50%, the extra depth is not
-// paid for.
-export const DEFAULT_ENGINE: AIEngine = feintEngine;
+// Feint earned the seat before it: 72.5% against baseline over 80 matches
+// (95% 61.9-81.1%) and cheaper per turn than the hillclimb it replaced.
+// Mirage (duplicate outcomes collapsed) also beat Feint -- 55.9%, interval
+// 51.0-60.7% -- but by less than Talus did, and the two changes cannot be
+// combined today: dedup needs event logs the spread protocol does not
+// ship. See beam.ts.
+export const DEFAULT_ENGINE: AIEngine = talusEngine;
 
 export function getEngine(id: string): AIEngine | undefined {
     return ENGINES.find((engine) => engine.id === id);

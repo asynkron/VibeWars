@@ -212,12 +212,11 @@ describe('engine registry', () => {
     });
 
     it('defaults the live game to the engine that measured best', () => {
-        // Feint: 72.5% against baseline over 80 matches AND cheaper per
-        // turn at the live budget. If this ever changes, the tournament
-        // numbers in engineRegistry.ts must change with it -- a default
-        // picked on anything but a measured result is how an AI quietly
-        // regresses.
-        expect(DEFAULT_ENGINE.id).toBe('feint');
+        // Talus: 62.0% against feint over 400 matches (95% 57.2-66.6%) at
+        // compute parity. If this ever changes, the tournament numbers in
+        // engineRegistry.ts must change with it -- a default picked on
+        // anything but a measured result is how an AI quietly regresses.
+        expect(DEFAULT_ENGINE.id).toBe('talus');
     });
 
     it('names the alternatives when asked for one that does not exist', () => {

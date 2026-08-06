@@ -129,11 +129,57 @@ describe('chunked dispatch', () => {
         // Wide enough that the chunker genuinely splits (MIN_CHUNK is 32),
         // against the serial planner as ground truth -- at the engine's own
         // odd depth and at an even depth, so the final-level readout is
-        // held to the identity guarantee too.
+        // held to the identity guarantee too. The dedupe variant holds the
+        // cross-chunk second pass to the same standard: a duplicate that
+        // survives per-chunk dedup in two chunks at once must still leave
+        // the selection the serial planner made.
+        const wide = [96, 48, 24];
+        for (const seed of [1, 13]) {
+            for (const variant of [
+                { label: 'odd depth', opts: { beam: BEAM, beamChildCounts: wide } },
+                { label: 'even depth', opts: { beam: BEAM, beamChildCounts: wide, beamDepth: 4 } },
+                { label: 'dedupe', opts: { beam: { ...BEAM, dedupeChildren: true }, beamChildCounts: wide } },
+            ]) {
+                const opts = { seed, ...variant.opts };
+                const serial = drivePlanner(beamPlanGen(setup(), 0, opts));
+                const chunked = await beamPlanParallel(setup(), 0, opts, undefined, stubRunner(4));
+                expect(chunked.events, `seed ${seed} ${variant.label}`).toEqual(serial.events);
+                expect(chunked.score, `seed ${seed} ${variant.label}`).toBeCloseTo(serial.score, 6);
+            }
+        }
+    }, 60_000);
+
+    it('dedupe collapses identical outcomes to the lowest-index copy', () => {
+        // A single unit with move 1 on open grass: twenty random turns
+        // land on a handful of outcomes, so duplicates are guaranteed.
+        const state = board([mk('Bulwark', 3, 3, 0), mk('Halberd', 9, 9, 1)]);
+        const job = { parentEvents: [], side: 0, scoreFor: 0, resetTurn: false, count: 20, seed: 3, genesPerUnit: 1 };
+
+        const raw = runSimJob(state, job);
+        const deduped = runSimJob(state, { ...job, dedupe: true });
+
+        expect(deduped.length).toBeLessThan(raw.length);
+        // Same as collapsing the raw run by hand: first copy of each log.
+        const seen = new Set<string>();
+        const manual = raw.filter((child) => {
+            const key = JSON.stringify(child.events);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        expect(deduped).toEqual(manual);
+    });
+
+    it('spread mode selects on metadata, refetches, and matches the serial plan', async () => {
+        // The two-phase protocol end to end: round one metadata (chunked),
+        // selection in the planner, round two recompute by index. Held to
+        // the serial planner at odd and even depths, so the spread rule,
+        // the refetch and the final-level readout all sit under the same
+        // identity guarantee as everything else.
         const wide = [96, 48, 24];
         for (const seed of [1, 13]) {
             for (const beamDepth of [undefined, 4]) {
-                const opts = { seed, beam: BEAM, beamChildCounts: wide, beamDepth };
+                const opts = { seed, beam: { ...BEAM, spreadWorst: true }, beamChildCounts: wide, beamDepth };
                 const serial = drivePlanner(beamPlanGen(setup(), 0, opts));
                 const chunked = await beamPlanParallel(setup(), 0, opts, undefined, stubRunner(4));
                 expect(chunked.events, `seed ${seed} depth ${beamDepth ?? BEAM.depth}`).toEqual(serial.events);
@@ -141,6 +187,18 @@ describe('chunked dispatch', () => {
             }
         }
     }, 60_000);
+
+    it('refuses dedupe and spread together, identically in both planners', async () => {
+        // Dedup compares event logs; the spread's metadata round ships
+        // none. One planner accepting what the other refuses would let an
+        // engine exist that plays differently serial and live.
+        const combo = { ...BEAM, spreadWorst: true, dedupeChildren: true };
+        expect(() => drivePlanner(beamPlanGen(setup(), 0, { seed: 1, beam: combo })))
+            .toThrow(/mutually exclusive/);
+        const pool = new SimWorkerPool(0);
+        await expect(beamPlanParallel(setup(), 0, { seed: 1, beam: combo }, undefined, pool))
+            .rejects.toThrow(/mutually exclusive/);
+    });
 
     it('plays the budget depth, not the engine depth', async () => {
         // REGRESSION: this planner read beam.depth alone, so the live

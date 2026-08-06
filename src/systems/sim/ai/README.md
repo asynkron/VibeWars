@@ -11,9 +11,11 @@ engineRegistry.ts    id -> engine, used by both the game and the tournament
 engines/baseline.ts  the AI as originally shipped -- the control
 engines/wolfpack.ts  a challenger: baseline with different weights + a gene
 engines/gambit.ts    a challenger that changes the SEARCH, not the weights
-engines/feint.ts     gambit at depth 3 -- an ablation, and now the default
+engines/feint.ts     gambit at depth 3 -- the ablation that held the default
+engines/mirage.ts    feint with duplicate child outcomes collapsed
+engines/talus.ts     feint with spread sacrifice slots -- now the default
 genes/regroup.ts     a gene only wolfpack registers
-planners/beam.ts     a beam tree search, used by gambit and feint
+planners/beam.ts     a beam tree search, used by every feint-family engine
 tournament.ts        seed pairs played from both seatings + significance test
 ```
 
@@ -40,6 +42,22 @@ beam looks five (or three) whole turns ahead and, at its own levels, keeps
 the **worst**-scoring children alongside the best — a move that looks bad
 now is exactly the move whose consequences need playing out. Neither engine
 was told anything about unit matchups; both work them out.
+
+The second round of challengers changed the SELECTION rather than the
+search or the weights, and both were measured against feint at compute
+parity:
+
+| | vs feint (width 80) | at 6× width |
+|---|---|---|
+| mirage (duplicate outcomes collapsed) | **55.9%** over 400 matches, 95% 51.0–60.7 | not separable at 120 matches |
+| talus (spread sacrifice slots) | **62.0%** over 400 matches, 95% 57.2–66.6 | not separable at 120 matches |
+
+Both effects live where the ranking is short: at width 80 the keep slots
+are scarce and the absolute bottom of the ranking is at its most
+degenerate, so how the slots are spent matters. At width 480 the search
+already buys redundancy and neither refinement separates from feint —
+which was the opposite of the prediction both engine headers went in with,
+and is exactly why the wide run existed.
 
 ## Adding a variant
 
@@ -91,7 +109,10 @@ engines apart. It also prints how much wall-clock each side spent thinking:
 a large gap there invalidates the comparison however clean the win column
 looks.
 
-`BUDGET_SCALE=2` doubles the batch search budget for a slower, stronger run.
+`BUDGET_SCALE=2` doubles the batch search budget for a slower, stronger
+run — hillclimb dials only. `BEAM_SCALE=6` scales beam width the same way
+(the first engine's own childCounts, applied to both seats), which is how
+the wide rows in the table above were played.
 
 ## Playing a variant in the browser
 
@@ -100,7 +121,10 @@ looks.
 ?ai=baseline:feint       one engine per side
 ```
 
-The default is **feint** — chosen on the measured result above, and cheaper
-per turn at the live budget than the engine it replaced (0.71 s against
-2.06 s), because a three-level beam does less work than a hillclimb with a
-deep finalist stage.
+The default is **talus** — chosen on the measured result above: decisively
+better than feint at batch width, never measured worse at any width, and
+the same engine apart from one selection value. Its spread picks need the
+node's whole ranking, which the worker protocol prunes away, so the live
+game runs it as a two-phase level: metadata first, selection in the
+planner, then a recompute of just the picked children by absolute index —
+proven event-identical to the serial planner in beamParallel.test.ts.

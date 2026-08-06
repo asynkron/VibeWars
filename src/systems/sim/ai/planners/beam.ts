@@ -58,6 +58,20 @@ export interface BeamOptions {
     keepOpponent: number;
     // Upper bound on genes per unit in a generated turn.
     genesPerUnit: number;
+    // Collapse children with identical event logs before any selection, so
+    // the keep slots go to DISTINCT outcomes -- see SimJob.dedupe. Off by
+    // default: it changes play, so it enters through an engine variant and
+    // a tournament, not through a flag flip.
+    dedupeChildren?: boolean;
+    // Take the sacrifice slots SPREAD through the worse half of the
+    // ranking instead of off its absolute bottom. The hypothesis: at large
+    // widths the global worst children are suicide noise, not interesting
+    // sacrifices -- the bottom of 2600 random turns is a unit drowning
+    // itself, and four slots spent there are four slots wasted. Serial
+    // planner only: the spread needs the whole remainder, which is exactly
+    // what the worker protocol prunes away -- beamParallel refuses the
+    // flag rather than silently playing a different search.
+    spreadWorst?: boolean;
 }
 
 export const DEFAULT_BEAM: BeamOptions = {
@@ -76,9 +90,23 @@ interface Node {
     // Events of the depth-0 turn this line descends from -- the only turn
     // that will actually be executed. Everything deeper is evaluation.
     rootEvents: readonly GameEvent[];
-    // Score of that depth-0 turn on its own, used to break ties between
-    // lines that reach the same leaf value.
-    rootImmediate: number;
+}
+
+// Which of the below-best remainder become sacrifice nodes. The default is
+// the remainder's absolute bottom -- HeroesOfBlazor's rule. Under
+// spreadWorst the picks spread through the WORSE HALF of the remainder
+// instead, ending at the absolute worst -- see BeamOptions.spreadWorst.
+// Exported because beamParallel must select with the SAME rule from the
+// same ranking, or the two planners quietly play different searches.
+export function sacrificePicks<T>(remaining: T[], beam: BeamOptions): T[] {
+    if (!beam.spreadWorst) return remaining.slice(-beam.keepWorst);
+    const band = remaining.slice(Math.floor(remaining.length / 2));
+    if (band.length <= beam.keepWorst) return band;
+    const picks: T[] = [];
+    for (let i = 1; i <= beam.keepWorst; i++) {
+        picks.push(band[Math.floor((i * (band.length - 1)) / beam.keepWorst)]);
+    }
+    return picks;
 }
 
 export function* beamPlanGen(
@@ -101,6 +129,13 @@ export function* beamPlanGen(
     // for it -- handing over a whole beam object would carry it silently.
     const beamDepth = options.beamDepth ?? beam.depth;
 
+    // Dedup needs event logs to compare; spread's parallel protocol ships
+    // none until the picks are made. Refused identically in both planners
+    // so an engine cannot exist that only one of them can run.
+    if (beam.dedupeChildren && beam.spreadWorst) {
+        throw new Error('beam.dedupeChildren and beam.spreadWorst are mutually exclusive');
+    }
+
     const hasUnits = [...snapshot.liveUnits()].some((u) => u[1].playerIndex === playerIndex);
     if (!hasUnits) {
         return { events: [], score: scoreState(snapshot, playerIndex, weights), genes: [] };
@@ -111,7 +146,7 @@ export function* beamPlanGen(
     const childCountAt = (depth: number) =>
         childCounts[Math.min(depth, childCounts.length - 1)] ?? 1;
 
-    let level: Node[] = [{ path: [], rootEvents: [], rootImmediate: 0 }];
+    let level: Node[] = [{ path: [], rootEvents: [] }];
     let best: Node | null = null;
     let bestValue = -Infinity;
 
@@ -146,21 +181,25 @@ export function* beamPlanGen(
                 count: childCount,
                 seed: combineSeed(seed, depth, p),
                 genesPerUnit: beam.genesPerUnit,
+                dedupe: beam.dedupeChildren,
             // What this level can still choose. Everything else is scored
             // and dropped inside the job instead of being shipped home.
-            keep: { best: beam.keepBest, worst: beam.keepWorst, opponent: beam.keepOpponent },
+            // Except under spreadWorst, whose sacrifice picks need the
+            // WHOLE remainder -- serial pays nothing for keeping it, and
+            // the parallel planner refuses the flag outright.
+            keep: beam.spreadWorst
+                ? undefined
+                : { best: beam.keepBest, worst: beam.keepWorst, opponent: beam.keepOpponent },
             }, { dialect, score: weights });
 
             return children.map((child) => ({
                 node: {
                     path: [...parent.path, ...child.events],
                     rootEvents: depth === 0 ? child.events : parent.rootEvents,
-                    rootImmediate: depth === 0 ? child.value : parent.rootImmediate,
                 } as Node,
                 value: child.value,
                 index: child.index,
-                // Whether this child's own turn did anything at all.
-                acted: child.events.length > 0,
+                acted: child.acted,
             }));
         });
 
@@ -178,7 +217,7 @@ export function* beamPlanGen(
                 // badly now is exactly the move whose consequences need
                 // playing out; greedy selection deletes it first.
                 const remaining = group.slice(beam.keepBest);
-                const bottom = beam.keepWorst > 0 ? remaining.slice(-beam.keepWorst) : [];
+                const bottom = beam.keepWorst > 0 ? sacrificePicks(remaining, beam) : [];
                 for (const entry of [...top, ...bottom]) nextLevel.push(entry.node);
                 if (!levelBest || group[0].value > levelBest.value) levelBest = group[0];
             } else {

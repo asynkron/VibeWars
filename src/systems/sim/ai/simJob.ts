@@ -42,6 +42,33 @@ export interface SimJob {
     // node run whole -- which is what lets the planner chunk a wide level
     // without the plan changing. Omitted means 0: the whole node.
     startIndex?: number;
+    // Collapse children whose event logs are identical before pruning,
+    // keeping the lowest index of each duplicate group. Random plans
+    // repeat outcomes constantly -- idle-heavy turns, the same move
+    // reached by different gene orders -- and at width 80 the same turn
+    // can occupy several of the dozen keep slots. Deduplicated, the slots
+    // go to DISTINCT outcomes: effective width up, zero extra rollouts.
+    //
+    // BEFORE pruning, not after, or the pruned dozen could be one outcome
+    // seven times. The planner runs a second pass across chunk boundaries;
+    // together they select exactly what an unchunked dedup would -- see
+    // the chunked identity test.
+    dedupe?: boolean;
+    // Metadata mode: every child comes back as (index, value, acted) with
+    // an EMPTY events array. The rollouts still run in full -- the value
+    // has to come from somewhere -- but nothing heavy crosses the wire.
+    // This is round one of the spread-sacrifice protocol: selection needs
+    // the WHOLE ranking, and shipping whole rankings is the exact cost the
+    // keep-pruning exists to avoid, so the planner selects on metadata and
+    // then fetches only its picks. Incompatible with `dedupe`, which has
+    // nothing to compare without the logs.
+    meta?: boolean;
+    // Round two: recompute exactly these ABSOLUTE child indices, events
+    // included. A child is a pure function of (seed, index) -- the same
+    // fact that lets chunks split a node -- so re-running a dozen picks
+    // costs a dozen rollouts, not a shipped level. count/startIndex are
+    // ignored when this is present.
+    indices?: readonly number[];
     // How many children the caller can possibly select, so the rest never
     // have to be shipped. Optional: omitted means "return everything", which
     // is what the tests and any non-beam caller want.
@@ -67,8 +94,13 @@ export interface SimJobChild {
     // arrival. See the header.
     index: number;
     // The events of THIS child's turn only, not including parentEvents.
+    // Empty in metadata mode even when the turn acted -- see SimJob.meta.
     events: GameEvent[];
     value: number;
+    // Whether this child's turn did anything. Derivable from events when
+    // they are shipped; carried explicitly because metadata-mode children
+    // ship without them and the opponent selection still needs the fact.
+    acted: boolean;
 }
 
 // Everything a job needs that is not the snapshot. Kept separate because
@@ -104,15 +136,24 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
     for (const event of job.parentEvents) parent.record(event);
     const parentEventCount = parent.events.length;
 
+    if (job.dedupe && job.meta) {
+        // Dedup compares event logs and metadata mode ships none. The
+        // planners refuse the flag combination too; this is the backstop.
+        throw new Error('SimJob.dedupe and SimJob.meta are mutually exclusive');
+    }
+
     const first = job.startIndex ?? 0;
+    const wanted: readonly number[] = job.indices
+        ?? Array.from({ length: job.count }, (_, offset) => first + offset);
     const children: SimJobChild[] = [];
-    for (let offset = 0; offset < job.count; offset++) {
-        const index = first + offset;
+    for (const index of wanted) {
         const branch = parent.fork();
         // The child's own stream, created BEFORE the reset because the turn
         // start now rolls the wildfire and must draw from it. Serial and
         // parallel share this function, which is what keeps a beam node's
-        // board identical however it was evaluated.
+        // board identical however it was evaluated -- including a round-two
+        // recompute by index, which must land on the same board the
+        // metadata round scored.
         const rng = mulberry32(combineSeed(job.seed, index));
         if (job.resetTurn) startTurn(branch, job.side, rng);
 
@@ -124,11 +165,32 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
         children.push({
             index,
             // Only what THIS turn added; the caller already holds the rest.
-            events: branch.events.slice(parentEventCount),
+            events: job.meta ? [] : branch.events.slice(parentEventCount),
             value: scoreState(branch, job.scoreFor, weights),
+            acted: branch.events.length > parentEventCount,
         });
     }
-    return job.keep ? pruneChildren(children, job.keep) : children;
+    const distinct = job.dedupe ? dedupeChildren(children) : children;
+    return job.keep ? pruneChildren(distinct, job.keep) : distinct;
+}
+
+// Collapse identical outcomes, keeping the FIRST (lowest-index) copy of
+// each -- children arrive in index order, so first is lowest. Identity is
+// the event log verbatim: two children with the same events reached the
+// same board by the same facts, and their values are equal by
+// construction. Lowest index rather than any other choice because index
+// breaks value ties everywhere else in the beam, so the survivor is the
+// copy selection would have preferred anyway.
+export function dedupeChildren(children: SimJobChild[]): SimJobChild[] {
+    const seen = new Set<string>();
+    const distinct: SimJobChild[] = [];
+    for (const child of children) {
+        const key = JSON.stringify(child.events);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        distinct.push(child);
+    }
+    return distinct;
 }
 
 // The snapshot as plain data, for structured-clone to a worker. SimState
@@ -199,8 +261,9 @@ function pruneChildren(children: SimJobChild[], keep: SimJobKeep): SimJobChild[]
         for (const child of sorted.slice(keep.best).slice(-keep.worst)) chosen.add(child);
     }
     if (keep.opponent > 0) {
-        // `acted` is events.length > 0, the same test beam.ts makes.
-        const acting = sorted.filter((child) => child.events.length > 0);
+        // The same acted test beam.ts makes, off the explicit flag now that
+        // metadata-mode children can act without shipping their events.
+        const acting = sorted.filter((child) => child.acted);
         const pool = acting.length > 0 ? acting : sorted;
         for (const child of pool.slice(-keep.opponent)) chosen.add(child);
     }

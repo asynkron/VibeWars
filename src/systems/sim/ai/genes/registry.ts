@@ -11,7 +11,7 @@
 //     DataCloneError: applicable(){} could not be cloned.
 //
 // That is aegis, dredge, gatekeeper, mender and sapper -- five of the nine
-// engines. It stayed invisible because DEFAULT_ENGINE is Feint, whose extras
+// engines. It stayed invisible because DEFAULT_ENGINE is a Feint-family engine, whose extras
 // are empty, and because the tests run under jsdom where `Worker` is
 // undefined, so the pool falls back to the serial path and never posts
 // anything.

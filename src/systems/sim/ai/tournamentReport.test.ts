@@ -17,6 +17,7 @@ import '../../../test/threeStub';
 import { describe, it } from 'vitest';
 import { runTournament, formatTournament, TOURNAMENT_BUDGET } from './tournament';
 import { requireEngine } from './engineRegistry';
+import type { PlanTurnOptions } from '../search';
 import { getMapProvider } from '../../maps/mapRegistry';
 import { rotor12x18MapProvider } from '../../maps/Rotor12x18MapProvider';
 
@@ -29,6 +30,13 @@ const PAIRING = process.env.ENGINES ?? 'baseline:wolfpack';
 const MAP_KEY = process.env.MAP ?? rotor12x18MapProvider.key;
 // Optional: raise the per-turn search budget for a slower, stronger batch.
 const BUDGET_SCALE = Number(process.env.BUDGET_SCALE ?? 1);
+// Optional: scale BEAM width the same way. The dials above are hillclimb
+// dials a beam engine never reads, so BUDGET_SCALE alone left beam engines
+// exactly as fast as before. Scales the FIRST engine's own childCounts and
+// applies them to both seats through the same budget override the live
+// game uses -- meaningful for same-family pairings (feint vs a feint
+// ablation), where "8" plays roughly half the live Medium width.
+const BEAM_SCALE = Number(process.env.BEAM_SCALE ?? 1);
 
 describe.skipIf(ROUNDS <= 0)('AI engine tournament', () => {
     it(`plays ${ROUNDS} seed pairs (${ROUNDS * 2} matches) and reports a verdict`, () => {
@@ -38,11 +46,15 @@ describe.skipIf(ROUNDS <= 0)('AI engine tournament', () => {
         const provider = getMapProvider(MAP_KEY);
         if (!provider) throw new Error(`Unknown map "${MAP_KEY}"`);
 
-        const budget = BUDGET_SCALE === 1 ? TOURNAMENT_BUDGET : {
+        const budget: Omit<PlanTurnOptions, 'seed'> = BUDGET_SCALE === 1 ? { ...TOURNAMENT_BUDGET } : {
             ...TOURNAMENT_BUDGET,
             population: Math.round(TOURNAMENT_BUDGET.population! * BUDGET_SCALE),
             rounds: Math.round(TOURNAMENT_BUDGET.rounds! * BUDGET_SCALE),
         };
+        if (BEAM_SCALE !== 1) {
+            const own = (a.options as any).beam?.childCounts as number[] | undefined;
+            if (own) budget.beamChildCounts = own.map((n) => Math.round(n * BEAM_SCALE));
+        }
 
         console.log(`map: ${provider.name} (${provider.cols}x${provider.rows})`);
         console.log(`budget: ${JSON.stringify(budget)}`);

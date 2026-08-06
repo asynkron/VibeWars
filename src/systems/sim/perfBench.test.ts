@@ -76,6 +76,10 @@ describe.skipIf(!process.env.BENCH)('planner benchmark', () => {
 
         for (const [stateName, at] of [['opening', opening], ['midgame', midgame]] as const) {
             for (const [budgetName, budget] of Object.entries(BUDGETS)) {
+                // BENCH=fast: only the frozen digest anchors, for a quick
+                // behaviour-neutrality check mid-refactor. The -live cases
+                // run minutes and have no committed baseline to guard.
+                if (process.env.BENCH === 'fast' && budgetName.endsWith('-live')) continue;
                 const engine = feintEngine.withBudget(budget);
                 const start = now();
                 const { events } = engine.planTurn(at.snapshot, at.side, 42);
@@ -87,7 +91,12 @@ describe.skipIf(!process.env.BENCH)('planner benchmark', () => {
 
     it('times a capped headless match', { timeout: 600_000 }, () => {
         const start = now();
-        const result = runHeadlessMatch(rotor12x18MapProvider, { seed: 7, maxTurns: 24 });
+        // Feint PINNED, not the default engine: this digest is a frozen
+        // anchor, and the default is chosen on tournament results -- it
+        // moved once already (feint -> talus) and will move again.
+        const result = runHeadlessMatch(rotor12x18MapProvider, {
+            seed: 7, maxTurns: 24, engines: [feintEngine, feintEngine],
+        });
         const ms = now() - start;
         console.log(`bench match: ${ms.toFixed(0)} ms wall, planMs [${result.planMs.map((v) => v.toFixed(0)).join(', ')}], digest ${result.eventDigest} (${result.reason})`);
     });
