@@ -59,6 +59,21 @@ already buys redundancy and neither refinement separates from feint —
 which was the opposite of the prediction both engine headers went in with,
 and is exactly why the wide run existed.
 
+The third round changed the MOVE VOCABULARY and the sweep, and told a
+different story:
+
+| | width 80 | at 6× width |
+|---|---|---|
+| parthian (talus + hit-and-run gene) vs talus | **58.5%** over 400, 95% 53.6–63.2 | 58.8% over 120 — same size, one match short of certifying |
+| parthian vs quickdraw (no sweep at all) | **61.5%** over 400, 95% 56.6–66.1 | **60.8%** over 120, 95% 51.9–69.1 |
+
+Two lessons. A real tactic keeps its effect size when the search widens —
+hit-and-run held at ~58–59% where the selection tweaks collapsed. And the
+sweep earns its keep at every width: even with half of quickdraw's gene
+mass carrying shots, enough plans still forget to fire that removing the
+floor costs ~11 points of share. Timing belongs in the genome; the
+guarantee belongs in the floor; they compose rather than compete.
+
 ## Adding a variant
 
 1. Copy `engines/baseline.ts`, change the `id`, `name`, `notes` and whatever

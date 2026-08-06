@@ -17,9 +17,12 @@ import { fitterEngine } from './engines/fitter';
 import { convoyEngine } from './engines/convoy';
 import { mirageEngine } from './engines/mirage';
 import { talusEngine } from './engines/talus';
+import { parthianEngine } from './engines/parthian';
+import { quickdrawEngine } from './engines/quickdraw';
 
 export const ENGINES: readonly AIEngine[] = [baselineEngine, wolfpackEngine, gambitEngine, feintEngine, aegisEngine,
-    menderEngine, dredgeEngine, gatekeeperEngine, sapperEngine, fitterEngine, convoyEngine, mirageEngine, talusEngine];
+    menderEngine, dredgeEngine, gatekeeperEngine, sapperEngine, fitterEngine, convoyEngine, mirageEngine, talusEngine,
+    parthianEngine, quickdrawEngine];
 
 // What the live game plays unless told otherwise.
 //

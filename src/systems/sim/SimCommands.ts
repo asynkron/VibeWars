@@ -75,7 +75,16 @@ export interface GeneDialect {
     // instead of a uniformly random enemy. The random remainder is what
     // keeps exploration alive for the hillclimber.
     focusFireChance: number;
-    sweep: SweepTuning;
+    // Tuning for the post-plan attack sweep -- or NULL for no sweep at
+    // all, which means every shot must come from an explicit gene. The
+    // sweep exists because random plans forget to shoot; it also fires
+    // from FINAL positions only, so any movement left after its shot is
+    // dead and the search drifts toward park-and-shoot. An engine whose
+    // dialect rolls shooting genes often enough may not need the floor --
+    // quickdraw is the engine that asks. Null rather than an optional
+    // field, so a call site cannot forget to decide: the type makes every
+    // sweep caller say what it does when there is none.
+    sweep: SweepTuning | null;
 }
 
 // Tuning for the post-plan attack sweep (see sweepAttacks).

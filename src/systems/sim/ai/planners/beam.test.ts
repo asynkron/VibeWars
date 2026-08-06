@@ -23,6 +23,7 @@ import { baselineEngine } from '../engines/baseline';
 import { feintEngine } from '../engines/feint';
 import { mirageEngine } from '../engines/mirage';
 import { talusEngine } from '../engines/talus';
+import { quickdrawEngine } from '../engines/quickdraw';
 
 const mk = (type: string, q: number, r: number, playerIndex: number) => {
     const s = UnitSystem.unitTypesRecord[type];
@@ -87,7 +88,7 @@ describe('beam planner finds matchups the evaluation never mentions', () => {
     it('does better than standing still when there is something to gain', () => {
         const state = board([mk('Bulwark', 5, 2, 0), mk('Halberd', 5, 4, 1)]);
         const idle = state.fork();
-        sweepAttacks(idle, 0, DEFAULT_DIALECT.sweep);
+        sweepAttacks(idle, 0, DEFAULT_DIALECT.sweep!);
         const idleScore = scoreState(idle, 0, gambitEngine.options.score);
 
         const plan = drivePlanner(beamPlanGen(state, 0, { seed: 4, beam: FAST, score: gambitEngine.options.score }));
@@ -264,6 +265,30 @@ describe('mirage and talus are ablations of feint', () => {
         const build = () => board([mk('Bulwark', 5, 2, 0), mk('Nightjar', 3, 3, 0), mk('Halberd', 5, 7, 1)]);
         const run = () => talusEngine.planTurn(build(), 0, 9).events;
         expect(run()).toEqual(run());
+    }, 60_000);
+});
+
+describe('quickdraw has no sweep and shoots anyway', () => {
+    it('names its change: sweep null, hit-and-run frequent', () => {
+        expect(quickdrawEngine.options.dialect!.sweep).toBeNull();
+        const weights = new Map(quickdrawEngine.options.dialect!.weights);
+        expect(weights.get('hitAndRun')).toBeGreaterThanOrEqual(0.2);
+        // The search itself is untouched Talus: same beam, same everything
+        // outside the dialect.
+        expect(quickdrawEngine.options.beam).toEqual(talusEngine.options.beam);
+    });
+
+    it('still deals damage through explicit genes alone', () => {
+        // A free kill standing adjacent: a one-hit enemy, no return worth
+        // fearing. If the genome could not shoot, this engine would be a
+        // pacifist and leave it alive -- which is the wiring mistake this
+        // test exists to catch. (A FAIR trade it may legitimately refuse;
+        // the first draft offered one and quickdraw correctly walked away.)
+        const spot = HexCoord.getNeighbors(5, 5)[0];
+        const state = board([mk('Lynx', 5, 5, 0), { ...mk('Bulwark', spot.q, spot.r, 1), hp: 1 }]);
+        const plan = quickdrawEngine.planTurn(state, 0, 3);
+        expect(plan.events.some((e: any) => e.type === 'unitAttacked')).toBe(true);
+        expect(plan.events.some((e: any) => e.type === 'unitDied')).toBe(true);
     }, 60_000);
 });
 

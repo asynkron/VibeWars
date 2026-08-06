@@ -34,6 +34,7 @@ import { HOLD_DOOR, holdDoorGene } from './holdDoor';
 import { REPAIR, repairGene } from './repair';
 import { LOAD, loadGene, UNLOAD, unloadGene } from './transport';
 import { BURN, burnGene } from './burn';
+import { HIT_AND_RUN, hitAndRunGene } from './hitAndRun';
 
 export const GENE_REGISTRY: Readonly<Record<string, GeneDefinition>> = {
     [REGROUP]: regroupGene,
@@ -45,6 +46,7 @@ export const GENE_REGISTRY: Readonly<Record<string, GeneDefinition>> = {
     [LOAD]: loadGene,
     [UNLOAD]: unloadGene,
     [BURN]: burnGene,
+    [HIT_AND_RUN]: hitAndRunGene,
 };
 
 // Rebuild an extras table from the names that came over the wire.

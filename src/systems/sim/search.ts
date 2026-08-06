@@ -237,7 +237,7 @@ function bestReply(
         const genes = randomPlanFor(state, playerIndex, rng, genesPerUnit, dialect);
         const probe = state.fork();
         for (const gene of genes) applyGene(probe, gene, dialect.extras);
-        sweepAttacks(probe, playerIndex, dialect.sweep);
+        if (dialect.sweep) sweepAttacks(probe, playerIndex, dialect.sweep);
         const score = scoreState(probe, playerIndex, scoreWeights);
         if (score > bestScore) {
             bestScore = score;
@@ -317,7 +317,7 @@ export function* planTurnGen(
     const evaluate = (genes: Gene[]): Candidate => {
         const branch = snapshot.fork();
         for (const gene of genes) applyGene(branch, gene, dialect.extras);
-        sweepAttacks(branch, playerIndex, dialect.sweep);
+        if (dialect.sweep) sweepAttacks(branch, playerIndex, dialect.sweep);
         const immediateScore = scoreState(branch, playerIndex, scoreWeights);
 
         // Cheap rollout: alternate opponent/own simulated turns with the

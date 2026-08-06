@@ -160,7 +160,9 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
         for (const gene of randomPlanFor(branch, job.side, rng, job.genesPerUnit, dialect)) {
             applyGene(branch, gene, dialect.extras);
         }
-        sweepAttacks(branch, job.side, dialect.sweep);
+        // A null sweep is an engine that shoots only through its genes --
+        // see GeneDialect.sweep.
+        if (dialect.sweep) sweepAttacks(branch, job.side, dialect.sweep);
 
         children.push({
             index,

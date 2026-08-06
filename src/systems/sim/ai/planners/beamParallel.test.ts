@@ -269,4 +269,26 @@ describe('runSimJob', () => {
         const job = { parentEvents: [], side: 0, scoreFor: 0, resetTurn: false, count: 4, seed: 77, genesPerUnit: 3 };
         expect(runSimJob(state, job)).toEqual(runSimJob(state, job));
     });
+
+    it('a null sweep means genes are the only guns', () => {
+        // Two units standing adjacent, and a dialect that can only roll
+        // idle: with the sweep every child shoots anyway, with sweep null
+        // nothing ever does. This is the flag quickdraw is built on.
+        const adjacent = () => {
+            const spot = { q: 4, r: 3 };
+            return board([mk('Bulwark', 3, 3, 0), { ...mk('Halberd', spot.q, spot.r, 1) }]);
+        };
+        const idleOnly = (sweep: any) => ({
+            dialect: { weights: [['idle', 1]] as any, extras: {}, focusFireChance: 0, sweep },
+        });
+        const job = { parentEvents: [], side: 0, scoreFor: 0, resetTurn: false, count: 5, seed: 11, genesPerUnit: 1 };
+
+        const swept = runSimJob(adjacent(), job, idleOnly({ killBonus: 100, friendlyFirePenalty: 1.5 }));
+        expect(swept.some((child) => child.events.some((e: any) => e.type === 'unitAttacked'))).toBe(true);
+
+        const unswept = runSimJob(adjacent(), job, idleOnly(null));
+        for (const child of unswept) {
+            expect(child.events.filter((e: any) => e.type === 'unitAttacked')).toHaveLength(0);
+        }
+    });
 });
