@@ -289,25 +289,6 @@ const GROUND_FRAGMENT = /* glsl */ `
         // sand actually lies, and they carry most of the band's relief.
         // (The voronoi pebbles this band used to scatter are gone: at map
         // scale they read as strewn potatoes, not stones.)
-            float patches = groundFbm(gp * 1.7 + warp * 2.6);
-            // The finest noises are band-limited: past the point where a
-            // pixel can resolve them they collapse to their mean instead
-            // of shimmering. See groundDetailFade.
-            float grain = mix(0.5, groundNoise(gp * 42.0), fade42);
-            float rippleS = sin(dot(gp, vec2(9.0, 4.0)) + groundFbm(gp * 1.2) * 9.0) * 0.5 + 0.5;
-            vec3 sandC = uSandColor * (0.80 + 0.40 * patches) * (0.94 + 0.10 * grain)
-                * (0.90 + 0.14 * rippleS);
-
-            // --- Grass: mottled meadow -- dark mossy hollows to worn
-            // yellow-green, plus a fine blade-scale shimmer. Mixing between
-            // two TINTS of the palette green (not scaling one) is what
-            // gives the hue drift real turf has.
-            float meadow = groundFbm(gp * 2.6 + warp * 3.0);
-            float blades = mix(0.5, groundNoise(gp * 36.0), fade36);
-            vec3 grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
-                              uGrassColor * vec3(1.55, 1.45, 1.00), meadow);
-            grassC *= 0.90 + 0.20 * blades;
-
             // --- Sand -> grass: not a fade but a FRONT. The turf closes in
             // patches (clump noise pushing against the transition height),
             // a fringe of dry straw runs ahead of every patch edge, and
@@ -317,18 +298,68 @@ const GROUND_FRAGMENT = /* glsl */ `
             // -- so even sand tiles a step from the grass line carry some
             // of the front, not just the narrow smoothed ramps between
             // tiles.
+            //
+            // COMPUTED FIRST, because the mask it produces decides which of
+            // the two halves below is worth computing at all. Sand and
+            // grass are the same band by height, so both used to run on
+            // every low fragment -- and on open turf, where grassMask
+            // saturates at exactly 1, the entire sand half was multiplied
+            // away: patches, grain, ripples and the tuft voronoi, 54 sin()
+            // a pixel over more than half the screen. Same skip as the
+            // outer bands, one level in, and exact for the same reason.
             float trans = smoothstep(0.70, 0.98, y + wob * 0.10);
             float clump = groundFbm(gp * 4.5 + warp * 3.5);
             float front = trans * 0.75 + clump * 0.45;
             float grassMask = smoothstep(0.52, 0.72, front);
-            float straw = smoothstep(0.28, 0.56, front) * (1.0 - grassMask);
-            vec3 tuft = groundVoronoi(gp * 8.0 + warp * 2.0);
-            float tufts = (1.0 - smoothstep(0.12, 0.24, tuft.x)) * step(0.45, tuft.z)
-                * smoothstep(0.02, 0.25, trans) * (1.0 - grassMask);
-            vec3 dryC = mix(uSandColor * vec3(0.95, 0.88, 0.62),
-                            uGrassColor * vec3(1.60, 1.45, 0.70), 0.45)
-                * (0.85 + 0.30 * clump);
 
+            // The strip where the front actually is -- 0 < grassMask < 1 --
+            // runs both halves and blends them, exactly as before. Most of
+            // the sand band lives here on purpose (see the 0.70 window
+            // above); the saving is on open grass, not on the beach.
+            vec3 sandC = vec3(0.0);
+            vec3 dryC = vec3(0.0);
+            float sandH = 0.0;
+            float straw = 0.0;
+            float tufts = 0.0;
+            if (grassMask < 1.0) {
+                float patches = groundFbm(gp * 1.7 + warp * 2.6);
+                // The finest noises are band-limited: past the point where
+                // a pixel can resolve them they collapse to their mean
+                // instead of shimmering. See groundDetailFade.
+                float grain = mix(0.5, groundNoise(gp * 42.0), fade42);
+                float rippleS = sin(dot(gp, vec2(9.0, 4.0)) + groundFbm(gp * 1.2) * 9.0) * 0.5 + 0.5;
+                sandC = uSandColor * (0.80 + 0.40 * patches) * (0.94 + 0.10 * grain)
+                    * (0.90 + 0.14 * rippleS);
+                straw = smoothstep(0.28, 0.56, front) * (1.0 - grassMask);
+                vec3 tuft = groundVoronoi(gp * 8.0 + warp * 2.0);
+                tufts = (1.0 - smoothstep(0.12, 0.24, tuft.x)) * step(0.45, tuft.z)
+                    * smoothstep(0.02, 0.25, trans) * (1.0 - grassMask);
+                dryC = mix(uSandColor * vec3(0.95, 0.88, 0.62),
+                           uGrassColor * vec3(1.60, 1.45, 0.70), 0.45)
+                    * (0.85 + 0.30 * clump);
+                sandH = patches * 0.20 + grain * 0.06 + rippleS * 0.45;
+            }
+
+            // --- Grass: mottled meadow -- dark mossy hollows to worn
+            // yellow-green, plus a fine blade-scale shimmer. Mixing between
+            // two TINTS of the palette green (not scaling one) is what
+            // gives the hue drift real turf has.
+            vec3 grassC = vec3(0.0);
+            float grassH = 0.0;
+            if (grassMask > 0.0) {
+                float meadow = groundFbm(gp * 2.6 + warp * 3.0);
+                float blades = mix(0.5, groundNoise(gp * 36.0), fade36);
+                grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
+                             uGrassColor * vec3(1.55, 1.45, 1.00), meadow);
+                grassC *= 0.90 + 0.20 * blades;
+                grassH = meadow * 0.30 + blades * 0.10;
+            }
+
+            // Composed in the ORIGINAL order: the dry fringe goes over the
+            // blended sand-and-grass, not over the sand alone. Nesting the
+            // two mixes the other way round is not the same arithmetic in
+            // the transition strip, and the strip is the only place either
+            // term is visible.
             lowC = mix(sandC, grassC, grassMask);
             lowC = mix(lowC, dryC, max(straw * 0.85, tufts * 0.9));
 
@@ -336,8 +367,6 @@ const GROUND_FRAGMENT = /* glsl */ `
             // computed from so light and shadow fall exactly where the
             // colour says they should. Tufts and the straw fringe stand a
             // little proud of the sand.
-            float sandH = patches * 0.20 + grain * 0.06 + rippleS * 0.45;
-            float grassH = meadow * 0.30 + blades * 0.10;
             lowH = mix(sandH * 0.6 + tufts * 0.55 + straw * 0.15, grassH, grassMask);
         }
 
