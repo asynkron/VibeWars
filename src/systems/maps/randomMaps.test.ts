@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import { RANDOM_PROVIDERS } from './mapRegistry';
 import { MAP_SIZES } from '../../constants';
 import { StartingUnit } from './MapProvider';
+import { hexDistance } from '../../shared/hexengine/hexMath';
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
 import { unitTypesRecord } from '../../shared/hexengine/unitStats';
 import type { BuildingSpawn, TileLike } from '../../types';
@@ -111,17 +112,38 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
         }
     });
 
-    it('anchors every depot on an EVEN column, or it is not a diamond', () => {
-        // On odd-q offset, only an even column has (q-1,r), (q,r+1) and
-        // (q+1,r) as its south-west, south and south-east neighbours. Anchor
-        // an odd column and the four pieces do not touch as cut.
+    it('builds every depot as a contiguous fan around its anchor', () => {
+        // This used to demand an EVEN anchor column and the three literal
+        // cells (q-1,r), (q,r+1), (q+1,r) -- which is the fan only on an
+        // even column, and only pointing south. The cells now come from a
+        // turn in cube coordinates, so the anchor's parity no longer means
+        // anything and a depot can face any of six ways.
+        //
+        // What still has to hold is the SHAPE, because the models are cut
+        // for it: every piece touching the anchor, and W-S-E touching each
+        // other in that order, so each open edge meets another piece.
         for (const [groupId, pieces] of groups) {
-            const north = pieces.find((p) => p.type === 'forgeDepotN')!;
-            expect(north.q % 2, `${groupId} anchor column`).toBe(0);
-            const cells = new Map(pieces.map((p) => [p.type, [p.q, p.r]]));
-            expect(cells.get('forgeDepotW')).toEqual([north.q - 1, north.r]);
-            expect(cells.get('forgeDepotE')).toEqual([north.q + 1, north.r]);
-            expect(cells.get('forgeDepotS')).toEqual([north.q, north.r + 1]);
+            const at = (type: string) => pieces.find((p) => p.type === type)!;
+            const n = at('forgeDepotN'), w = at('forgeDepotW');
+            const s = at('forgeDepotS'), e = at('forgeDepotE');
+            for (const piece of [w, s, e]) {
+                expect(hexDistance(n.q, n.r, piece.q, piece.r), `${groupId} ${piece.type} to anchor`).toBe(1);
+            }
+            expect(hexDistance(w.q, w.r, s.q, s.r), `${groupId} W to S`).toBe(1);
+            expect(hexDistance(s.q, s.r, e.q, e.r), `${groupId} S to E`).toBe(1);
+            // The ends of the fan stay apart -- closed, it would be a ring
+            // around a hex that is not the anchor.
+            expect(hexDistance(w.q, w.r, e.q, e.r), `${groupId} W to E`).toBe(2);
+        }
+    });
+
+    it('turns every depot to one of the six headings, models with cells', () => {
+        for (const [groupId, pieces] of groups) {
+            const headings = new Set(pieces.map((p) => p.rotationDeg));
+            // One heading per depot: a piece turned differently from its
+            // neighbours joins nothing.
+            expect(headings.size, `${groupId} headings`).toBe(1);
+            expect([0, 60, 120, 180, 240, 300]).toContain([...headings][0]);
         }
     });
 

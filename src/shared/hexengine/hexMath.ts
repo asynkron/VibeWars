@@ -33,6 +33,33 @@ export function hexToCube(q: number, r: number): { x: number; y: number; z: numb
     return { x, y, z };
 }
 
+// Cube back to odd-q offset. The exact inverse of hexToCube -- both write
+// the same `(q - (q & 1)) / 2` term, so they agree on negative columns too,
+// where JS's & on a negative odd number still yields 1.
+export function cubeToHex(x: number, z: number): { q: number; r: number } {
+    return { q: x, r: z + (x - (x & 1)) / 2 };
+}
+
+// One sixth of a turn, applied to a cube VECTOR (an offset between two
+// hexes, not a position).
+//
+// This exists because rotating a multi-hex shape is trivial here and a trap
+// in offset coordinates, where which cells are adjacent depends on the
+// column's parity -- the reason the forge depot was pinned to even columns
+// and to two orientations. In cube space a turn is a permutation with a
+// sign flip, the same one for every hex on the board, and six applications
+// return the original.
+//
+// The direction is the one that matches a POSITIVE three.js rotation about
+// Y in this grid's layout (x = 1.5q, z = sqrt(3)(r + (q%2)/2)), so cells and
+// models turn together. Get this backwards and a depot's edge trim ends up
+// facing inward -- which is exactly what the parity rule was guarding
+// against, so it fails the same way and is worth eyeballing rather than
+// trusting.
+export function cubeRotate60(x: number, y: number, z: number): { x: number; y: number; z: number } {
+    return { x: -y, y: -z, z: -x };
+}
+
 // Steps between two hexes. Written out rather than composed from
 // hexToCube: the AI search asks this for every (unit, enemy) pair in every
 // scored child, millions of times per turn, and two cube objects per call

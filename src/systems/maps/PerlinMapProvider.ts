@@ -29,6 +29,7 @@ import { perlinNoise } from '../../shared/hexengine/perlinNoise';
 import { TERRAIN_CONFIG } from '../../constants';
 import { MapProvider, StartingUnit, Tile } from './MapProvider';
 import type { BuildingSpawn, TileLike } from '../../types';
+import { DEPOT_TURNS, depotCells, depotRotationDeg } from './depotLayout';
 
 // One explicit roster per size -- the prefix scheme is gone, because the
 // counts are authored per size now: every size fields Pike (the only
@@ -125,24 +126,6 @@ function nearestWhere(
     return null;
 }
 
-// The four hexes a forge depot occupies, given its anchor -- the N piece.
-//
-// THE ANCHOR'S COLUMN MUST BE EVEN. In odd-q offset, an even column's
-// neighbours to the south-west, south and south-east are (q-1, r), (q, r+1)
-// and (q+1, r); on an odd column they are somewhere else entirely, and the
-// four pieces stop forming a diamond. The models are cut for the diamond --
-// each one's open edges face inward, and its capped edges face out -- so a
-// wrong anchor parity does not merely look odd, it leaves edge trim buried
-// inside the building and gaps on the outside.
-function depotCells(q: number, r: number): Array<[BuildingSpawn['type'], number, number]> {
-    return [
-        ['forgeDepotN', q, r],
-        ['forgeDepotW', q - 1, r],
-        ['forgeDepotE', q + 1, r],
-        ['forgeDepotS', q, r + 1],
-    ];
-}
-
 // Where the bases want to be, before the terrain gets a say: the middle of
 // the map, in HALF-TURN-SYMMETRIC PAIRS, plus the centre itself when the
 // count is odd.
@@ -194,11 +177,15 @@ function placeEverything(
     });
     const spawns = { player: line(rows - 1), cpu: line(0) };
 
-    // A depot fits where its column is even, all four of its hexes are on
-    // the mainland and free, and none of them is off the edge.
-    const depotFits = (q: number, r: number) =>
-        q % 2 === 0 && q >= 1 && q + 1 < cols && r + 1 < rows &&
-        depotCells(q, r).every(([, cq, cr]) => free(cq, cr));
+    // A depot fits at some HEADING if all four of that heading's hexes are
+    // on the mainland, free, and on the board. There is no parity rule any
+    // more: depotLayout turns the fan in cube coordinates, which is the same
+    // permutation on every column, so an odd anchor is as good as an even
+    // one. That alone doubles the sites the search below has to choose from.
+    const fitsTurned = (q: number, r: number, turns: number) =>
+        depotCells(q, r, turns).every(([, cq, cr]) =>
+            cq >= 0 && cq < cols && cr >= 0 && cr < rows && free(cq, cr));
+    const depotFits = (q: number, r: number) => DEPOT_TURNS.some((t) => fitsTurned(q, r, t));
 
     const buildings: BuildingSpawn[] = [];
     if (open.size) {
@@ -206,8 +193,22 @@ function placeEverything(
             const anchor = nearestWhere(cols, rows, targetQ, targetR, depotFits);
             if (!anchor) continue; // No room left; fewer depots beats a broken one.
             const [q, r] = anchor;
+            // Which way it faces is drawn, not fixed -- but only among the
+            // headings that actually fit here. Starting the search at a
+            // random offset and taking the first fit means a depot with room
+            // on every side is genuinely random, while one wedged against a
+            // lake still gets built instead of being skipped for a heading
+            // it could not have used. Math.random is right here for the same
+            // reason it is right for the noise offset above: this is map
+            // generation, not simulation.
+            const first = Math.floor(Math.random() * DEPOT_TURNS.length);
+            let turns = first;
+            for (let i = 0; i < DEPOT_TURNS.length; i++) {
+                const candidate = (first + i) % DEPOT_TURNS.length;
+                if (fitsTurned(q, r, candidate)) { turns = candidate; break; }
+            }
             const groupId = `forgeDepot@${q},${r}`;
-            for (const [type, cq, cr] of depotCells(q, r)) {
+            for (const [type, cq, cr] of depotCells(q, r, turns)) {
                 taken.add(`${cq},${cr}`);
                 // Block the ring around each piece too. Two depots that
                 // touch are one objective wearing two hats: an infantryman
@@ -225,7 +226,11 @@ function placeEverything(
                     hiddenUnitType: type === 'forgeDepotS' ? 'Sabre' : null,
                     groupId,
                     isEntrance: type === 'forgeDepotS',
-                    rotationDeg: 0,
+                    // Turns the models the same sixth the cells were turned.
+                    // The door stays the S PIECE whatever the heading -- it
+                    // is which model has the opening, not which way it
+                    // happens to point, so capture is unaffected.
+                    rotationDeg: depotRotationDeg(turns),
                 });
             }
         }
