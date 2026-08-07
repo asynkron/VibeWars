@@ -207,16 +207,16 @@ const GROUND_FRAGMENT = /* glsl */ `
         // of showing value-noise's axis-aligned blobbiness.
         vec2 warp = vec2(groundFbm(gp * 1.1), groundFbm(gp * 1.1 + vec2(5.2, 1.3))) - 0.5;
 
-        // --- Dirt/sand: broad soil patches, fine grain, scattered pebbles.
+        // --- Sand: broad patches, fine grain, and WIND RIPPLES -- a
+        // noise-warped sine so the ridges run in drifts the way windblown
+        // sand actually lies, and they carry most of the band's relief.
+        // (The voronoi pebbles this band used to scatter are gone: at map
+        // scale they read as strewn potatoes, not stones.)
         float patches = groundFbm(gp * 1.7 + warp * 2.6);
         float grain = groundNoise(gp * 42.0);
-        vec3 pebble = groundVoronoi(gp * 8.0);
-        // Only some cells grow a stone at all (the z-hash gate) -- soil
-        // with a pebble in every cell reads as gravel, not dirt.
-        float stone = (1.0 - smoothstep(0.08, 0.18, pebble.x)) * step(0.6, pebble.z);
-        vec3 sandC = uSandColor * (0.80 + 0.40 * patches) * (0.92 + 0.14 * grain);
-        vec3 stoneC = uSandColor * vec3(0.80, 0.75, 0.68) * (0.80 + 0.50 * pebble.z);
-        sandC = mix(sandC, stoneC, stone * 0.8);
+        float rippleS = sin(dot(gp, vec2(9.0, 4.0)) + groundFbm(gp * 1.2) * 9.0) * 0.5 + 0.5;
+        vec3 sandC = uSandColor * (0.80 + 0.40 * patches) * (0.94 + 0.10 * grain)
+            * (0.90 + 0.14 * rippleS);
 
         // --- Grass: mottled meadow -- dark mossy hollows to worn
         // yellow-green, plus a fine blade-scale shimmer. Mixing between two
@@ -269,8 +269,29 @@ const GROUND_FRAGMENT = /* glsl */ `
 
         vec3 snowC = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * groundNoise(gp * 12.0));
 
+        // --- Sand -> grass: not a fade but a FRONT. The turf closes in
+        // patches (clump noise pushing against the transition height), a
+        // fringe of dry straw runs ahead of every patch edge, and lone
+        // tufts stand out on the open sand -- the way grassland actually
+        // gives out into beach, instead of one airbrushed gradient.
+        // The window opens at 0.70 -- sand's own base height -- so even
+        // sand tiles a step from the grass line carry some of the front,
+        // not just the narrow smoothed ramps between tiles.
+        float trans = smoothstep(0.70, 0.98, y + wob * 0.10);
+        float clump = groundFbm(gp * 4.5 + warp * 3.5);
+        float front = trans * 0.75 + clump * 0.45;
+        float grassMask = smoothstep(0.52, 0.72, front);
+        float straw = smoothstep(0.28, 0.56, front) * (1.0 - grassMask);
+        vec3 tuft = groundVoronoi(gp * 8.0 + warp * 2.0);
+        float tufts = (1.0 - smoothstep(0.12, 0.24, tuft.x)) * step(0.45, tuft.z)
+            * smoothstep(0.02, 0.25, trans) * (1.0 - grassMask);
+        vec3 dryC = mix(uSandColor * vec3(0.95, 0.88, 0.62),
+                        uGrassColor * vec3(1.60, 1.45, 0.70), 0.45)
+            * (0.85 + 0.30 * clump);
+
         // Climb the ladder.
-        vec3 band = mix(sandC, grassC, toGrass);
+        vec3 band = mix(sandC, grassC, grassMask);
+        band = mix(band, dryC, max(straw * 0.85, tufts * 0.9));
         band = mix(band, forestC, toForest);
         band = mix(band, rockC, toRock);
         band = mix(band, snowC, toSnow);
@@ -280,12 +301,15 @@ const GROUND_FRAGMENT = /* glsl */ `
         // from, so light and shadow fall exactly where the color says they
         // should -- cracks recessed, pebbles and facets raised. Rock gets
         // by far the strongest relief; snow softens everything under it.
-        float sandH = patches * 0.25 + grain * 0.10 + stone * 0.45;
+        float sandH = patches * 0.20 + grain * 0.06 + rippleS * 0.45;
         float grassH = meadow * 0.30 + blades * 0.10;
         float forestH = moss * 0.35;
         float rockH = plate.z * 0.5 + ridge * 0.40 - crack * 0.7 + mossPatch * (1.0 - bare) * 0.3;
-        gBumpH = mix(mix(mix(mix(sandH * 0.6, grassH, toGrass), forestH, toForest),
-                     rockH * 1.1, toRock), 0.06 * groundNoise(gp * 12.0), toSnow);
+        // Tufts and the straw fringe stand a little proud of the sand.
+        float sandSideH = sandH * 0.6 + tufts * 0.55 + straw * 0.15;
+        gBumpH = mix(mix(mix(sandSideH, grassH, grassMask), forestH, toForest),
+                     rockH * 1.1, toRock);
+        gBumpH = mix(gBumpH, 0.06 * groundNoise(gp * 12.0), toSnow);
         gBumpH *= uShowTextures;
 
         // Texture toggle. The flat version keeps the height LADDER -- sand
