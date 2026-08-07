@@ -83,17 +83,30 @@ class GridSystem {
     // Applies vertex colors to a geometry based on geometry.userData.intendedColor
     static applyVertexColors(geometry: any, vertices: any[]) {
         const colors = new Float32Array(vertices.length);
+        const lums = new Float32Array(vertices.length / 3);
         const intendedColor = geometry.userData.intendedColor;
         for (let i = 0; i < vertices.length; i += 3) {
             if (intendedColor) {
                 colors[i] = intendedColor.r;
                 colors[i + 1] = intendedColor.g;
                 colors[i + 2] = intendedColor.b;
+                lums[i / 3] = 0.299 * intendedColor.r + 0.587 * intendedColor.g + 0.114 * intendedColor.b;
             } else {
                 colors[i] = colors[i + 1] = colors[i + 2] = 1;
+                lums[i / 3] = 1;
             }
         }
         geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        // The vertex's PRISTINE luminance, frozen at build time (and kept
+        // in step by terrain smoothing, which runs pre-scorch). The ground
+        // shader divides the live vertex luminance by this to read "how
+        // much has this vertex been darkened since build" -- craters and
+        // shadow blends. It used to divide by the terrain TYPE's palette
+        // luminance instead, which broke on the perlin maps: their tiles
+        // carry colors LERPED between bands, so a sand tile leaning toward
+        // grass measured far darker than the bright sand palette and the
+        // shader dimmed the whole tile as if scorched.
+        geometry.setAttribute('aPristineLum', new THREE.Float32BufferAttribute(lums, 1));
     }
 
     // Creates a BufferGeometry for a hex with the specified color
@@ -579,6 +592,14 @@ class GridSystem {
                 colors.setXYZ(vertexIndex, currentColor.r, currentColor.g, currentColor.b);
             } else {
                 colors.setXYZ(vertexIndex, avgR, avgG, avgB);
+                // Smoothing runs at build time, before any scorch -- the
+                // blended color IS this vertex's pristine state, so the
+                // reference luminance follows it. See applyVertexColors.
+                const pristine = geometry.attributes.aPristineLum;
+                if (pristine) {
+                    pristine.setX(vertexIndex, 0.299 * avgR + 0.587 * avgG + 0.114 * avgB);
+                    pristine.needsUpdate = true;
+                }
             }
             colors.needsUpdate = true;
 

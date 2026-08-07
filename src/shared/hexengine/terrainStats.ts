@@ -34,6 +34,13 @@ export const TERRAIN_TYPES = {
                 roughness: 0.4
             }
         },
+        // NOTE on metalness/roughness below: all four GROUND types carry
+        // the SAME values (water keeps its own -- water should gleam).
+        // The height-banded shader paints COLOR from world height, so a
+        // tile's type no longer decides how it looks -- but its material
+        // still decided how it caught the light, and two neighbors in the
+        // same color band with different roughness produced visible
+        // lighting seams along tile borders. One surface, one response.
         SAND: {
             name: 'sand',
             moveCost: 1.5,
@@ -45,7 +52,7 @@ export const TERRAIN_TYPES = {
             material: {
                 color: 0xE8A27D,  // Pastel orange-sand color
                 metalness: 0.1,
-                roughness: 0.6
+                roughness: 0.7
             }
         },
         GRASS: {
@@ -58,8 +65,8 @@ export const TERRAIN_TYPES = {
             impassable: false,
             material: {
                 color: 0x495627,
-                metalness: 0.15,
-                roughness: 0.6
+                metalness: 0.1,
+                roughness: 0.7
             }
         },
         FOREST: {
@@ -73,7 +80,7 @@ export const TERRAIN_TYPES = {
             material: {
                 color: 0x322E17,  // Dark brown for forest floor
                 metalness: 0.1,
-                roughness: 0.6
+                roughness: 0.7
             }
         },
         MOUNTAIN: {
@@ -87,7 +94,7 @@ export const TERRAIN_TYPES = {
             material: {
                 color: 0x4F4D44,
                 metalness: 0.1,
-                roughness: 0.8
+                roughness: 0.7
             }
         }
     };

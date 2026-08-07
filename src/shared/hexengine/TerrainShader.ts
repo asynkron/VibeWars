@@ -326,11 +326,16 @@ const GROUND_FRAGMENT = /* glsl */ `
         flatBand = mix(flatBand, vec3(0.92, 0.95, 0.99), toSnow);
         band = mix(flatBand, band, uShowTextures);
 
-        // Vertex color as a darkening signal relative to this material's
-        // own palette luminance: untouched tiles pass 1.0, crater-scorched
-        // or shadow-blended vertices darken the band correspondingly.
+        // Vertex color as a darkening signal relative to this vertex's OWN
+        // pristine luminance, baked at build time: untouched tiles pass
+        // exactly 1.0 whatever color the map generator gave them, and only
+        // crater scorch (which darkens the live color after build) pulls
+        // the ratio down. Dividing by the terrain TYPE's palette luminance
+        // instead is what made perlin sand tiles -- whose colors are
+        // lerped toward the darker grass band -- render dimmer than the
+        // grass tiles next to them, when both showed the same bands.
         float vLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
-        band *= clamp(vLum / max(uPaletteLum, 0.001), 0.35, 1.05);
+        band *= clamp(vLum / max(vPristineLum, 0.001), 0.35, 1.05);
 
         // ---- Beach: the LAND half of the water's shore foam ----
         // shore is 1 at the waterline and falls to 0 a fixed distance
@@ -460,18 +465,21 @@ const WATER_FRAGMENT = /* glsl */ `
 const SHORE_VERTEX_DECL =
     ' varying vec3 vGroundWorldPos;\n attribute vec3 aShoreA;\n attribute vec3 aShoreB;\n' +
     ' attribute vec3 aTileNormal;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
-    ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;';
+    ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;\n' +
+    ' attribute float aPristineLum;\n varying float vPristineLum;';
 
 const SHORE_VERTEX_BODY =
     ' vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n' +
     ' vShoreA = aShoreA;\n vShoreB = aShoreB;\n vTileLocal = position.xz;\n' +
+    ' vPristineLum = aPristineLum;\n' +
     // Into view space, where the fragment shader's own normal lives.
     ' vTileNormal = normalize(normalMatrix * aTileNormal);';
 
 const SHORE_FRAGMENT_DECL =
     ' varying vec3 vGroundWorldPos;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
     ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;\n uniform float uHexRadius;\n' +
-    ' uniform float uTime;\n uniform float uShowGrid;\n uniform float uShowTextures;';
+    ' uniform float uTime;\n uniform float uShowGrid;\n uniform float uShowTextures;\n' +
+    ' varying float vPristineLum;';
 
 
 // The top face is a fan of six triangles and the terrain material is
@@ -546,9 +554,6 @@ export function applyWaterSurface(material: any): void {
 export function applyProceduralGround(material: any, terrainType: string): void {
     if (!GROUND_TYPES.has(terrainType)) return;
 
-    const paletteColor = new THREE.Color(TerrainSystem.getTerrainColor(terrainType));
-    const paletteLum = 0.299 * paletteColor.r + 0.587 * paletteColor.g + 0.114 * paletteColor.b;
-
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uSandColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('SAND')) };
         shader.uniforms.uGrassColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('GRASS')) };
@@ -557,7 +562,6 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         // Same source as the water material's own color, so the film
         // running up the beach is the sea, not a blue of its own.
         shader.uniforms.uWaterColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('WATER')) };
-        shader.uniforms.uPaletteLum = { value: paletteLum };
         shader.uniforms.uSnowStart = { value: 3.2 };
         shader.uniforms.uSnowFull = { value: 4.6 };
         shader.uniforms.uFoamBloom = { value: FOAM_BLOOM };
@@ -576,7 +580,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 '#include <common>',
                 '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
-                ' uniform vec3 uRockColor;\n uniform vec3 uWaterColor;\n uniform float uPaletteLum;\n' +
+                ' uniform vec3 uRockColor;\n uniform vec3 uWaterColor;\n' +
                 ' uniform float uSnowStart;\n uniform float uSnowFull;\n uniform float uFoamBloom;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
