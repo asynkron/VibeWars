@@ -150,6 +150,10 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
     // frozen base and copies only the log, so this is far cheaper than
     // replaying the parent `count` times.
     const parent = snapshot.fork();
+    // The incremental hash exists solely for dedup's child keys. When this
+    // job will never read them, stop paying the per-write fingerprints now:
+    // the children fork from `parent` below, so they inherit the opt-out.
+    if (!job.dedupe) parent.disableHashing();
     for (const event of job.parentEvents) parent.record(event);
     const parentEventCount = parent.events.length;
 

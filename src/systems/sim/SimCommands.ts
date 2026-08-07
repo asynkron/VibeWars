@@ -199,6 +199,12 @@ export function startTurn(state: SimState, playerIndex: number, rng: () => numbe
     // Rolled here, in the command layer, and recorded as the outcome --
     // apply() must stay mechanical, and a beam node replayed on another
     // thread must rebuild the same board rather than re-throw the dice.
+    //
+    // A fireless board -- almost every map, almost every turn -- would still
+    // pay a full cols-by-rows scan here, once per child at every beam depth.
+    // hasFire answers the same question from a cached base check plus the
+    // handful of overrides, so bail before the board walk.
+    if (!state.hasFire) return;
     const burning = burningTilesOf(state.fireView, state.cols, state.rows);
     if (burning.length === 0) return;
 

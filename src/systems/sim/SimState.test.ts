@@ -116,6 +116,22 @@ describe('events', () => {
         expect(sim.getUnit(1)!.hp).toBe(enemyHpBefore);
     });
 
+    it('a factory-produced unit loaded onto a transport rides along on unitMoved', () => {
+        // The newborn lives at an index PAST the base roster. The cargo
+        // sweep in apply('unitMoved') used to stop at baseUnits.length,
+        // so a produced passenger stayed at its boarding hex while the
+        // hull drove off.
+        const source = makeSource();
+        source.units[0] = { ...source.units[0], type: 'Drover', maxHp: 6, hp: 6 };
+        const sim = SimState.snapshot(source);
+        sim.record({ type: 'unitProduced', buildingIndex: 0, unitIndex: 2, unitType: 'Pike', q: 1, r: 2, playerIndex: 0 });
+        sim.record({ type: 'unitLoaded', carrierIndex: 0, passengerIndex: 2, skillId: 'Drover:load' });
+        sim.record({ type: 'unitMoved', unitIndex: 0, toQ: 3, toR: 1, moveSpent: 2 });
+        const rider = sim.getUnit(2)!;
+        expect([rider.q, rider.r]).toEqual([3, 1]);
+        expect(rider.carriedBy).toBe(0);
+    });
+
     it('accumulates the log in order', () => {
         const sim = SimState.snapshot(makeSource());
         const events: GameEvent[] = [

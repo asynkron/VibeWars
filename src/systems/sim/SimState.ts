@@ -203,6 +203,27 @@ const baseHasFire = new WeakMap<readonly SimTile[], boolean>();
 // per snapshot and shared by every fork of it -- same trick, same reason.
 const baseFireIndices = new WeakMap<readonly SimTile[], number[]>();
 
+// Hex -> building index, keyed on the frozen base array -- same trick again.
+// Valid for the array's whole lifetime because building POSITIONS never
+// change: events only touch ownership and destroyed, via overrides, so
+// every fork sharing the base shares this map too. Lowest index wins on a
+// (hypothetical) shared hex, matching the old first-live-building scan; no
+// map provider currently places two buildings on one hex.
+const baseBuildingIndex = new WeakMap<readonly SimBuilding[], Map<number, number>>();
+
+function buildingIndexByHex(base: readonly SimBuilding[], cols: number): Map<number, number> {
+    let found = baseBuildingIndex.get(base);
+    if (found === undefined) {
+        found = new Map();
+        for (let i = 0; i < base.length; i++) {
+            const key = base[i].r * cols + base[i].q;
+            if (!found.has(key)) found.set(key, i);
+        }
+        baseBuildingIndex.set(base, found);
+    }
+    return found;
+}
+
 function baseFireTiles(base: readonly SimTile[], _cols: number): readonly number[] {
     let found = baseFireIndices.get(base);
     if (found === undefined) {
@@ -396,7 +417,12 @@ export class SimState {
             productType: b.productType ?? null,
             productionCountdown: b.productionCountdown ?? PRODUCTION_INTERVAL,
         }));
-        return new SimState(cols, rows, tiles, units, buildings, [], new Map(), new Map(), new Map());
+        const state = new SimState(cols, rows, tiles, units, buildings, [], new Map(), new Map(), new Map());
+        // Counted once here so the unitMoved cargo sweep can be skipped
+        // entirely on boards where nothing is ever carried -- which is
+        // most of them. Kept current by apply() from this point on.
+        for (const u of units) if (u.carriedBy !== null) state.carriedCount++;
+        return state;
     }
 
     // Flatten this state's CURRENT tiles and live units into a fresh
@@ -461,6 +487,10 @@ export class SimState {
         copy.hashLo = this.hashLo;
         copy.hashHi = this.hashHi;
         copy.spawnedCount = this.spawnedCount;
+        copy.carriedCount = this.carriedCount;
+        // A fork of a non-hashing state carries lanes that stopped
+        // tracking the board, so it must not resume mixing into them.
+        copy.hashing = this.hashing;
         return copy;
     }
 
@@ -470,6 +500,13 @@ export class SimState {
     // was paid a few mixes at a time inside the writes that got here.
     get stateHash(): string {
         return (this.hashLo >>> 0).toString(36) + ':' + (this.hashHi >>> 0).toString(36);
+    }
+
+    // One-way opt-out of the incremental hash, for the caller that KNOWS
+    // stateHash will never be read on this branch or its forks (see the
+    // `hashing` flag). After this, stateHash is stale -- do not read it.
+    disableHashing(): void {
+        this.hashing = false;
     }
 
     // The change history of this branch relative to the turn snapshot.
@@ -494,10 +531,18 @@ export class SimState {
                 // term in score.ts -- including the capture-proximity pull
                 // that is the whole point of driving infantry forward --
                 // reads a lie.
-                for (let i = 0; i < this.baseUnits.length; i++) {
-                    const rider = this.getUnit(i);
-                    if (rider?.carriedBy === event.unitIndex) {
-                        this.setUnit(i, { ...rider, q: event.toQ, r: event.toR });
+                //
+                // Guarded by carriedCount: this runs on EVERY move on the
+                // replay path, and most boards never load a transport, so
+                // the full-roster scan is usually pure waste. The bound is
+                // unitCount, not baseUnits.length -- factory newborns live
+                // past the base array and can be loaded like anyone else.
+                if (this.carriedCount > 0) {
+                    for (let i = 0; i < this.unitCount; i++) {
+                        const rider = this.getUnit(i);
+                        if (rider?.carriedBy === event.unitIndex) {
+                            this.setUnit(i, { ...rider, q: event.toQ, r: event.toR });
+                        }
                     }
                 }
                 const unit = this.getUnit(event.unitIndex);
@@ -581,6 +626,7 @@ export class SimState {
                         r: carrier.r,
                         move: 0,
                     });
+                    this.carriedCount++;
                 }
                 return;
             }
@@ -606,11 +652,18 @@ export class SimState {
                         // the payoff for having been carried.
                         move: 0,
                     });
+                    this.carriedCount--;
                 }
                 return;
             }
             case 'unitDied': {
-                if (event.unitIndex >= 0 && event.unitIndex < this.baseUnits.length) {
+                // unitCount, not baseUnits.length -- factory newborns can
+                // die (and die carried) just like the base roster.
+                if (event.unitIndex >= 0 && event.unitIndex < this.unitCount) {
+                    // Cargo dying inside its transport still leaves the
+                    // hold -- read BEFORE the null override lands, or the
+                    // fact that it was carried is gone.
+                    if (this.getUnit(event.unitIndex)?.carriedBy != null) this.carriedCount--;
                     // Writes the override directly (setUnit's signature is
                     // for the living), so it must feed the hash lanes
                     // itself -- same before/after pattern as setUnit.
@@ -665,6 +718,22 @@ export class SimState {
                         const repaired = building && building[1].ownerIndex === unit.playerIndex
                             ? Math.min(unit.maxHp, unit.hp + SimState.FACTORY_REPAIR_HP)
                             : unit.hp;
+                        // tickCooldowns returns the SAME object when nothing
+                        // was on cooldown (see skills.ts), so reference
+                        // equality detects the tick that changed nothing.
+                        const ticked = tickCooldowns(unit.cooldowns);
+                        // A unit that never acted resets to itself: skip the
+                        // write. Identical values are hash-neutral (the
+                        // before/after XOR cancels) and turnStarted is one
+                        // event either way, so the log and the lanes are
+                        // exactly what the unconditional write produced --
+                        // minus the override churn and occupancy rebuild.
+                        if (repaired === unit.hp
+                            && unit.move === UnitSystem.unitTypesRecord[unit.type].move
+                            && unit.hasAttacked === false
+                            && ticked === unit.cooldowns) {
+                            continue;
+                        }
                         this.setUnit(i, {
                             ...unit,
                             hp: repaired,
@@ -684,7 +753,7 @@ export class SimState {
                             // that held it is scored against the line that
                             // spent it -- by the same number, with no
                             // special case anywhere.
-                            cooldowns: tickCooldowns(unit.cooldowns),
+                            cooldowns: ticked,
                         });
                     }
                 }
@@ -918,10 +987,13 @@ export class SimState {
     }
 
     getBuildingAt(q: number, r: number): [number, SimBuilding] | null {
-        for (const [i, building] of this.liveBuildings()) {
-            if (building.q === q && building.r === r) return [i, building];
-        }
-        return null;
+        if (q < 0 || q >= this.cols || r < 0 || r >= this.rows) return null;
+        // Positions live in the shared hex index; only the destroyed flag
+        // needs the override-aware view.
+        const found = buildingIndexByHex(this.baseBuildings, this.cols).get(r * this.cols + q);
+        if (found === undefined) return null;
+        const building = this.getBuilding(found)!;
+        return building.destroyed ? null : [found, building];
     }
 
     // The standing pieces that make up one structure: everything sharing
@@ -975,6 +1047,13 @@ export class SimState {
     // (condense compacts newborns into the next base roster).
     private spawnedCount = 0;
 
+    // How many living units are currently aboard a transport (carriedBy
+    // !== null). Exists so the unitMoved cargo sweep can bail without
+    // scanning the roster -- the common case. Initialized by snapshot(),
+    // carried across fork(), maintained by unitLoaded/unitUnloaded/
+    // unitDied in apply().
+    private carriedCount = 0;
+
     // ---- Incremental state hash: two 32-bit delta lanes. ----
     //
     // Zero at the snapshot; every write XORs in the fingerprint of the
@@ -993,6 +1072,16 @@ export class SimState {
     // it is also what makes construction free -- no initial walk.
     private hashLo = 0;
     private hashHi = 0;
+
+    // Whether writes feed the hash lanes at all. Default ON is load-bearing:
+    // every test and every direct stateHash reader gets valid lanes without
+    // asking. The only consumer of the lanes is dedup (SimJob.dedupe), which
+    // is off in the shipped engine, yet every setter paid two fingerprints
+    // per write regardless -- measured at ~2% of a search. runSimJob is the
+    // one caller that knows up front whether the lanes will be read, so it
+    // alone may opt out via disableHashing(); children fork after the flag
+    // is set and inherit it (see fork()).
+    private hashing = true;
 
     // The base tile array as an IDENTITY, for per-snapshot caches outside
     // this file (SimPathfinding's cost-field cache keys a WeakMap on it,
@@ -1108,6 +1197,7 @@ export class SimState {
     // fixed by the index, which is already the fingerprint seed.
 
     private xorUnit(index: number): void {
+        if (!this.hashing) return;
         fpBegin(index * 4 + 1);
         const unit = this.getUnit(index);
         if (!unit) {
@@ -1129,6 +1219,7 @@ export class SimState {
     }
 
     private xorTile(idx: number): void {
+        if (!this.hashing) return;
         fpBegin(idx * 4 + 2);
         const tile = this.tileOverrides.get(idx) ?? this.baseTiles[idx];
         fpNumber(tile.height);
@@ -1141,6 +1232,7 @@ export class SimState {
     }
 
     private xorBuilding(index: number): void {
+        if (!this.hashing) return;
         fpBegin(index * 4 + 3);
         const building = this.getBuilding(index);
         if (!building) {
