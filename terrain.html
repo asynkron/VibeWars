@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vibe Wars — Terrain Viewer</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            pointer-events: auto;
+        }
+
+        /* Size and top offset are set from MAP_CONFIG.MINIMAP by
+           viewToolbar.ts -- render.ts draws the map itself from the same
+           constant, so a hardcoded value here would drift out of step. */
+        #minimap-overlay {
+            position: absolute;
+            right: 10px;
+            pointer-events: auto;
+            cursor: pointer;
+        }
+
+        #view-toolbar {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            display: flex;
+            gap: 6px;
+            padding: 5px;
+            border-radius: 7px;
+            background: rgba(14, 18, 24, 0.72);
+            backdrop-filter: blur(3px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+            pointer-events: auto;
+            user-select: none;
+        }
+
+        .view-toggle {
+            padding: 6px 12px;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: #8c98a8;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+        }
+
+        .view-toggle:hover {
+            color: #dfe6ee;
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        /* On, not merely focused: the cyan matches the energy panels the
+           models glow with, so "active" reads the same across the UI. */
+        .view-toggle.is-on {
+            color: #06121a;
+            background: #40c4ff;
+            border-color: #7ad8ff;
+        }
+
+        .view-toggle.is-on:hover {
+            background: #63d1ff;
+        }
+
+        /* Under the toolbar, left of the minimap so it never covers it. */
+        #frame-stats {
+            position: absolute;
+            top: 10px;
+            right: 320px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            background: rgba(14, 18, 24, 0.72);
+            color: #9ff0c0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            line-height: 1.45;
+            white-space: pre;
+            text-align: right;
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="minimap-overlay"></div>
+    <!-- Present because setupEventListeners styles and wires it, hidden by
+         the viewer flag before the first frame -- see game.ts. -->
+    <button id="end-turn-button">End Turn</button>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/MTLLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/fflate.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegmentsGeometry.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineGeometry.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineSegments2.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/Line2.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lines/LineMaterial.js"></script>
+    <!-- Bloom. Load order matters: EffectComposer needs CopyShader and
+         ShaderPass at construction, UnrealBloomPass needs the high-pass
+         shader. See GlowSystem/render.ts for what is made to bloom. -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/Pass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
+    <script>
+        window.HEX_ENGINE_OPTIONS = {
+            loadModels: true,
+            enableDecorations: true,
+            enableUnitSystems: true,
+            enableRoads: true,
+        };
+        // Terrain viewer: same boot as the game, but game.ts skips units,
+        // buildings and the turn loop -- the world alone, navigable.
+        window.VIBEWARS_TERRAIN_VIEWER = true;
+    </script>
+    <!-- Same single ESM entry point as index.html: the world the viewer
+         shows IS the game's world, so it must be built by the same code. -->
+    <script type="module" src="/src/game.ts"></script>
+</body>
+
+</html>

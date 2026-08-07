@@ -36,6 +36,14 @@ import { armedSkill, setArmedListener } from './systems/skillBar';
 import { skillReady, inSkillRange, skillAccepts } from './shared/hexengine/skills';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
 
+// Terrain viewer (terrain.html): the page sets this flag before loading
+// this module, and initGame then builds the world exactly as a match would
+// -- terrain, roads, decorations, skybox, camera, minimap -- but places no
+// units or buildings and never starts the turn loop. One flag rather than a
+// separate entry point, so the viewer can never drift from what a match
+// actually looks like.
+const TERRAIN_VIEWER = typeof window !== 'undefined' && (window as any).VIBEWARS_TERRAIN_VIEWER === true;
+
 // Game Data
 let selectedUnit: any = null;
 let pathLine: any = null;
@@ -562,17 +570,19 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // the point where the models are actually needed.
     await Promise.all([UnitSystem.loadUnitModels(), BuildingSystem.loadBuildingModels()]);
 
-    // Initialize units using gameState
-    gameState.initializeUnits();
+    if (!TERRAIN_VIEWER) {
+        // Initialize units using gameState
+        gameState.initializeUnits();
 
-    // Place the map's buildings (factories) once the map + models exist
-    BuildingSystem.initializeBuildings(gameState);
+        // Place the map's buildings (factories) once the map + models exist
+        BuildingSystem.initializeBuildings(gameState);
 
-    // Full resync: UnitSystem.setPosition() updates the own-unit markers as
-    // each unit is created, but GameState.initializeUnits() only pushes a
-    // unit into gameState.units *after* creating it, so the very last unit
-    // created is missing from that list during its own update -- this catches it.
-    VisualizationSystem.updateOwnUnitMarkers(gameState.units);
+        // Full resync: UnitSystem.setPosition() updates the own-unit markers as
+        // each unit is created, but GameState.initializeUnits() only pushes a
+        // unit into gameState.units *after* creating it, so the very last unit
+        // created is missing from that list during its own update -- this catches it.
+        VisualizationSystem.updateOwnUnitMarkers(gameState.units);
+    }
 
     // Update decorator transparency for all hexes
     GridSystem.updateAllDecoratorTransparency();
@@ -581,6 +591,14 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     const matrices = setupCamera(mapCenterX, mapCenterZ);
     const { miniMapCamera, mapWidth, mapHeight, highlightGroup } = setupMinimap(mapCenterX, mapCenterZ);
     setupEventListeners(matrices);
+
+    // The viewer keeps the navigation the listeners provide (pan, rotate,
+    // zoom, minimap) but has no turns to end and no units to cycle -- hide
+    // the two buttons setupEventListeners just wired rather than fork it.
+    if (TERRAIN_VIEWER) {
+        document.getElementById('end-turn-button')?.style.setProperty('display', 'none');
+        document.getElementById('next-unit-button')?.style.setProperty('display', 'none');
+    }
 
     // Center camera on map
     camera.position.set(mapCenterX, 20, mapCenterZ + 15);
@@ -608,8 +626,12 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
         return { calls: r.calls, triangles: r.triangles };
     };
 
-    // Kick off the first turn (starts the AI immediately in AI-vs-AI mode)
-    gameState.start();
+    // Kick off the first turn (starts the AI immediately in AI-vs-AI mode).
+    // The viewer never starts it: no turns, no production, no AI -- the
+    // world just stands there to be looked at.
+    if (!TERRAIN_VIEWER) {
+        gameState.start();
+    }
 }
 
 // Drop the current selection, everything that draws it included.
@@ -906,6 +928,15 @@ function bootFromUrlOrShowMenu() {
     resumeAudioOnFirstGesture();
     void preloadAssets();
 
+    // The viewer page boots straight into the world -- no menu, and the
+    // controllers are irrelevant because initGame skips units and start().
+    if (TERRAIN_VIEWER) {
+        initGame(['human', 'human']).catch(error => {
+            console.error("Error initializing terrain viewer:", error);
+        });
+        return;
+    }
+
     const mode = START_MODE && MATCH_MODES[START_MODE];
     if (mode) {
         initGame(mode.controllers).catch(error => {
@@ -976,9 +1007,16 @@ window.addEventListener('vibewars:gameover', ((event: CustomEvent) => {
     document.body.appendChild(banner);
 }) as EventListener);
 
-window.onload = () => {
+// NOT `window.onload = ...`: in dev, Vite streams the module graph in
+// hundreds of requests, and the load event can fire before this module
+// finishes evaluating -- an assignment made after that point never runs
+// and the page just stays black. Checking readyState first closes the
+// race: boot now if load already happened, otherwise wait for it.
+if (document.readyState === 'complete') {
     bootFromUrlOrShowMenu();
-};
+} else {
+    window.addEventListener('load', bootFromUrlOrShowMenu, { once: true });
+}
 
 // Dev-only debug handle: the codebase deliberately keeps modules off
 // window, but probing live state from the console (unit heights, tiles,

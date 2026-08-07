@@ -11,6 +11,13 @@ export default defineConfig({
   base: './',
   build: {
     outDir: 'dist',
+    rollupOptions: {
+      // Two pages: the game, and the terrain viewer (same engine, no match).
+      input: {
+        main: 'index.html',
+        terrain: 'terrain.html',
+      },
+    },
   },
   test: {
     environment: 'jsdom',

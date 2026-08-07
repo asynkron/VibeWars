@@ -56,8 +56,53 @@ export const NOISE_GLSL_BASE = /* glsl */ `
     }
 `;
 
-// The terrain's own additions on top of that: everything shoreline.
+// The terrain's own additions on top of that: everything shoreline, plus
+// the richer noises the ground materials build their look from.
 const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
+    // Cellular (voronoi) noise: x = distance to the nearest feature point,
+    // y = to the second nearest, z = the nearest cell's own hash. x makes
+    // round things (pebbles), y - x is ~0 along cell borders (rock cracks),
+    // z tints each cell as one object instead of a continuous gradient.
+    vec3 groundVoronoi(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        float f1 = 8.0;
+        float f2 = 8.0;
+        float id = 0.0;
+        for (int x = -1; x <= 1; x++) {
+            for (int yy = -1; yy <= 1; yy++) {
+                vec2 g = vec2(float(x), float(yy));
+                float h = groundHash(i + g);
+                vec2 o = vec2(h, groundHash(i + g + vec2(31.7, 17.3)));
+                vec2 r = g + o - f;
+                float d = dot(r, r);
+                if (d < f1) { f2 = f1; f1 = d; id = h; }
+                else if (d < f2) { f2 = d; }
+            }
+        }
+        return vec3(sqrt(f1), sqrt(f2), id);
+    }
+
+    // Screen-space bump (Blinn's perturb-normal-without-tangents, same
+    // scheme as three.js's bumpmap chunk, but fed a procedural height
+    // instead of a texture). Positions and normal move through WORLD space
+    // so the same height field bends top faces and cliff sides alike;
+    // the result comes back in view space, where the lighting lives.
+    vec3 groundPerturbNormal(vec3 worldPos, vec3 viewNormal, float bumpH, float scale) {
+        vec3 sigX = dFdx(worldPos);
+        vec3 sigY = dFdy(worldPos);
+        vec3 wN = inverseTransformDirection(viewNormal, viewMatrix);
+        vec3 r1 = cross(sigY, wN);
+        vec3 r2 = cross(wN, sigX);
+        float det = dot(sigX, r1);
+        if (abs(det) < 1e-7) return viewNormal;
+        vec2 dH = vec2(dFdx(bumpH), dFdy(bumpH)) * scale;
+        vec3 grad = sign(det) * (dH.x * r1 + dH.y * r2);
+        return normalize((viewMatrix * vec4(normalize(abs(det) * wN - grad), 0.0)).xyz);
+    }
+`;
+
+const SHORE_GLSL = /* glsl */ `
     // --- Shoreline geometry ------------------------------------------
     // Every tile carries a flag per hex edge saying whether that edge
     // borders the other element (painted by GridSystem.paintShoreEdges).
@@ -157,18 +202,70 @@ const GROUND_FRAGMENT = /* glsl */ `
         float toRock   = smoothstep(1.60, 2.05, y + wob * 0.30);
         float toSnow   = smoothstep(uSnowStart, uSnowFull, y + wob * 1.2);
 
-        // Per-band procedural detail, each tinted by its palette color.
-        float dunes = sin(gp.x * 2.1 + gp.y * 0.8 + groundFbm(gp * 0.9) * 5.0) * 0.5 + 0.5;
-        vec3 sandC = uSandColor * (0.88 + 0.14 * groundNoise(gp * 24.0) + 0.10 * dunes);
+        // Shared domain warp: every band's patchwork is bent through the
+        // same low-frequency field, so patches meander organically instead
+        // of showing value-noise's axis-aligned blobbiness.
+        vec2 warp = vec2(groundFbm(gp * 1.1), groundFbm(gp * 1.1 + vec2(5.2, 1.3))) - 0.5;
 
-        vec3 grassC = uGrassColor * (0.80 + 0.32 * groundFbm(gp * 2.6) + 0.10 * groundNoise(gp * 30.0));
+        // --- Dirt/sand: broad soil patches, fine grain, scattered pebbles.
+        float patches = groundFbm(gp * 1.7 + warp * 2.6);
+        float grain = groundNoise(gp * 42.0);
+        vec3 pebble = groundVoronoi(gp * 8.0);
+        // Only some cells grow a stone at all (the z-hash gate) -- soil
+        // with a pebble in every cell reads as gravel, not dirt.
+        float stone = (1.0 - smoothstep(0.08, 0.18, pebble.x)) * step(0.6, pebble.z);
+        vec3 sandC = uSandColor * (0.80 + 0.40 * patches) * (0.92 + 0.14 * grain);
+        vec3 stoneC = uSandColor * vec3(0.80, 0.75, 0.68) * (0.80 + 0.50 * pebble.z);
+        sandC = mix(sandC, stoneC, stone * 0.8);
 
-        vec3 forestC = uForestColor * (0.85 + 0.45 * groundFbm(gp * 3.2) + 0.15 * groundNoise(gp * 16.0));
+        // --- Grass: mottled meadow -- dark mossy hollows to worn
+        // yellow-green, plus a fine blade-scale shimmer. Mixing between two
+        // TINTS of the palette green (not scaling one) is what gives the
+        // hue drift real turf has.
+        float meadow = groundFbm(gp * 2.6 + warp * 3.0);
+        float blades = groundNoise(gp * 36.0);
+        vec3 grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
+                          uGrassColor * vec3(1.55, 1.45, 1.00), meadow);
+        grassC *= 0.90 + 0.20 * blades;
 
-        float rockDetail = 0.74 + 0.34 * groundFbm(gp * 5.0)
-            + 0.12 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6));
+        // --- Forest floor: the same recipe pitched darker and mossier.
+        float moss = groundFbm(gp * 3.2 + warp * 2.2);
+        vec3 forestC = mix(uForestColor * vec3(0.62, 0.72, 0.52),
+                           uForestColor * vec3(1.55, 1.50, 1.10), moss);
+        forestC *= 0.88 + 0.24 * groundNoise(gp * 18.0);
+
+        // --- Rock: mostly UNBROKEN stone. Cracks live only in patchy
+        // fracture zones (crackZone gates them off elsewhere), because a
+        // real mountainside is plate on plate of solid rock with the odd
+        // seam -- not a crazed glaze. And the band matures with altitude:
+        // bare is 0 where the rock has just climbed out of the forest --
+        // dark gray, mossy, dirt-stained -- and 1 high up where the stone
+        // finally stands clean. That reads as forest -> dark mossy rock ->
+        // bare gray, instead of a hard green-to-gray seam.
+        vec3 plate = groundVoronoi(gp * 1.3 + warp * 1.2);
+        // High threshold on purpose: deep seams are fine, MANY seams are
+        // not -- only the strongest patches of the zone field crack at all,
+        // so most faces stay whole.
+        float crackZone = smoothstep(0.62, 0.86, groundFbm(gp * 1.3 + warp * 1.6));
+        float crack = (1.0 - smoothstep(0.02, 0.14, plate.y - plate.x)) * crackZone;
+        float ridge = 1.0 - abs(2.0 * groundFbm(gp * 5.0) - 1.0);
+        float bare = smoothstep(1.9, 3.6, y);
         float rockLum = dot(uRockColor, vec3(0.299, 0.587, 0.114));
-        vec3 rockC = vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05) * rockDetail;
+        vec3 rockBase = vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05) * mix(0.52, 1.0, bare);
+        vec3 rockC = rockBase * (0.88 + 0.22 * plate.z) * (0.86 + 0.22 * ridge)
+            * (0.90 + 0.20 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6)));
+        // Cracks: shadowed, and floored with dirt rather than black.
+        rockC = mix(rockC, rockBase * 0.50, crack * 0.45);
+        rockC = mix(rockC, uSandColor * vec3(0.50, 0.44, 0.38), crack * 0.30);
+        // Life on the stone -- moss/lichen carrying the FOREST's tone up
+        // over the transition zone, dirt staining with it, both gone by
+        // the time the rock is bare.
+        float stain = smoothstep(0.50, 0.80, groundFbm(gp * 2.0 + warp * 2.5));
+        float mossPatch = smoothstep(0.40, 0.75, groundFbm(gp * 3.5 + warp * 1.8));
+        rockC = mix(rockC, uForestColor * vec3(1.30, 1.40, 1.00), mossPatch * 0.60 * (1.0 - bare));
+        rockC = mix(rockC, uSandColor * vec3(0.55, 0.50, 0.44) * (0.85 + 0.30 * plate.z),
+                    stain * 0.35 * (1.0 - bare));
+        rockC += vec3(0.45, 0.47, 0.52) * smoothstep(0.90, 0.98, groundNoise(gp * 52.0)) * (1.0 - crack) * bare;
 
         vec3 snowC = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * groundNoise(gp * 12.0));
 
@@ -177,6 +274,19 @@ const GROUND_FRAGMENT = /* glsl */ `
         band = mix(band, forestC, toForest);
         band = mix(band, rockC, toRock);
         band = mix(band, snowC, toSnow);
+
+        // Relief for the bump pass (normal_fragment below): each band's
+        // height field reuses the values its color was already computed
+        // from, so light and shadow fall exactly where the color says they
+        // should -- cracks recessed, pebbles and facets raised. Rock gets
+        // by far the strongest relief; snow softens everything under it.
+        float sandH = patches * 0.25 + grain * 0.10 + stone * 0.45;
+        float grassH = meadow * 0.30 + blades * 0.10;
+        float forestH = moss * 0.35;
+        float rockH = plate.z * 0.5 + ridge * 0.40 - crack * 0.7 + mossPatch * (1.0 - bare) * 0.3;
+        gBumpH = mix(mix(mix(mix(sandH * 0.6, grassH, toGrass), forestH, toForest),
+                     rockH * 1.1, toRock), 0.06 * groundNoise(gp * 12.0), toSnow);
+        gBumpH *= uShowTextures;
 
         // Texture toggle. The flat version keeps the height LADDER -- sand
         // still reads as sand and rock as rock -- and drops only the
@@ -351,6 +461,33 @@ const TILE_NORMAL_FRAGMENT = /* glsl */ `
     }
 `;
 
+// Ground relief: bend the merged tile normal by the height field the color
+// pass stored in gBumpH (zeroed when textures are toggled off), so cracks,
+// pebbles and grass clumps actually catch the sun instead of being painted
+// shading. Runs AFTER the fan merge -- the relief must ride on the single
+// surface, not fight it.
+const GROUND_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
+    {
+        normal = groundPerturbNormal(vGroundWorldPos, normal, gBumpH, 0.22);
+    }
+`;
+
+// Water relief: a drifting two-scale wave field. Perturbing the NORMAL is
+// what turns the directional light's reflection into moving glitter --
+// the color-space ripples alone shimmer but never sparkle.
+const WATER_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
+    {
+        vec2 wnp = vGroundWorldPos.xz;
+        // Broad swell plus a MUCH weaker chop: the swell tilts whole
+        // patches so the sun's reflection wanders, the chop only breaks
+        // the highlight into sparse glints. A strong chop here turns the
+        // entire sea into uniform glitter static.
+        float waveH = groundFbm(wnp * 2.4 + vec2(uTime * 0.24, uTime * 0.17))
+            + 0.14 * groundNoise(wnp * 9.0 - vec2(uTime * 0.38, uTime * 0.29));
+        normal = groundPerturbNormal(vGroundWorldPos, normal, waveH * uShowTextures, 0.16);
+    }
+`;
+
 export function applyWaterSurface(material: any): void {
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uTime = { value: 0 };
@@ -363,11 +500,11 @@ export function applyWaterSurface(material: any): void {
             .replace('#include <common>', '#include <common>\n' + SHORE_VERTEX_DECL)
             .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SHORE_VERTEX_BODY);
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' + NOISE_GLSL_CORE)
+            .replace('#include <common>', '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' + NOISE_GLSL_CORE + SHORE_GLSL)
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + WATER_FRAGMENT)
             .replace(
                 '#include <normal_fragment_begin>',
-                '#include <normal_fragment_begin>\n' + TILE_NORMAL_FRAGMENT
+                '#include <normal_fragment_begin>\n' + WATER_NORMAL_FRAGMENT
             );
         // Expose the shader so animateWater can drive uTime each frame.
         material.userData.shader = shader;
@@ -413,12 +550,15 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
                 ' uniform vec3 uRockColor;\n uniform vec3 uWaterColor;\n uniform float uPaletteLum;\n' +
                 ' uniform float uSnowStart;\n uniform float uSnowFull;\n uniform float uFoamBloom;\n' +
-                NOISE_GLSL_CORE
+                // Written by the color pass, read by the bump pass below --
+                // GLSL globals are how the two injection points share state.
+                ' float gBumpH;\n' +
+                NOISE_GLSL_CORE + SHORE_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT)
             .replace(
                 '#include <normal_fragment_begin>',
-                '#include <normal_fragment_begin>\n' + TILE_NORMAL_FRAGMENT
+                '#include <normal_fragment_begin>\n' + GROUND_NORMAL_FRAGMENT
             );
         // Expose the shader so animateWater can drive uTime each frame --
         // the beach wash animates on the same clock as the water.
