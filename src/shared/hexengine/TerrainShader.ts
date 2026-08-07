@@ -54,6 +54,22 @@ export const NOISE_GLSL_BASE = /* glsl */ `
         }
         return value;
     }
+
+    // Band-limit for procedural detail -- the shader-side analogue of a
+    // mipmap. Pass the SAME coordinate a noise term samples with (its
+    // frequency already multiplied in); fwidth then measures how many
+    // noise cycles one pixel spans, and the fade rolls the term off as it
+    // approaches the Nyquist limit. High-frequency grain sampled past
+    // that limit cannot resolve -- it can only shimmer and moire.
+    // Callers mix the term toward its mean (0.5) by this factor.
+    // Thresholds sit ABOVE the textbook Nyquist point on purpose: at 0.35
+    // cycles/pixel the fade was already eating the grain at gameplay zoom
+    // and the grass went flat. Let it shimmer slightly at the margin and
+    // only kill it when it truly cannot resolve.
+    float groundDetailFade(vec2 sampleCoord) {
+        float fw = max(fwidth(sampleCoord.x), fwidth(sampleCoord.y));
+        return 1.0 - smoothstep(0.8, 1.6, fw);
+    }
 `;
 
 // The terrain's own additions on top of that: everything shoreline, plus
@@ -93,6 +109,14 @@ const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
 // decorations (trees, rocks) relieve their surfaces with the same tool.
 export const PERTURB_GLSL = /* glsl */ `
     vec3 groundPerturbNormal(vec3 worldPos, vec3 viewNormal, float bumpH, float scale) {
+        // Distance/angle band-limit for ALL relief, in one place: fade the
+        // bump out as one pixel grows to cover the features it encodes.
+        // Far tiles and grazing slopes are exactly where per-pixel bump
+        // turns into interference shimmer, and exactly where it stops
+        // adding anything a real mip chain would have kept.
+        float fw = length(fwidth(worldPos));
+        float bumpFade = 1.0 - smoothstep(0.08, 0.35, fw);
+        if (bumpFade <= 0.001) return viewNormal;
         vec3 sigX = dFdx(worldPos);
         vec3 sigY = dFdy(worldPos);
         vec3 wN = inverseTransformDirection(viewNormal, viewMatrix);
@@ -100,7 +124,7 @@ export const PERTURB_GLSL = /* glsl */ `
         vec3 r2 = cross(wN, sigX);
         float det = dot(sigX, r1);
         if (abs(det) < 1e-7) return viewNormal;
-        vec2 dH = vec2(dFdx(bumpH), dFdy(bumpH)) * scale;
+        vec2 dH = vec2(dFdx(bumpH), dFdy(bumpH)) * scale * bumpFade;
         vec3 grad = sign(det) * (dH.x * r1 + dH.y * r2);
         return normalize((viewMatrix * vec4(normalize(abs(det) * wN - grad), 0.0)).xyz);
     }
@@ -217,7 +241,10 @@ const GROUND_FRAGMENT = /* glsl */ `
         // (The voronoi pebbles this band used to scatter are gone: at map
         // scale they read as strewn potatoes, not stones.)
         float patches = groundFbm(gp * 1.7 + warp * 2.6);
-        float grain = groundNoise(gp * 42.0);
+        // The finest noises are band-limited: past the point where a pixel
+        // can resolve them they collapse to their mean instead of
+        // shimmering. See groundDetailFade.
+        float grain = mix(0.5, groundNoise(gp * 42.0), groundDetailFade(gp * 42.0));
         float rippleS = sin(dot(gp, vec2(9.0, 4.0)) + groundFbm(gp * 1.2) * 9.0) * 0.5 + 0.5;
         vec3 sandC = uSandColor * (0.80 + 0.40 * patches) * (0.94 + 0.10 * grain)
             * (0.90 + 0.14 * rippleS);
@@ -227,7 +254,7 @@ const GROUND_FRAGMENT = /* glsl */ `
         // TINTS of the palette green (not scaling one) is what gives the
         // hue drift real turf has.
         float meadow = groundFbm(gp * 2.6 + warp * 3.0);
-        float blades = groundNoise(gp * 36.0);
+        float blades = mix(0.5, groundNoise(gp * 36.0), groundDetailFade(gp * 36.0));
         vec3 grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
                           uGrassColor * vec3(1.55, 1.45, 1.00), meadow);
         grassC *= 0.90 + 0.20 * blades;
@@ -269,7 +296,8 @@ const GROUND_FRAGMENT = /* glsl */ `
         rockC = mix(rockC, uForestColor * vec3(1.30, 1.40, 1.00), mossPatch * 0.60 * (1.0 - bare));
         rockC = mix(rockC, uSandColor * vec3(0.55, 0.50, 0.44) * (0.85 + 0.30 * plate.z),
                     stain * 0.35 * (1.0 - bare));
-        rockC += vec3(0.45, 0.47, 0.52) * smoothstep(0.90, 0.98, groundNoise(gp * 52.0)) * (1.0 - crack) * bare;
+        rockC += vec3(0.45, 0.47, 0.52) * smoothstep(0.90, 0.98, groundNoise(gp * 52.0))
+            * groundDetailFade(gp * 52.0) * (1.0 - crack) * bare;
 
         vec3 snowC = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * groundNoise(gp * 12.0));
 
@@ -431,7 +459,8 @@ const WATER_FRAGMENT = /* glsl */ `
         // Kept SOFT: at higher contrast the shimmer reads as whitecaps and
         // the whole sea looks like weather rather than water.
         float ripple1 = groundNoise(wp * 3.0 + vec2(uTime * 0.35, uTime * 0.22));
-        float ripple2 = groundNoise(wp * 6.5 - vec2(uTime * 0.28, uTime * 0.41));
+        float ripple2 = mix(0.5, groundNoise(wp * 6.5 - vec2(uTime * 0.28, uTime * 0.41)),
+            groundDetailFade(wp * 6.5));
         diffuseColor.rgb *= 0.92 + 0.08 * ripple1 + 0.04 * ripple2;
 
         // Lapping: the foam breathes in and out with the same shoreLap the

@@ -70,7 +70,7 @@ const ROAD_FRAGMENT = /* glsl */ `
         // Crushed aggregate: a mottled base with grit on top of it, rather
         // than one flat swatch of grey. This is most of what stops it
         // looking moulded.
-        float grit = groundNoise(wp * 42.0);
+        float grit = mix(0.5, groundNoise(wp * 42.0), groundDetailFade(wp * 42.0));
         // Not 'patch' -- also a reserved word in GLSL ES 3.00.
         float mottle = groundFbm(wp * 3.2);
         // Kept in the mid tones: a near-black metalling reads as a hole
@@ -117,7 +117,7 @@ const ROAD_FRAGMENT = /* glsl */ `
 // Grit scatters the specular instead of letting the whole strip catch one
 // sheen -- a uniform roughness is what reads as plastic.
 const ROAD_ROUGHNESS = /* glsl */ `
-    roughnessFactor *= 0.80 + 0.34 * groundNoise(vDecalWorld * 42.0);
+    roughnessFactor *= 0.80 + 0.34 * mix(0.5, groundNoise(vDecalWorld * 42.0), groundDetailFade(vDecalWorld * 42.0));
     roughnessFactor = clamp(roughnessFactor, 0.0, 1.0);
 `;
 

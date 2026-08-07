@@ -1,6 +1,7 @@
 // ModelSystem.js
 import { GlowSystem } from './GlowSystem';
 import { RotorSystem } from './RotorSystem';
+import { applyDirtyPlateToModel } from './UnitShader';
 
 class ModelSystem {
     static models: Record<string, any> = {};  // Cache for loaded 3D models
@@ -241,6 +242,10 @@ class ModelSystem {
             });
             GlowSystem.claim(modelClone);
             RotorSystem.claim(modelClone);
+            // After the claims, so the grime lands on the materials that
+            // actually render. Team color stays the base; this lays
+            // weathering over it -- see UnitShader.
+            applyDirtyPlateToModel(modelClone);
             return modelClone;
         }
 
@@ -306,6 +311,7 @@ class ModelSystem {
         // that actually end up in the scene rather than ones replaced later.
         GlowSystem.claim(modelClone);
         RotorSystem.claim(modelClone);
+        applyDirtyPlateToModel(modelClone);
         return modelClone;
     }
 
