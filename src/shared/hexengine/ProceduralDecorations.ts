@@ -562,17 +562,32 @@ function growLimb(
 // A leaf cluster: the crown blob the old tree had, shrunk and hung on a
 // branch tip. Same kind-2 leaf-dot shading and the same fringe shell, so
 // nothing about the canopy material changes -- only where the mass sits.
+//
+// TWENTY FACES, not eighty. A tuft this size covers a handful of pixels at
+// gameplay zoom, and the crown is 7-9 of them plus a shell each, so the
+// subdivision was most of the tree's triangle budget buying detail below
+// the resolution it would ever be seen at. A bare icosahedron is the
+// cheapest solid that still reads as round -- and it only reads as round
+// because roughen's smooth path replaces the normals with radial ones, so
+// the shading curves over a faceted silhouette.
 function addCluster(parent: any, rng: () => number, at: any, radius: number, color: number, seed: number): void {
     const blob = addMesh(
         parent,
-        roughen(new THREE.IcosahedronGeometry(radius, 1), seed, radius * 0.40),
+        // Gentler displacement than the subdivided blob wanted: at detail
+        // 0 there are twelve vertices to push around, so the old amount
+        // pulled them into a caltrop instead of lumping a surface.
+        roughen(new THREE.IcosahedronGeometry(radius, 0), seed, radius * 0.20),
         vary(color, rng, 0.2),
         at.x, at.y, at.z,
         2
     );
-    // Squashed, because a canopy spreads wider than it is tall. Set before
-    // the fringe, which copies the scale.
+    // Squashed, because a canopy spreads wider than it is tall...
     blob.scale.set(1, 0.74 + rng() * 0.22, 1);
+    // ...and turned, which matters far more at twenty faces than at
+    // eighty: a d20 has a recognisable outline, and every cluster on the
+    // map sharing it would tile the forest with one repeated silhouette.
+    blob.rotation.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI);
+    // Both set BEFORE the fringe, which copies scale and rotation.
     addFringe(parent, blob);
 }
 
