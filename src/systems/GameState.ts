@@ -51,7 +51,11 @@ class GameState {
 
         const nameFor = (controller: PlayerController, index: number) =>
             `${controller === 'human' ? 'Human' : 'AI'} ${index + 1}`;
-        this.players.push({ id: 0, name: nameFor(controllers[0], 0), color: 0x0000ff, controller: controllers[0] });
+        // Same blue constants.ts gives the units. These two drifted apart --
+        // units were drawn 0x0050FF from `players` while buildings took
+        // 0x0000ff from here -- so one side's depot never quite matched the
+        // tanks parked on it.
+        this.players.push({ id: 0, name: nameFor(controllers[0], 0), color: 0x1778FF, controller: controllers[0] });
         this.players.push({ id: 1, name: nameFor(controllers[1], 1), color: 0xff0000, controller: controllers[1] });
     }
 

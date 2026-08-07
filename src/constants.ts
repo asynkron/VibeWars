@@ -111,7 +111,7 @@ const TERRAIN_CONFIG = {
 
 // Player definitions
 const players = [
-    { id: 'human', color: 0x0050FF, units: [] },
+    { id: 'human', color: 0x1778FF, units: [] },
     { id: 'cpu1', color: 0xFF5000, units: [] }
 ];
 
