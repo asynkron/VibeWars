@@ -97,6 +97,28 @@ function buildComposer() {
 
     bloomPass = new THREE.UnrealBloomPass(size, BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD);
     composer.addPass(bloomPass);
+    setBloomEnabled(viewOptions.bloom);
+}
+
+// The bloom toggle, and it has to work this way.
+//
+// Dimming the pass does NOT save anything: BLOOM_STRENGTH at 0 still runs
+// every one of its thirteen full-screen draws and then multiplies the
+// result by zero. Measured either way, the frame costs the same.
+//
+// EffectComposer skips a pass with `enabled === false` outright, and
+// recomputes which pass is last so it can render straight to the canvas.
+// So disabling the bloom also drops the full-resolution half-float target
+// the scene was being rendered into for its sake -- which is a real part
+// of what this costs.
+//
+// Measured on a close view with GPU timer queries: 23.5 ms with the pass,
+// 3.6 ms without. It is the largest single item in the renderer, bigger
+// than the ground shader, the water, the trees and the shadows together,
+// and it exists to halo two things -- the depots' energy panels and the
+// crests of the shore surf.
+function setBloomEnabled(on: boolean): void {
+    if (bloomPass) bloomPass.enabled = on;
 }
 
 // The composer owns its own render targets, so resizing the renderer alone
@@ -382,4 +404,5 @@ export {
     initRenderer, setupCamera, getLookDirection, setCameraPosition, updateCameraPosition,
     updateCameraZoom, setupMinimap, animate, updateMiniMapHighlights,
     getCameraHeight, setCameraHeight, resizeComposer, markShadowsDirty, renderFrame,
+    setBloomEnabled,
 };

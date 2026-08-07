@@ -9,7 +9,7 @@
 import { MAP_CONFIG } from '../constants';
 import { viewOptions, toggleViewOption, ViewOptions } from '../shared/hexengine/ViewOptions';
 import { FrameStats } from './frameStats';
-import { renderer } from '../render';
+import { renderer, setBloomEnabled } from '../render';
 
 interface ToggleSpec {
     key: keyof ViewOptions;
@@ -21,6 +21,7 @@ const TOGGLES: ToggleSpec[] = [
     { key: 'grid', label: 'Grid', title: 'Hex grid lines over the terrain' },
     { key: 'textures', label: 'Textures', title: 'Procedural ground detail, roads and tracks' },
     { key: 'minimap', label: 'Minimap', title: 'The overview map below' },
+    { key: 'bloom', label: 'Bloom', title: 'Glow around the depots and the surf -- the most expensive pass in the frame' },
     { key: 'stats', label: 'Stats', title: 'Frame time, draw calls and triangles' },
 ];
 
@@ -68,6 +69,7 @@ export function initViewToolbar(): void {
             toggleViewOption(spec.key);
             paint();
             if (spec.key === 'minimap') syncMinimapOverlay(viewOptions);
+            if (spec.key === 'bloom') setBloomEnabled(viewOptions.bloom);
             if (spec.key === 'stats') FrameStats.setEnabled(viewOptions.stats, renderer);
         });
 

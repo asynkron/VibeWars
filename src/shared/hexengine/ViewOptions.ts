@@ -21,6 +21,10 @@ export interface ViewOptions {
     grid: boolean;
     textures: boolean;
     minimap: boolean;
+    // The glow around emissive things. Not a shader uniform either: it is
+    // a whole pass in the composer, and turning it off has to skip the
+    // pass rather than dim it -- see render.ts.
+    bloom: boolean;
     // Frame time and draw calls. A development readout, so it is off by
     // default and deliberately NOT a shader uniform -- see frameStats.ts.
     stats: boolean;
@@ -36,6 +40,7 @@ const DEFAULTS: ViewOptions = {
     // Off: the map is small enough to read directly, and the minimap costs
     // a second render pass every frame to show it again.
     minimap: false,
+    bloom: true,
     stats: false,
 };
 
@@ -50,6 +55,7 @@ function load(): ViewOptions {
             grid: typeof stored.grid === 'boolean' ? stored.grid : DEFAULTS.grid,
             textures: typeof stored.textures === 'boolean' ? stored.textures : DEFAULTS.textures,
             minimap: typeof stored.minimap === 'boolean' ? stored.minimap : DEFAULTS.minimap,
+            bloom: typeof stored.bloom === 'boolean' ? stored.bloom : DEFAULTS.bloom,
             stats: typeof stored.stats === 'boolean' ? stored.stats : DEFAULTS.stats,
         };
     } catch {
