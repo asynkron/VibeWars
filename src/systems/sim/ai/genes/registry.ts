@@ -40,7 +40,7 @@ import { HIT_AND_RUN, hitAndRunGene } from './hitAndRun';
 import { SHOOT_ADVANCE, shootAdvanceGene } from './shootAdvance';
 import { SHOOT_BLOCK, shootBlockGene } from './shootBlock';
 import { STORM_CAPTURE, stormCaptureGene } from './stormCapture';
-import { BLOCKADE, blockadeGene } from './blockade';
+import { USE_SKILL, useSkillGene } from './useSkill';
 
 export const GENE_REGISTRY: Readonly<Record<string, GeneDefinition>> = {
     [REGROUP]: regroupGene,
@@ -56,7 +56,7 @@ export const GENE_REGISTRY: Readonly<Record<string, GeneDefinition>> = {
     [SHOOT_ADVANCE]: shootAdvanceGene,
     [SHOOT_BLOCK]: shootBlockGene,
     [STORM_CAPTURE]: stormCaptureGene,
-    [BLOCKADE]: blockadeGene,
+    [USE_SKILL]: useSkillGene,
 };
 
 // Rebuild an extras table from the names that came over the wire.

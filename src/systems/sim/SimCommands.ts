@@ -22,6 +22,7 @@ import { SimState, SimUnit } from './SimState';
 import { simDijkstra, simCostFieldFrom, simPath } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
 import { burningTilesOf, canIgnite, FIRE_DAMAGE, firePathDamage, isBurning, tickFires } from '../../shared/hexengine/fire';
+import { pickProductionSpot } from '../../shared/hexengine/production';
 
 export type BuiltinGeneKind =
     | 'moveTowards' | 'moveAway' | 'moveRandom' | 'moveToBuilding' | 'standoff' | 'attack' | 'idle';
@@ -162,6 +163,38 @@ export function nearestEnemyIndex(state: SimState, unitIndex: number): number | 
 // Math.random() in this path would make a plan depend on which core ran it.
 export function startTurn(state: SimState, playerIndex: number, rng: () => number): void {
     state.record({ type: 'turnStarted', playerIndex });
+
+    // Factory deliveries, after the countdowns ticked in turnStarted and
+    // before the fire moves. The countdown floors at 0 ("due") in apply;
+    // HERE the spot is chosen -- spot-picking reads occupancy, which is
+    // the command layer's job, not apply()'s -- and the delivery recorded
+    // as a fact. A factory whose every candidate hex is blocked records
+    // nothing and stays due: production waits under siege.
+    for (let i = 0; i < state.buildingCount; i++) {
+        const building = state.getBuilding(i);
+        if (!building || building.destroyed || !building.isEntrance) continue;
+        if (building.ownerIndex !== playerIndex || building.productType === null) continue;
+        if (building.productionCountdown !== 0) continue;
+        const spot = pickProductionSpot(
+            {
+                getTile: (q, r) => state.getTile(q, r),
+                isOccupied: (q, r) => state.getUnitAt(q, r) !== null,
+                isBuilding: (q, r) => state.getBuildingAt(q, r) !== null,
+            },
+            building,
+            building.productType
+        );
+        if (!spot) continue;
+        state.record({
+            type: 'unitProduced',
+            buildingIndex: i,
+            unitIndex: state.unitCount,
+            unitType: building.productType,
+            q: spot.q,
+            r: spot.r,
+            playerIndex,
+        });
+    }
 
     // Rolled here, in the command layer, and recorded as the outcome --
     // apply() must stay mechanical, and a beam node replayed on another

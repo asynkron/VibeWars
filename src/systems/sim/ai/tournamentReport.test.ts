@@ -3,7 +3,7 @@
 //
 //   npm run tournament                        (default 20 rounds = 40 matches)
 //   ROUNDS=100 npm run tournament
-//   ROUNDS=50 ENGINES=baseline:wolfpack MAP=rotor12x18 npm run tournament
+//   ROUNDS=50 ENGINES=baseline:parthian MAP=rotor12x18 npm run tournament
 //
 // A round is a SEED PAIR: the same seed played twice with the seats
 // swapped, so the first-move advantage lands on both engines equally. 20
@@ -26,7 +26,7 @@ import { rotor12x18MapProvider } from '../../maps/Rotor12x18MapProvider';
 declare const process: { env: Record<string, string | undefined> };
 
 const ROUNDS = Number(process.env.ROUNDS ?? 0);
-const PAIRING = process.env.ENGINES ?? 'baseline:wolfpack';
+const PAIRING = process.env.ENGINES ?? 'baseline:parthian';
 const MAP_KEY = process.env.MAP ?? rotor12x18MapProvider.key;
 // Optional: raise the per-turn search budget for a slower, stronger batch.
 const BUDGET_SCALE = Number(process.env.BUDGET_SCALE ?? 1);
@@ -34,8 +34,8 @@ const BUDGET_SCALE = Number(process.env.BUDGET_SCALE ?? 1);
 // dials a beam engine never reads, so BUDGET_SCALE alone left beam engines
 // exactly as fast as before. Scales the FIRST engine's own childCounts and
 // applies them to both seats through the same budget override the live
-// game uses -- meaningful for same-family pairings (feint vs a feint
-// ablation), where "8" plays roughly half the live Medium width.
+// game uses -- meaningful for pairings at the live search's own scale,
+// where "8" plays roughly half the live Medium width.
 const BEAM_SCALE = Number(process.env.BEAM_SCALE ?? 1);
 
 describe.skipIf(ROUNDS <= 0)('AI engine tournament', () => {

@@ -109,8 +109,8 @@ export interface SkillDef {
     // attack in the game.
     //
     // HARD LIMIT: do not author a cooldown longer than the default engine
-    // is deep. Feint plays at beam depth 3, so its own plies are 0 and 2 --
-    // one own-turn of lookahead past the present. A two-turn cooldown's
+    // is deep. Parthian plays at beam depth 3, so its own plies are 0 and
+    // 2 -- one own-turn of lookahead past the present. A two-turn cooldown's
     // re-use is inside that horizon and a three-turn cooldown's is at its
     // edge; anything longer is invisible to the search, which will spend it
     // as though it were free.
@@ -243,8 +243,8 @@ export const PIKE_REPAIR: SkillDef = {
     minRange: 1,
     maxRange: 1,
     // Three, matching the reference's Heal, and the most the default engine
-    // can still see -- Feint's plies are 0 and 2, so this sits right at the
-    // edge of its horizon. See the note on SkillDef.cooldown.
+    // can still see -- Parthian's plies are 0 and 2, so this sits right at
+    // the edge of its horizon. See the note on SkillDef.cooldown.
     cooldown: 3,
     // The owner's call. Pike is the ONLY unit that can capture, so this
     // makes it "repair or shoot or capture" -- a real cost on the only

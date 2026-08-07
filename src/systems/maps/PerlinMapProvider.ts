@@ -16,13 +16,13 @@
 // by size. Everything is placed on the MAINLAND, so nothing starts on an
 // island and no depot is uncapturable.
 //
-// A NOTE ON "RANDOM". perlinNoise has a fixed permutation table and is
-// sampled at fixed coordinates, so the terrain TYPE layout is the same on
-// every load -- two generations of the 20x20 map agree on all 400 tiles,
-// and that map is literally the corner of the 50x50 one. What varies per
-// load is the per-tile height jitter and the sprinkled roads. Worth knowing
-// before treating these as three different maps: they are three crops of
-// one landscape.
+// A NOTE ON "RANDOM". perlinNoise has a fixed permutation table, so for a
+// long time the terrain TYPE layout was the same on every load -- three
+// fixed crops of one landscape, with only height jitter and roads varying.
+// generate() now samples at a RANDOM OFFSET into the noise field per load
+// (see the seed note in generate()), so every match gets a genuinely new
+// board. The structural tests in randomMaps.test.ts therefore hold for
+// whatever board comes out, not for one memorized layout.
 
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
 import { perlinNoise } from '../../shared/hexengine/perlinNoise';
@@ -30,25 +30,36 @@ import { TERRAIN_CONFIG } from '../../constants';
 import { MapProvider, StartingUnit, Tile } from './MapProvider';
 import type { BuildingSpawn, TileLike } from '../../types';
 
-// Rosters are PREFIXES of this list, so every size is a superset of the one
-// below it, and the first FIVE are exactly the authored maps' roster.
-//
-// PIKE IS THIRD BECAUSE OF THE BASES. It is the only class that can capture,
-// so a roster without it turns every factory on the map into scenery. That
-// is what decides the order of the first three, not preference: tank, AA and
-// infantry. It costs the smallest match its aircraft, which is the right
-// trade -- air with no AA to answer it is worse than no air at all.
-const ROSTER = [
-    'Bulwark',   // tank
-    'Halberd',   // AA
-    'Pike',      // infantry, the only class that can capture
-    'Nightjar',  // air
-    'Kestrel',   // artillery
+// One explicit roster per size -- the prefix scheme is gone, because the
+// counts are authored per size now: every size fields Pike (the only
+// class that can capture, or the depots are scenery) and Drover (the
+// APC, or the Pikes walk), scaled 1/2/3 by map size. AA appears only
+// where AIR does: the small map has neither -- an AA with nothing to
+// shoot at was a dead slot -- while medium and large field Nightjar (and
+// large Shrike), answered by a Halberd.
+const SMALL_ROSTER = [
+    'Bulwark',
+    'Pike',
+    'Drover',
+];
+const MEDIUM_ROSTER = [
+    'Bulwark',
+    'Halberd',
+    'Nightjar',
+    'Kestrel',
+    'Pike', 'Pike',
+    'Drover', 'Drover',
+];
+const LARGE_ROSTER = [
+    'Bulwark',
+    'Halberd',
+    'Nightjar',
+    'Kestrel',
     'Sabre',
     'Lynx',
-    'Drover',
     'Shrike',
-    'Mortar',
+    'Pike', 'Pike', 'Pike',
+    'Drover', 'Drover', 'Drover',
 ];
 
 const neighbourOffsets = (q: number) => (q % 2 === 0
@@ -163,9 +174,8 @@ function baseTargets(cols: number, rows: number, count: number): Array<[number, 
 // Both sides' starting units and the neutral bases between them, placed
 // together because they must not collide and both need the same mainland.
 function placeEverything(
-    tiles: TileLike[][], cols: number, rows: number, perTeam: number, baseCount: number
+    tiles: TileLike[][], cols: number, rows: number, roster: readonly string[], baseCount: number
 ): { spawns: { player: StartingUnit[]; cpu: StartingUnit[] }; buildings: BuildingSpawn[] } {
-    const roster = ROSTER.slice(0, perTeam);
     const open = tiles.length ? mainland(tiles, cols, rows) : new Set<string>();
     const taken = new Set<string>();
 
@@ -241,7 +251,7 @@ function levelDepotPads(tiles: TileLike[][], buildings: BuildingSpawn[]): void {
 }
 
 function createRandomMap(
-    key: string, name: string, size: number, perTeam: number, baseCount: number
+    key: string, name: string, size: number, roster: readonly string[], baseCount: number
 ): MapProvider {
     // Where everything ended up on the map generate() last produced. Both
     // callers -- GameState and the headless harness -- generate the map and
@@ -252,7 +262,7 @@ function createRandomMap(
     // Before any generate() there is no terrain to consult. The start menu
     // does read spawns then, to show how many units a side gets, and the
     // roster length is right even when the coordinates are placeholders.
-    let placed = placeEverything([], size, size, perTeam, baseCount);
+    let placed = placeEverything([], size, size, roster, baseCount);
 
     return {
         key,
@@ -270,11 +280,21 @@ function createRandomMap(
         },
 
         generate(): TileLike[][] {
+            // THE SEED. perlinNoise has a fixed permutation table, so
+            // sampling at fixed coordinates produced the same board on
+            // every load -- "random" meant one map with random jitter. A
+            // random offset into the infinite noise field per generate()
+            // is the seed: every load is a different crop of the
+            // landscape. Math.random is right here and wrong in the
+            // simulation, same as the height jitter below: this is the
+            // one real board, rolled once.
+            const offsetQ = Math.random() * 4096;
+            const offsetR = Math.random() * 4096;
             const tiles: TileLike[][] = [];
             for (let q = 0; q < this.cols; q++) {
                 tiles[q] = [];
                 for (let r = 0; r < this.rows; r++) {
-                    const rawNoise = perlinNoise(q / TERRAIN_CONFIG.PERLIN_SCALE, r / TERRAIN_CONFIG.PERLIN_SCALE);
+                    const rawNoise = perlinNoise((q + offsetQ) / TERRAIN_CONFIG.PERLIN_SCALE, (r + offsetR) / TERRAIN_CONFIG.PERLIN_SCALE);
                     const noiseValue = (rawNoise + 1) / 2;
 
                     const terrainType = TerrainSystem.getTerrainTypeFromNoise(noiseValue);
@@ -296,7 +316,7 @@ function createRandomMap(
                     tiles[q][r] = new Tile(height, terrainType, color);
                 }
             }
-            placed = placeEverything(tiles, size, size, perTeam, baseCount);
+            placed = placeEverything(tiles, size, size, roster, baseCount);
             levelDepotPads(tiles, placed.buildings);
             return tiles;
         },
@@ -304,9 +324,9 @@ function createRandomMap(
 }
 
 //                                    key         name               size  units  bases
-export const randomSmallMapProvider = createRandomMap('random20', 'Random — Small', 20, 3, 2);
-export const randomMediumMapProvider = createRandomMap('random30', 'Random — Medium', 30, 5, 3);
-export const randomLargeMapProvider = createRandomMap('random50', 'Random — Large', 50, 10, 7);
+export const randomSmallMapProvider = createRandomMap('random20', 'Random — Small', 20, SMALL_ROSTER, 2);
+export const randomMediumMapProvider = createRandomMap('random30', 'Random — Medium', 30, MEDIUM_ROSTER, 3);
+export const randomLargeMapProvider = createRandomMap('random50', 'Random — Large', 50, LARGE_ROSTER, 7);
 
 // The old name, so nothing that imported it has to change. It is the 50x50
 // map that key has always meant.

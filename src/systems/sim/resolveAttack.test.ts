@@ -25,8 +25,8 @@ describe('expectedDamage', () => {
     it('is round((min+max)/2) from the type config', () => {
         // Bulwark: minDamage 4, maxDamage 6 -> 5
         expect(expectedDamage('Bulwark')).toBe(5);
-        // Mortar: 5..7 -> 6
-        expect(expectedDamage('Mortar')).toBe(6);
+        // Kestrel: 3..5 -> 4
+        expect(expectedDamage('Kestrel')).toBe(4);
     });
 });
 

@@ -51,9 +51,9 @@ describe('every unit\'s attack is its slot-0 skill', () => {
     });
 
     it('authors no cooldown longer than the default engine can see', () => {
-        // Feint plays at beam depth 3, so its own plies are 0 and 2 -- one
-        // own-turn of lookahead. A cooldown longer than that is invisible
-        // to the search, which spends it as though it were free.
+        // Parthian plays at beam depth 3, so its own plies are 0 and 2 --
+        // one own-turn of lookahead. A cooldown longer than that is
+        // invisible to the search, which spends it as though it were free.
         for (const type of TYPES) {
             for (const skill of skillsFor(type)) {
                 expect(skill.cooldown, `${type}'s ${skill.name}`).toBeLessThanOrEqual(3);

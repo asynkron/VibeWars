@@ -8,6 +8,7 @@ import type { Building, GameUnit, GamePlayer, PlayerController } from '../types'
 import { NO_COOLDOWNS, tickCooldowns } from '../shared/hexengine/skills';
 import { refreshSkillBar } from './skillBar';
 import { applyFireTick, burningTilesOf, FIRE_DAMAGE, tickFires, unitsStandingInFire, type FireBoard } from '../shared/hexengine/fire';
+import { pickProductionSpot, PRODUCTION_INTERVAL } from '../shared/hexengine/production';
 import { FireSystem } from '../shared/hexengine/FireSystem';
 import { VisualizationSystem } from '../shared/hexengine/VisualizationSystem';
 
@@ -144,6 +145,40 @@ class GameState {
                     UnitSystem.updateUnitVisuals(unit);
                 }
             }
+        });
+
+        // Factory production, ticked HERE for the same reason cooldowns
+        // and fire are: this is where a turn begins on the live board, and
+        // SimState.turnStarted / SimCommands.startTurn are where it begins
+        // in the simulation -- same order, same rule, or the AI plans
+        // around deliveries the real game refuses. The countdown ticks on
+        // the owner's turn and floors at "due"; a due factory delivers to
+        // the entrance hex or the first free neighbour (production.ts),
+        // and WAITS while blocked. The newborn cannot act this turn.
+        this.buildings.forEach((building) => {
+            if (building.destroyed || building.ownerIndex !== this.currentTurn) return;
+            if (!(building.isEntrance ?? !building.groupId)) return;
+            if (building.productType == null) return;
+            const countdown = building.productionCountdown ?? PRODUCTION_INTERVAL;
+            const due = Math.max(0, countdown - 1);
+            building.productionCountdown = due;
+            if (due > 0) return;
+            const spot = pickProductionSpot(
+                {
+                    getTile: (q, r) => this.map.getTile(q, r),
+                    isOccupied: (q, r) => !!this.getUnitAt(q, r),
+                    isBuilding: (q, r) => this.buildings.some((b) => !b.destroyed && b.q === q && b.r === r),
+                },
+                building,
+                building.productType
+            );
+            if (!spot) return; // blocked: countdown stays 0 (due), retried next turn
+            const unit = this.spawnUnit(building.productType, spot.q, spot.r, this.currentTurn);
+            if (!unit) return;
+            unit.move = 0;
+            UnitSystem.setHasAttacked(unit, true);
+            VisualizationSystem.updateOwnUnitMarkers(this.units);
+            building.productionCountdown = PRODUCTION_INTERVAL;
         });
 
         // The wildfire, ticked HERE for the same reason cooldowns are: this

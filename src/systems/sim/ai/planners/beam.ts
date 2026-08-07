@@ -58,19 +58,23 @@ export interface BeamOptions {
     keepOpponent: number;
     // Upper bound on genes per unit in a generated turn.
     genesPerUnit: number;
-    // Collapse children with identical event logs before any selection, so
-    // the keep slots go to DISTINCT outcomes -- see SimJob.dedupe. Off by
-    // default: it changes play, so it enters through an engine variant and
-    // a tournament, not through a flag flip.
+    // Collapse children whose turns produce the IDENTICAL BOARD before any
+    // selection, so the keep slots go to distinct outcomes -- see
+    // SimJob.dedupe and SimState.stateHash. Keyed on a state hash, so two
+    // different gene orders reaching the same board collapse too, and the
+    // hash rides the spread protocol's metadata round -- dedupeChildren
+    // and spreadWorst compose. Off by default and off in the shipped
+    // engine: the hash is incremental now and costs nothing (compute
+    // parity 1.02x measured), but head to head it has shown no strength
+    // either -- twice, 40 matches each, both intervals spanning 50% --
+    // see dedupProbe.test.ts.
     dedupeChildren?: boolean;
     // Take the sacrifice slots SPREAD through the worse half of the
     // ranking instead of off its absolute bottom. The hypothesis: at large
     // widths the global worst children are suicide noise, not interesting
     // sacrifices -- the bottom of 2600 random turns is a unit drowning
-    // itself, and four slots spent there are four slots wasted. Serial
-    // planner only: the spread needs the whole remainder, which is exactly
-    // what the worker protocol prunes away -- beamParallel refuses the
-    // flag rather than silently playing a different search.
+    // itself, and four slots spent there are four slots wasted. The
+    // parallel planner runs it as a two-phase level -- see beamParallel.
     spreadWorst?: boolean;
 }
 
@@ -129,13 +133,6 @@ export function* beamPlanGen(
     // for it -- handing over a whole beam object would carry it silently.
     const beamDepth = options.beamDepth ?? beam.depth;
 
-    // Dedup needs event logs to compare; spread's parallel protocol ships
-    // none until the picks are made. Refused identically in both planners
-    // so an engine cannot exist that only one of them can run.
-    if (beam.dedupeChildren && beam.spreadWorst) {
-        throw new Error('beam.dedupeChildren and beam.spreadWorst are mutually exclusive');
-    }
-
     const hasUnits = [...snapshot.liveUnits()].some((u) => u[1].playerIndex === playerIndex);
     if (!hasUnits) {
         return { events: [], score: scoreState(snapshot, playerIndex, weights), genes: [] };
@@ -190,7 +187,7 @@ export function* beamPlanGen(
             keep: beam.spreadWorst
                 ? undefined
                 : { best: beam.keepBest, worst: beam.keepWorst, opponent: beam.keepOpponent },
-            }, { dialect, score: weights });
+            }, { dialect, score: weights, foresight: options.foresight });
 
             return children.map((child) => ({
                 node: {

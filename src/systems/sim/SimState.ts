@@ -27,6 +27,7 @@ import * as TerrainSystem from '../../shared/hexengine/terrainStats';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { NO_COOLDOWNS, skillCost, tickCooldowns, type Cooldowns } from '../../shared/hexengine/skills';
 import { applyFireTick, ignite, type FireBoard, type FireTile } from '../../shared/hexengine/fire';
+import { PRODUCTION_INTERVAL, EXPECTED_PRODUCT } from '../../shared/hexengine/production';
 
 // Extends FireTile, so a SimTile can be handed straight to the shared fire
 // rules in shared/hexengine/fire.ts without an adapter. That is the point of
@@ -103,6 +104,17 @@ export interface SimBuilding {
     // walls are false, so the search cannot plan a capture by parking
     // infantry against the wrong face of a depot.
     isEntrance: boolean;
+    // The factory's product line -- what it delivers every
+    // PRODUCTION_INTERVAL owner turns (see shared/hexengine/production).
+    // Null while the factory is unopened (the sim stays blind to hidden
+    // content) or when it never had one. A capture inside a rollout sets
+    // EXPECTED_PRODUCT; the live game records the real type at yield and
+    // the next snapshot corrects the guess.
+    productType: string | null;
+    // Owner turns left until the next delivery. Ticks in turnStarted,
+    // floors at 1 (due); unitProduced resets it. Capture resets to a full
+    // interval -- the conqueror waits a cycle.
+    productionCountdown: number;
 }
 
 // Facts, not intentions: each event is deterministic to apply, both here
@@ -169,7 +181,14 @@ export type GameEvent =
     | { type: 'fireTicked'; ignited: Array<{ q: number; r: number }>; burnedOut: Array<{ q: number; r: number }>; aged: Array<{ q: number; r: number }> }
     // Hp a unit lost walking through fire, already counted over the path
     // the mover actually took.
-    | { type: 'unitBurned'; unitIndex: number; damage: number };
+    | { type: 'unitBurned'; unitIndex: number; damage: number }
+    // A factory delivered a unit of its product line -- see
+    // shared/hexengine/production.ts for the rule. `unitIndex` is the
+    // index the newborn takes (always the state's current unitCount when
+    // recorded), carried explicitly so a replay on another thread builds
+    // the identical roster. The newborn cannot act on its birth turn:
+    // move 0, hasAttacked true, reset by its owner's NEXT turnStarted.
+    | { type: 'unitProduced'; buildingIndex: number; unitIndex: number; unitType: string; q: number; r: number; playerIndex: number };
 
 // Is any tile in this base array alight? Keyed on the ARRAY, so the answer
 // is computed once per turn snapshot and shared by every one of the hundreds
@@ -192,6 +211,45 @@ function baseFireTiles(base: readonly SimTile[], _cols: number): readonly number
         baseFireIndices.set(base, found);
     }
     return found;
+}
+
+// ---- The incremental state hash (see SimState.stateHash). ----
+//
+// Fingerprint scratch: two FNV-1a lanes built up field by field, then
+// XORed into the state's delta lanes by the caller. Module-level mutable
+// scratch instead of a returned tuple so a fingerprint allocates nothing
+// -- these run inside every setter call of every rollout. Single-threaded
+// per module instance (each worker loads its own), so no reentrancy.
+const FNV_PRIME = 0x01000193;
+const HASH_VIEW = new DataView(new ArrayBuffer(8));
+let fpA = 0;
+let fpB = 0;
+
+function fpBegin(seed: number): void {
+    fpA = (0x811c9dc5 ^ seed) | 0;
+    fpB = (0xcbf29ce4 ^ seed) | 0;
+}
+
+// Mixed through the full float64 bits: tile heights are fractional, and
+// truncating them would merge boards a half-height crater separates.
+function fpNumber(value: number): void {
+    HASH_VIEW.setFloat64(0, value);
+    const lo = HASH_VIEW.getUint32(0);
+    const hi = HASH_VIEW.getUint32(4);
+    fpA = Math.imul(fpA ^ lo, FNV_PRIME);
+    fpA = Math.imul(fpA ^ hi, FNV_PRIME);
+    fpB = Math.imul(fpB ^ lo, FNV_PRIME);
+    fpB = Math.imul(fpB ^ hi, FNV_PRIME);
+}
+
+function fpText(text: string): void {
+    fpA = Math.imul(fpA ^ text.length, FNV_PRIME);
+    fpB = Math.imul(fpB ^ text.length, FNV_PRIME);
+    for (let i = 0; i < text.length; i++) {
+        const code = text.charCodeAt(i);
+        fpA = Math.imul(fpA ^ code, FNV_PRIME);
+        fpB = Math.imul(fpB ^ code, FNV_PRIME);
+    }
 }
 
 export class SimState {
@@ -330,6 +388,13 @@ export class SimState {
             // true would make every wall of a depot capturable, which is
             // exactly the rule this flag exists to prevent.
             isEntrance: b.isEntrance ?? (b.groupId == null),
+            // The product line rides through openly ONLY once the factory
+            // is opened (the live side sets productType at yield; condense
+            // feeds SimBuildings back through). An unopened factory's
+            // hiddenUnitType is deliberately NOT read here -- the sim
+            // stays blind to hidden content, as above.
+            productType: b.productType ?? null,
+            productionCountdown: b.productionCountdown ?? PRODUCTION_INTERVAL,
         }));
         return new SimState(cols, rows, tiles, units, buildings, [], new Map(), new Map(), new Map());
     }
@@ -389,9 +454,22 @@ export class SimState {
             new Map(this.buildingOverrides)
         );
         // The overrides came along, so the fact that one of them changed
-        // the terrain must come along too.
+        // the terrain must come along too -- and the hash lanes, which are
+        // a pure function of those overrides, and the newborn count, whose
+        // units live in those overrides.
         copy.terrainChanged = this.terrainChanged;
+        copy.hashLo = this.hashLo;
+        copy.hashHi = this.hashHi;
+        copy.spawnedCount = this.spawnedCount;
         return copy;
+    }
+
+    // The board's identity as a short key -- see the hashLo/hashHi comment
+    // for what it covers and the one rule about when two hashes are
+    // comparable (forks of a common snapshot only). O(1) to read; the cost
+    // was paid a few mixes at a time inside the writes that got here.
+    get stateHash(): string {
+        return (this.hashLo >>> 0).toString(36) + ':' + (this.hashHi >>> 0).toString(36);
     }
 
     // The change history of this branch relative to the turn snapshot.
@@ -533,7 +611,12 @@ export class SimState {
             }
             case 'unitDied': {
                 if (event.unitIndex >= 0 && event.unitIndex < this.baseUnits.length) {
+                    // Writes the override directly (setUnit's signature is
+                    // for the living), so it must feed the hash lanes
+                    // itself -- same before/after pattern as setUnit.
+                    this.xorUnit(event.unitIndex);
                     this.unitOverrides.set(event.unitIndex, null);
+                    this.xorUnit(event.unitIndex);
                 }
                 return;
             }
@@ -565,7 +648,7 @@ export class SimState {
                 return;
             }
             case 'turnStarted': {
-                for (let i = 0; i < this.baseUnits.length; i++) {
+                for (let i = 0; i < this.unitCount; i++) {
                     const unit = this.getUnit(i);
                     // Cargo does not get its move back. unitLoaded sets
                     // move: 0 to pin the passenger to the hull, and the
@@ -604,6 +687,54 @@ export class SimState {
                             cooldowns: tickCooldowns(unit.cooldowns),
                         });
                     }
+                }
+                // Production countdown ticks with the owner's turn, beside
+                // the move reset and for the cooldown rule's reason: the
+                // beam replays turnStarted at every depth, so a delivery
+                // due in two owner-turns is genuinely two levels away in
+                // the search with no AI code at all. Floors at 0 ("due"):
+                // the SPAWN is not derived here -- apply stays mechanical
+                // -- the command layer reads "due", picks the spot, and
+                // records unitProduced, which resets the countdown. A
+                // blocked factory simply stays at 0 and is retried.
+                for (let i = 0; i < this.baseBuildings.length; i++) {
+                    const building = this.getBuilding(i);
+                    if (!building || building.destroyed || !building.isEntrance) continue;
+                    if (building.ownerIndex !== event.playerIndex) continue;
+                    if (building.productType === null) continue;
+                    if (building.productionCountdown > 0) {
+                        this.setBuilding(i, { ...building, productionCountdown: building.productionCountdown - 1 });
+                    }
+                }
+                return;
+            }
+            case 'unitProduced': {
+                // The newborn takes the next index (carried in the event,
+                // so replays on other threads build the identical roster).
+                // It cannot act on its birth turn: move 0, hasAttacked
+                // true -- its owner's next turnStarted wakes it like any
+                // other unit.
+                const stats = UnitSystem.unitTypesRecord[event.unitType];
+                if (!stats) return;
+                this.spawnedCount = Math.max(this.spawnedCount, event.unitIndex - this.baseUnits.length + 1);
+                this.setUnit(event.unitIndex, {
+                    type: event.unitType,
+                    q: event.q,
+                    r: event.r,
+                    playerIndex: event.playerIndex,
+                    hp: stats.hp,
+                    maxHp: stats.maxHp,
+                    move: 0,
+                    attack: stats.attack,
+                    minRange: stats.minRange,
+                    maxRange: stats.maxRange,
+                    hasAttacked: true,
+                    cooldowns: NO_COOLDOWNS,
+                    carriedBy: null,
+                });
+                const factory = this.getBuilding(event.buildingIndex);
+                if (factory) {
+                    this.setBuilding(event.buildingIndex, { ...factory, productionCountdown: PRODUCTION_INTERVAL });
                 }
                 return;
             }
@@ -658,6 +789,17 @@ export class SimState {
                         // First capture yields the hidden unit; re-captures only
                         // flip ownership and must not re-credit the prize.
                         yieldedTo: opensFactory ? event.playerIndex : piece.yieldedTo,
+                        // Opening a factory starts its product line. The sim
+                        // cannot see the real hidden type, so a rollout's
+                        // capture assumes the expected product -- the same
+                        // guess captureYield prices. The live game records
+                        // the real type at yield, and the next snapshot
+                        // replaces this guess with the truth.
+                        productType: opensFactory && piece.productType === null
+                            ? EXPECTED_PRODUCT
+                            : piece.productType,
+                        // The conqueror waits a full cycle for delivery.
+                        productionCountdown: PRODUCTION_INTERVAL,
                     });
                 }
                 return;
@@ -678,19 +820,24 @@ export class SimState {
         return this.tileOverrides.get(idx) ?? this.baseTiles[idx];
     }
 
+    // Base roster plus units BORN during this branch (factory production).
+    // Newborns live purely in unitOverrides at indices past the base
+    // array; spawnedCount is how many such indices exist. Events address
+    // newborns by index exactly like everyone else, so nothing downstream
+    // knows the difference.
     get unitCount(): number {
-        return this.baseUnits.length;
+        return this.baseUnits.length + this.spawnedCount;
     }
 
     getUnit(index: number): SimUnit | null {
-        if (index < 0 || index >= this.baseUnits.length) return null;
+        if (index < 0 || index >= this.unitCount) return null;
         const override = this.unitOverrides.get(index);
         if (override !== undefined) return override;
-        return this.baseUnits[index];
+        return index < this.baseUnits.length ? this.baseUnits[index] : null;
     }
 
     *liveUnits(): Generator<[number, SimUnit]> {
-        for (let i = 0; i < this.baseUnits.length; i++) {
+        for (let i = 0; i < this.unitCount; i++) {
             const unit = this.getUnit(i);
             if (unit) yield [i, unit];
         }
@@ -823,6 +970,30 @@ export class SimState {
     // hasTerrainOverrides. Set by setTile, carried across fork().
     private terrainChanged = false;
 
+    // How many units have been BORN in this branch beyond the base roster
+    // -- see unitCount. Carried across fork(); reset by a fresh snapshot
+    // (condense compacts newborns into the next base roster).
+    private spawnedCount = 0;
+
+    // ---- Incremental state hash: two 32-bit delta lanes. ----
+    //
+    // Zero at the snapshot; every write XORs in the fingerprint of the
+    // touched entity BEFORE and AFTER the change (see xorUnit/xorTile/
+    // xorBuilding). XOR is commutative and self-inverse, so the lanes are
+    // a pure function of the CURRENT board, not of the route taken to it:
+    // two forks that reach the same board by different event orders carry
+    // equal lanes, and an intermediate value visited and left again
+    // cancels out. That makes stateHash an O(changed-entities) board key
+    // where walking the board would be O(board) -- per child, in the
+    // search's innermost loop.
+    //
+    // Valid ONLY between forks of a common snapshot: unchanged entities
+    // never enter the lanes, so states from different snapshots are not
+    // comparable. That is exactly the dedup use (see SimJob.dedupe), and
+    // it is also what makes construction free -- no initial walk.
+    private hashLo = 0;
+    private hashHi = 0;
+
     // The base tile array as an IDENTITY, for per-snapshot caches outside
     // this file (SimPathfinding's cost-field cache keys a WeakMap on it,
     // exactly as baseHasFire does below). Every fork shares the array by
@@ -844,6 +1015,21 @@ export class SimState {
     // veto, which is the case the veto exists for.
     get hasTerrainOverrides(): boolean {
         return this.terrainChanged;
+    }
+
+    // Whether any standing factory is on a product line for someone --
+    // the frozen-future guard's other half: production, like fire, is
+    // passive dynamics whose payoff the foresight rollout can watch
+    // arrive. Buildings are few, so this is a short loop.
+    get hasProduction(): boolean {
+        for (let i = 0; i < this.baseBuildings.length; i++) {
+            const building = this.getBuilding(i);
+            if (building && !building.destroyed && building.isEntrance
+                && building.ownerIndex !== null && building.productType !== null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Whether anything anywhere is burning. The cheap guard the movement
@@ -889,11 +1075,15 @@ export class SimState {
         if (previous.type !== tile.type || previous.hasRoad !== tile.hasRoad) {
             this.terrainChanged = true;
         }
+        this.xorTile(idx);
         this.tileOverrides.set(idx, tile);
+        this.xorTile(idx);
     }
 
     private setUnit(index: number, unit: SimUnit): void {
+        this.xorUnit(index);
         this.unitOverrides.set(index, unit);
+        this.xorUnit(index);
         // Total invalidation rather than a surgical patch. Every write that
         // can move a unit, kill it, load it or put it down goes through
         // here, and getting a targeted update wrong would put a phantom on a
@@ -903,6 +1093,65 @@ export class SimState {
     }
 
     private setBuilding(index: number, building: SimBuilding): void {
+        this.xorBuilding(index);
         this.buildingOverrides.set(index, building);
+        this.xorBuilding(index);
+    }
+
+    // ---- The hash side of every write: fingerprint the CANONICAL view of
+    // the touched entity (what getUnit/getTile/getBuilding answer, so a
+    // dead unit is one canonical fact however its corpse is stored) and
+    // XOR it into the delta lanes. Called before AND after each change --
+    // see the lane comment above for why that makes the lanes a function
+    // of the board alone. Immutable-per-index facts (a unit's type, a
+    // tile's road) are not mixed: within one snapshot's forks they are
+    // fixed by the index, which is already the fingerprint seed.
+
+    private xorUnit(index: number): void {
+        fpBegin(index * 4 + 1);
+        const unit = this.getUnit(index);
+        if (!unit) {
+            fpNumber(-1);
+        } else {
+            fpNumber(unit.q); fpNumber(unit.r); fpNumber(unit.hp); fpNumber(unit.move);
+            fpNumber(unit.hasAttacked ? 1 : 0);
+            fpNumber(unit.carriedBy ?? -1);
+            // Almost always the shared frozen empty object; sorted so key
+            // insertion order cannot split identical cooldown states.
+            const keys = Object.keys(unit.cooldowns);
+            if (keys.length > 0) {
+                keys.sort();
+                for (const key of keys) { fpText(key); fpNumber((unit.cooldowns as any)[key]); }
+            }
+        }
+        this.hashLo = (this.hashLo ^ fpA) | 0;
+        this.hashHi = (this.hashHi ^ fpB) | 0;
+    }
+
+    private xorTile(idx: number): void {
+        fpBegin(idx * 4 + 2);
+        const tile = this.tileOverrides.get(idx) ?? this.baseTiles[idx];
+        fpNumber(tile.height);
+        fpNumber(tile.moveCost);
+        fpText(tile.type);
+        fpNumber((tile.vegetated ? 1 : 0) | (tile.burned ? 2 : 0));
+        fpNumber(tile.burning);
+        this.hashLo = (this.hashLo ^ fpA) | 0;
+        this.hashHi = (this.hashHi ^ fpB) | 0;
+    }
+
+    private xorBuilding(index: number): void {
+        fpBegin(index * 4 + 3);
+        const building = this.getBuilding(index);
+        if (!building) {
+            fpNumber(-1);
+        } else {
+            fpNumber(building.ownerIndex ?? -1);
+            fpNumber(building.yieldedTo ?? -1);
+            fpNumber(building.destroyed ? 1 : 0);
+            fpNumber(building.hasHiddenUnit ? 1 : 0);
+        }
+        this.hashLo = (this.hashLo ^ fpA) | 0;
+        this.hashHi = (this.hashHi ^ fpB) | 0;
     }
 }

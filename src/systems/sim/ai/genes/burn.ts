@@ -1,16 +1,17 @@
 // BURN -- a Pike sets fire to the trees next to it.
 //
-// WHAT THE SEARCH CAN AND CANNOT SEE HERE, stated up front because it is the
-// honest limit of this gene. score.ts prices units and buildings; it has no
-// term for terrain. So a fire is worth exactly the damage it does to units
-// walking through it, and the beam's horizon (Feint plays depth 3, own plies
-// 0 and 2) is far shorter than the six turns a fire lives. The AI therefore
-// lights fires that pay off inside two plies and is blind to the rest.
-//
-// That asymmetry is deliberate and it errs the safe way: the search
-// UNDER-values its own arson and correctly avoids walking its units into
-// flames, because the damage on the path is charged in the move itself. An
-// AI that over-valued fire would burn the map for nothing.
+// WHAT THE SEARCH SEES HERE. score.ts prices units and buildings, not
+// terrain -- a fire is worth what it does to units. For a long time that
+// made this gene near-useless: the beam's horizon (depth 3) is far
+// shorter than the six turns a fire lives, so the AI lit only fires that
+// paid within two plies and was blind to the rest -- measured 0/6 on the
+// grove board twice, against both an immobile and a mobile artillery.
+// What closed the gap is FROZEN-FUTURE FORESIGHT (see
+// PlanTurnOptions.foresight / simJob.frozenFutureValue): any board with
+// fire on it is also scored ~20 decision-free turns ahead, so the far
+// payoff of a spreading fire -- and the cost of standing near your own --
+// lands in the score a depth-3 search reads. The gene proposes; the
+// frozen future prices.
 //
 // TARGETING IS TOWARD THE ENEMY rather than at the biggest grove. A fire
 // behind your own line is a fire you have to walk around later; the point of

@@ -10,10 +10,7 @@ import { SimState } from '../../SimState';
 import * as HexCoord from '../../../../shared/hexengine/hexMath';
 import { unitTypesRecord } from '../../../../shared/hexengine/unitStats';
 import { SCREEN, screenGene } from './screen';
-import { aegisEngine } from '../engines/aegis';
-import { feintEngine } from '../engines/feint';
-import { randomGene, applyGene } from '../../SimCommands';
-import { mulberry32 } from '../../resolveAttack';
+import { applyGene } from '../../SimCommands';
 
 const mk = (type: string, q: number, r: number, playerIndex: number, hp?: number) => {
     const s = unitTypesRecord[type];
@@ -111,49 +108,12 @@ describe('screen gene', () => {
     });
 });
 
-describe('aegis is feint plus exactly one gene', () => {
-    it('differs from feint only in its dialect', () => {
-        const { dialect: a, ...aegisRest } = aegisEngine.options as any;
-        const { dialect: f, ...feintRest } = feintEngine.options as any;
-        expect(aegisRest).toEqual(feintRest);
-        // Same beam, same depth, same score, same budget.
-        expect(aegisEngine.options.beam).toEqual(feintEngine.options.beam);
-        expect(aegisEngine.options.score).toEqual(feintEngine.options.score);
-    });
-
-    it('adds the gene without displacing anything purposeful', () => {
-        const weightOf = (engine: any, kind: string) =>
-            (engine.options.dialect.weights.find(([k]: any[]) => k === kind) ?? [, 0])[1];
-        for (const kind of ['attack', 'moveTowards', 'standoff', 'moveAway', 'moveToBuilding']) {
-            expect(weightOf(aegisEngine, kind), kind).toBe(weightOf(feintEngine, kind));
-        }
-        // The budget came out of the two slots that were already noise.
-        expect(weightOf(aegisEngine, 'moveRandom')).toBeLessThan(weightOf(feintEngine, 'moveRandom'));
-        expect(weightOf(aegisEngine, SCREEN)).toBeGreaterThan(0);
-    });
-
-    it('keeps the roulette summing to one', () => {
-        // Whatever is left over falls through to idle, so a table summing to
-        // less than 1 would silently make the AI stand still more often.
-        const total = aegisEngine.options.dialect!.weights.reduce((sum, [, w]) => sum + w, 0);
-        expect(total).toBeCloseTo(1, 6);
-    });
-
-    it('actually rolls the gene, and feint never does', () => {
-        const state = board([mk('Bulwark', 7, 5, 0), mk('Kestrel', 5, 5, 0), mk('Bulwark', 1, 5, 1)]);
-        const kinds = new Set<string>();
-        const rng = mulberry32(4);
-        for (let i = 0; i < 400; i++) kinds.add(randomGene(state, 0, rng, aegisEngine.options.dialect).kind);
-        expect(kinds).toContain(SCREEN);
-
-        const rngF = mulberry32(4);
-        for (let i = 0; i < 400; i++) {
-            expect(randomGene(state, 0, rngF, feintEngine.options.dialect).kind).not.toBe(SCREEN);
-        }
-    });
-
+describe('screen registered but unused', () => {
     it('is a no-op for an engine that did not register it', () => {
-        // A plan crossing between engines must degrade, not throw.
+        // A plan crossing between engines must degrade, not throw. No
+        // shipped engine currently carries SCREEN in its dialect -- it was
+        // aegis's gene, and aegis was retired once its measurement was in
+        // (see engineRegistry.ts) -- so every live engine takes this path.
         const state = board([mk('Bulwark', 7, 5, 0), mk('Kestrel', 5, 5, 0), mk('Bulwark', 1, 5, 1)]);
         expect(applyGene(state, { kind: SCREEN, unitIndex: 0, seed: 1 })).toBe(false);
     });

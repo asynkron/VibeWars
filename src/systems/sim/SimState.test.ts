@@ -177,7 +177,7 @@ describe('buildings', () => {
         const sim = SimState.snapshot(makeSourceWithFactory());
         expect(sim.buildingCount).toBe(1);
         const b = sim.getBuilding(0)!;
-        expect(b).toEqual({ q: 2, r: 2, ownerIndex: null, hasHiddenUnit: true, yieldedTo: null, destroyed: false, groupId: null, isEntrance: true });
+        expect(b).toEqual({ q: 2, r: 2, ownerIndex: null, hasHiddenUnit: true, yieldedTo: null, destroyed: false, groupId: null, isEntrance: true, productType: null, productionCountdown: 4 });
         // No hiddenUnitType anywhere -- the sim can't cheat.
         expect('hiddenUnitType' in b).toBe(false);
         expect(sim.getBuildingAt(2, 2)![0]).toBe(0);
@@ -252,8 +252,13 @@ describe('buildings', () => {
         // snapshot, but the yield marker does not (it's per-snapshot
         // scoring state -- the prize was already "paid out").
         const next = a.condense();
+        // The capture inside this branch also opened the product line
+        // (the sim's expected stand-in) and reset the delivery countdown;
+        // condense carries both -- production state is real, not
+        // per-snapshot scoring.
         expect(next.getBuilding(0)).toEqual({
             q: 2, r: 2, ownerIndex: 1, hasHiddenUnit: false, yieldedTo: null, destroyed: false, groupId: null, isEntrance: true,
+            productType: 'Sabre', productionCountdown: 4,
         });
         expect(next.events.length).toBe(0);
     });

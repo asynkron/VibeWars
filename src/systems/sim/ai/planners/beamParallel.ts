@@ -78,12 +78,6 @@ export async function beamPlanParallel(
     // pure function of (seed, index). A dozen extra rollouts per node
     // against a level of hundreds.
     const spread = !!beam.spreadWorst;
-    // Dedup compares event logs; the metadata round ships none. Refused
-    // identically in beam.ts so no engine can exist that only one planner
-    // can run.
-    if (spread && beam.dedupeChildren) {
-        throw new Error('beam.dedupeChildren and beam.spreadWorst are mutually exclusive');
-    }
 
     const hasUnits = [...snapshot.liveUnits()].some(([, u]) => u.playerIndex === playerIndex);
     if (!hasUnits) {
@@ -101,6 +95,8 @@ export async function beamPlanParallel(
         dialect: { ...dialect, extras: {} },
         extraKinds: Object.keys(dialect.extras),
         score: weights,
+        // Plain data; crosses postMessage with the rest of the config.
+        foresight: options.foresight,
     };
 
     pool.setSnapshot(snapshot);
@@ -149,8 +145,10 @@ export async function beamPlanParallel(
                     // Spread mode ships metadata for everything and fetches
                     // its picks afterwards; normal mode scores and drops
                     // everything the level cannot choose inside the job.
+                    // Dedup composes with both: its key is a state hash,
+                    // which is itself metadata -- see SimJob.dedupe.
                     ...(spread
-                        ? { meta: true }
+                        ? { meta: true, dedupe: beam.dedupeChildren }
                         : {
                             dedupe: beam.dedupeChildren,
                             keep: { best: beam.keepBest, worst: beam.keepWorst, opponent: beam.keepOpponent },

@@ -14,7 +14,7 @@ import { drivePlanner } from '../../search';
 import { beamPlanGen } from './beam';
 import { beamPlanParallel } from './beamParallel';
 import { SimWorkerPool, SimJobRunner } from '../workerPool';
-import { runSimJob, snapshotToWire, snapshotFromWire, SimJob, SimJobConfig } from '../simJob';
+import { runSimJob, snapshotToWire, snapshotFromWire, dedupeChildren, SimJob, SimJobConfig } from '../simJob';
 import { unitTypesRecord } from '../../../../shared/hexengine/unitStats';
 
 const mk = (type: string, q: number, r: number, playerIndex: number) => {
@@ -149,7 +149,7 @@ describe('chunked dispatch', () => {
         }
     }, 60_000);
 
-    it('dedupe collapses identical outcomes to the lowest-index copy', () => {
+    it('dedupe collapses identical BOARDS to the lowest-index copy', () => {
         // A single unit with move 1 on open grass: twenty random turns
         // land on a handful of outcomes, so duplicates are guaranteed.
         const state = board([mk('Bulwark', 3, 3, 0), mk('Halberd', 9, 9, 1)]);
@@ -159,15 +159,50 @@ describe('chunked dispatch', () => {
         const deduped = runSimJob(state, { ...job, dedupe: true });
 
         expect(deduped.length).toBeLessThan(raw.length);
-        // Same as collapsing the raw run by hand: first copy of each log.
+        // Same as collapsing the raw run by hand -- replay each raw child
+        // and keep the first copy of each resulting BOARD. The comparison
+        // strips stateHash first: the raw run was asked for no hashes and
+        // the deduped run carries them, and the identity under test is
+        // which children survive, not which fields ride along.
         const seen = new Set<string>();
         const manual = raw.filter((child) => {
-            const key = JSON.stringify(child.events);
+            const played = state.fork();
+            for (const event of child.events) played.record(event);
+            const key = played.stateHash;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
         });
-        expect(deduped).toEqual(manual);
+        expect(deduped.map(({ stateHash, ...rest }) => rest)).toEqual(manual);
+    });
+
+    it('dedupe merges different routes to the same board -- the event-log key never could', () => {
+        // Two hand-built children: the same two moves in opposite order.
+        // Different logs, identical board -- one survivor, the lowest
+        // index, and its hash says why.
+        const state = board([mk('Bulwark', 3, 3, 0), mk('Lynx', 5, 5, 0), mk('Halberd', 11, 11, 1)]);
+        const moveA = { type: 'unitMoved', unitIndex: 0, toQ: 4, toR: 3, moveSpent: 1 } as const;
+        const moveB = { type: 'unitMoved', unitIndex: 1, toQ: 6, toR: 5, moveSpent: 1 } as const;
+
+        const oneWay = state.fork();
+        oneWay.record(moveA); oneWay.record(moveB);
+        const otherWay = state.fork();
+        otherWay.record(moveB); otherWay.record(moveA);
+
+        expect(oneWay.stateHash).toBe(otherWay.stateHash);
+        // And a board that differs by one hex does NOT collide.
+        const different = state.fork();
+        different.record(moveA);
+        expect(different.stateHash).not.toBe(oneWay.stateHash);
+
+        const asChild = (index: number, events: any[], hash: string) =>
+            ({ index, events, value: 0, acted: true, stateHash: hash });
+        const survivors = dedupeChildren([
+            asChild(0, [moveA, moveB], oneWay.stateHash),
+            asChild(1, [moveB, moveA], otherWay.stateHash),
+            asChild(2, [moveA], different.stateHash),
+        ]);
+        expect(survivors.map((child) => child.index)).toEqual([0, 2]);
     });
 
     it('spread mode selects on metadata, refetches, and matches the serial plan', async () => {
@@ -188,17 +223,24 @@ describe('chunked dispatch', () => {
         }
     }, 60_000);
 
-    it('refuses dedupe and spread together, identically in both planners', async () => {
-        // Dedup compares event logs; the spread's metadata round ships
-        // none. One planner accepting what the other refuses would let an
-        // engine exist that plays differently serial and live.
+    it('dedupe and spread compose, and both planners still play the identical game', async () => {
+        // These used to be mutually exclusive: dedup compared event logs
+        // and the spread's metadata round ships none. The state hash is
+        // itself metadata, so the combination is now legal -- and it must
+        // be the SAME search in both planners, chunked or not, or an
+        // engine could exist that plays differently serial and live.
+        const wide = [96, 48, 24];
         const combo = { ...BEAM, spreadWorst: true, dedupeChildren: true };
-        expect(() => drivePlanner(beamPlanGen(setup(), 0, { seed: 1, beam: combo })))
-            .toThrow(/mutually exclusive/);
-        const pool = new SimWorkerPool(0);
-        await expect(beamPlanParallel(setup(), 0, { seed: 1, beam: combo }, undefined, pool))
-            .rejects.toThrow(/mutually exclusive/);
-    });
+        for (const seed of [1, 13]) {
+            for (const beamDepth of [undefined, 4]) {
+                const opts = { seed, beam: combo, beamChildCounts: wide, beamDepth };
+                const serial = drivePlanner(beamPlanGen(setup(), 0, opts));
+                const chunked = await beamPlanParallel(setup(), 0, opts, undefined, stubRunner(4));
+                expect(chunked.events, `seed ${seed} depth ${beamDepth ?? BEAM.depth}`).toEqual(serial.events);
+                expect(chunked.score, `seed ${seed} depth ${beamDepth ?? BEAM.depth}`).toBeCloseTo(serial.score, 6);
+            }
+        }
+    }, 60_000);
 
     it('plays the budget depth, not the engine depth', async () => {
         // REGRESSION: this planner read beam.depth alone, so the live

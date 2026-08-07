@@ -9,6 +9,7 @@ import { crown14MapProvider } from './Crown14MapProvider';
 import { mirror8MapProvider } from './Mirror8MapProvider';
 import { rotor12x18MapProvider } from './Rotor12x18MapProvider';
 import { chokeMapProvider, chokeRetreatMapProvider, chokeTwinMapProvider } from './ChokeMapProvider';
+import { groveMapProvider } from './GroveMapProvider';
 import {
     randomLargeMapProvider,
     randomMediumMapProvider,
@@ -42,6 +43,7 @@ export const SCENARIO_PROVIDERS: MapProvider[] = [
     chokeMapProvider,
     chokeRetreatMapProvider,
     chokeTwinMapProvider,
+    groveMapProvider,
 ];
 
 // Default first: selectedMapProvider() falls back to providers[0] when the

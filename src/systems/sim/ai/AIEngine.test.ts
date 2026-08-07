@@ -20,9 +20,10 @@ import { applyGene, randomGene, DEFAULT_DIALECT, DEFAULT_GENE_WEIGHTS, DEFAULT_S
 import { mulberry32 } from '../resolveAttack';
 import { createEngine } from './AIEngine';
 import { baselineEngine } from './engines/baseline';
-import { wolfpackEngine } from './engines/wolfpack';
+import { parthianEngine } from './engines/parthian';
 import { ENGINES, getEngine, requireEngine, DEFAULT_ENGINE } from './engineRegistry';
 import { REGROUP, regroupGene } from './genes/regroup';
+import { HIT_AND_RUN } from './genes/hitAndRun';
 
 // 6x6 of flat grass; callers place the units they need.
 function board(units: any[], buildings: any[] = []) {
@@ -87,36 +88,42 @@ describe('baseline is the shipped AI', () => {
 
 describe('engine independence', () => {
     it('gives the two engines different personalities, not different names', () => {
-        expect(wolfpackEngine.options.score).not.toEqual(baselineEngine.options.score);
-        expect(wolfpackEngine.options.dialect!.weights).not.toEqual(baselineEngine.options.dialect!.weights);
-        expect(Object.keys(wolfpackEngine.options.dialect!.extras)).toContain(REGROUP);
+        expect(parthianEngine.options.score).not.toEqual(baselineEngine.options.score);
+        expect(parthianEngine.options.dialect!.weights).not.toEqual(baselineEngine.options.dialect!.weights);
+        expect(Object.keys(parthianEngine.options.dialect!.extras)).toContain(HIT_AND_RUN);
     });
 
     it('holds the search budget equal, so a match compares ideas and not think time', () => {
         // The tournament's whole validity rests on this: an engine that
         // simply searches wider would win for an uninteresting reason.
+        // (Parthian is a beam engine and never reads these fields, but
+        // keeps them identical to baseline's so a raw diff stays legible.)
         for (const key of ['population', 'rounds', 'lookaheadPlies', 'replyCandidates',
                            'finalists', 'deepPlies', 'replyPopulation', 'replyRounds'] as const) {
-            expect(wolfpackEngine.options[key]).toBe(baselineEngine.options[key]);
+            expect(parthianEngine.options[key]).toBe(baselineEngine.options[key]);
         }
     });
 
     it('lets a budget override change think time without touching beliefs', () => {
-        const cheap = wolfpackEngine.withBudget({ population: 4, rounds: 1 });
+        const cheap = parthianEngine.withBudget({ population: 4, rounds: 1 });
         expect(cheap.options.population).toBe(4);
-        expect(cheap.options.score).toEqual(wolfpackEngine.options.score);
-        expect(cheap.options.dialect).toEqual(wolfpackEngine.options.dialect);
+        expect(cheap.options.score).toEqual(parthianEngine.options.score);
+        expect(cheap.options.dialect).toEqual(parthianEngine.options.dialect);
         // And the original is untouched -- withBudget returns a new engine.
-        expect(wolfpackEngine.options.population).toBe(24);
+        expect(parthianEngine.options.population).toBe(24);
     });
 
     it('scores the same board differently for the two engines', () => {
-        // Two units against three: wolfpack's heavier armySize weight has
-        // to make the deficit hurt more than baseline thinks it does.
-        const state = board([tank(1, 1, 0), tank(1, 2, 0), tank(4, 4, 1), tank(4, 3, 1), tank(3, 4, 1)]);
+        // A Kestrel is worth more to parthian than to baseline (typeValue
+        // 1.25 vs the flat 1.0) -- same board, same side, different number.
+        const kestrel = {
+            type: 'Kestrel', q: 1, r: 1, playerIndex: 0,
+            hp: 8, maxHp: 8, move: 4, attack: 4, minRange: 2, maxRange: 3, hasAttacked: false,
+        };
+        const state = board([kestrel, tank(4, 4, 1)]);
         const base = scoreState(state, 0, baselineEngine.options.score);
-        const wolf = scoreState(state, 0, wolfpackEngine.options.score);
-        expect(wolf).toBeLessThan(base);
+        const parth = scoreState(state, 0, parthianEngine.options.score);
+        expect(parth).toBeGreaterThan(base);
     });
 
     it('keeps an unknown gene kind a no-op rather than a crash', () => {
@@ -139,8 +146,8 @@ describe('engine independence', () => {
         const state = board([tank(1, 1, 0), tank(1, 3, 0), tank(4, 4, 1)]);
         const rng = mulberry32(11);
         const kinds = new Set<string>();
-        for (let i = 0; i < 300; i++) kinds.add(randomGene(state, 0, rng, wolfpackEngine.options.dialect).kind);
-        expect(kinds).toContain(REGROUP);
+        for (let i = 0; i < 300; i++) kinds.add(randomGene(state, 0, rng, parthianEngine.options.dialect).kind);
+        expect(kinds).toContain(HIT_AND_RUN);
     });
 });
 
@@ -148,7 +155,7 @@ describe('determinism', () => {
     const budget = { population: 10, rounds: 2, finalists: 1, deepPlies: 1, replyPopulation: 4, replyRounds: 1 };
     const build = () => board([tank(1, 1, 0), tank(2, 1, 0), tank(4, 4, 1), tank(4, 3, 1)]);
 
-    for (const engine of [baselineEngine, wolfpackEngine]) {
+    for (const engine of [baselineEngine, parthianEngine]) {
         it(`${engine.id} plans the same turn twice from the same seed`, () => {
             const cheap = engine.withBudget(budget);
             expect(cheap.planTurn(build(), 1, 31).events).toEqual(cheap.planTurn(build(), 1, 31).events);
@@ -222,7 +229,7 @@ describe('engine registry', () => {
 
     it('names the alternatives when asked for one that does not exist', () => {
         expect(() => requireEngine('nope')).toThrow(/baseline/);
-        expect(() => requireEngine('nope')).toThrow(/wolfpack/);
+        expect(() => requireEngine('nope')).toThrow(/parthian/);
     });
 });
 

@@ -8,7 +8,7 @@ import '../../../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { SimState, type SimUnit } from '../../SimState';
 import { NO_COOLDOWNS } from '../../../../shared/hexengine/skills';
-import { feintEngine } from '../engines/feint';
+import { parthianEngine } from '../engines/parthian';
 import { beamPlanGen } from './beam';
 
 const tile = () => ({ height: 1, type: 'GRASS', hasRoad: false, moveCost: 1,
@@ -43,18 +43,18 @@ function depthPlayed(engine: { options: any }): number {
 
 describe('beam depth follows the live budget', () => {
     it('plays the engine\'s own depth when nothing overrides it', () => {
-        expect(depthPlayed(feintEngine)).toBe(3);
+        expect(depthPlayed(parthianEngine)).toBe(3);
     });
 
     it('plays the budget\'s depth when one is given', () => {
-        expect(depthPlayed(feintEngine.withBudget({ beamDepth: 5 }))).toBe(5);
-        expect(depthPlayed(feintEngine.withBudget({ beamDepth: 4 }))).toBe(4);
+        expect(depthPlayed(parthianEngine.withBudget({ beamDepth: 5 }))).toBe(5);
+        expect(depthPlayed(parthianEngine.withBudget({ beamDepth: 4 }))).toBe(4);
     });
 
     it('never drops below the cooldown horizon', () => {
         // skills.ts refuses to author a cooldown longer than the default
         // engine is deep, and the authored skills sit at exactly 3. A
         // difficulty that searched shallower would spend them as if free.
-        expect(depthPlayed(feintEngine)).toBeGreaterThanOrEqual(3);
+        expect(depthPlayed(parthianEngine)).toBeGreaterThanOrEqual(3);
     });
 });

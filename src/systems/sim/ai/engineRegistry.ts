@@ -5,26 +5,19 @@
 
 import { AIEngine } from './AIEngine';
 import { baselineEngine } from './engines/baseline';
-import { wolfpackEngine } from './engines/wolfpack';
-import { gambitEngine } from './engines/gambit';
-import { feintEngine } from './engines/feint';
-import { aegisEngine } from './engines/aegis';
-import { menderEngine } from './engines/mender';
-import { dredgeEngine } from './engines/dredge';
-import { gatekeeperEngine } from './engines/gatekeeper';
-import { sapperEngine } from './engines/sapper';
-import { fitterEngine } from './engines/fitter';
-import { convoyEngine } from './engines/convoy';
-import { mirageEngine } from './engines/mirage';
-import { talusEngine } from './engines/talus';
 import { parthianEngine } from './engines/parthian';
-import { quickdrawEngine } from './engines/quickdraw';
-import { vanguardEngine } from './engines/vanguard';
-import { bastionEngine } from './engines/bastion';
+import { feintReferenceEngine } from './engines/feintReference';
 
-export const ENGINES: readonly AIEngine[] = [baselineEngine, wolfpackEngine, gambitEngine, feintEngine, aegisEngine,
-    menderEngine, dredgeEngine, gatekeeperEngine, sapperEngine, fitterEngine, convoyEngine, mirageEngine, talusEngine,
-    parthianEngine, quickdrawEngine, vanguardEngine, bastionEngine];
+// Three engines: baseline (the control), parthian (the default), and
+// feint -- the FROZEN 2026-08-05 engine, byte-exact from before the
+// flatten and everything after it, running its own copied rules from
+// src/reference/feint0805/ (see its README). It exists as a fixed
+// reference point: ?ai=feint plays it, tournaments measure against it.
+// Everything else parthian ever beat -- the ablation chain and the
+// engines that once stood beside it -- answered its question and is gone
+// as files; parthian.ts inlines every winning value directly and
+// ai/README.md keeps the measured table.
+export const ENGINES: readonly AIEngine[] = [baselineEngine, parthianEngine, feintReferenceEngine];
 
 // What the live game plays unless told otherwise.
 //

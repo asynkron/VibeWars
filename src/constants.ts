@@ -20,6 +20,7 @@ const MAP_SIZES: Record<string, { rows: number; cols: number }> = {
     choke: { rows: 10, cols: 7 },
     chokeRetreat: { rows: 10, cols: 7 },
     chokeTwin: { rows: 9, cols: 8 },
+    grove: { rows: 3, cols: 17 },
 };
 
 const DEFAULT_MAP_KEY = 'rotor12x18';

@@ -1,8 +1,8 @@
 // Standing benchmark for the simulation hot path. Gated on BENCH=1 so the
-// normal suite never pays for it. Times feint's serial planner at the live
-// difficulty widths and digests the chosen events -- a pure optimisation
-// must leave every digest untouched and only move the clock, which is the
-// same bargain the neutrality fixtures enforce at match scale.
+// normal suite never pays for it. Times parthian's serial planner at the
+// live difficulty widths and digests the chosen events -- a pure
+// optimisation must leave every digest untouched and only move the clock,
+// which is the same bargain the neutrality fixtures enforce at match scale.
 //
 //   BENCH=1 npx vitest run perfBench --disable-console-intercept
 //
@@ -18,7 +18,7 @@ import { stateFromProvider, runHeadlessMatch } from './headless';
 import { SimState } from './SimState';
 import { startTurn } from './SimCommands';
 import { mulberry32, combineSeed } from './resolveAttack';
-import { feintEngine } from './ai/engines/feint';
+import { parthianEngine } from './ai/engines/parthian';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -39,7 +39,7 @@ const digestOf = (events: readonly unknown[]): string => {
 // headless loop, and return a snapshot ready for the next side to plan.
 function stateAfter(halfTurns: number): { snapshot: SimState; side: number } {
     let state = stateFromProvider(rotor12x18MapProvider);
-    const cheap = feintEngine.withBudget({ beamChildCounts: [24, 12, 8], beamDepth: 3 });
+    const cheap = parthianEngine.withBudget({ beamChildCounts: [24, 12, 8], beamDepth: 3 });
     for (let turn = 0; turn < halfTurns; turn++) {
         const side = turn % 2;
         startTurn(state, side, mulberry32(combineSeed(99, turn)));
@@ -53,7 +53,7 @@ function stateAfter(halfTurns: number): { snapshot: SimState; side: number } {
     return { snapshot: state.condense(), side };
 }
 
-// batch = feint's own beam ([80, 60, 30, 20, 16] at depth 3). low/medium
+// batch = parthian's own beam ([80, 60, 30, 20, 16] at depth 3). low/medium
 // pin the original reference points at depth 3 -- their digests are the
 // regression anchor and must never move. The -live entries are the actual
 // difficulty budgets at their true depths, reachable since beamParallel
@@ -67,12 +67,12 @@ const BUDGETS: Record<string, object> = {
 };
 
 describe.skipIf(!process.env.BENCH)('planner benchmark', () => {
-    it('times feint at live widths on opening and midgame boards', { timeout: 600_000 }, () => {
+    it('times parthian at live widths on opening and midgame boards', { timeout: 600_000 }, () => {
         const opening = stateAfter(0);
         const midgame = stateAfter(8);
 
         // Warm the JIT off the clock.
-        feintEngine.planTurn(opening.snapshot, opening.side, 1);
+        parthianEngine.planTurn(opening.snapshot, opening.side, 1);
 
         for (const [stateName, at] of [['opening', opening], ['midgame', midgame]] as const) {
             for (const [budgetName, budget] of Object.entries(BUDGETS)) {
@@ -80,7 +80,7 @@ describe.skipIf(!process.env.BENCH)('planner benchmark', () => {
                 // behaviour-neutrality check mid-refactor. The -live cases
                 // run minutes and have no committed baseline to guard.
                 if (process.env.BENCH === 'fast' && budgetName.endsWith('-live')) continue;
-                const engine = feintEngine.withBudget(budget);
+                const engine = parthianEngine.withBudget(budget);
                 const start = now();
                 const { events } = engine.planTurn(at.snapshot, at.side, 42);
                 const ms = now() - start;
@@ -91,11 +91,11 @@ describe.skipIf(!process.env.BENCH)('planner benchmark', () => {
 
     it('times a capped headless match', { timeout: 600_000 }, () => {
         const start = now();
-        // Feint PINNED, not the default engine: this digest is a frozen
-        // anchor, and the default is chosen on tournament results -- it
-        // moved once already (feint -> talus) and will move again.
+        // Parthian PINNED, not "the default engine": this digest is a
+        // frozen anchor, and the default is chosen on tournament results --
+        // it has moved before (feint -> talus -> parthian) and may again.
         const result = runHeadlessMatch(rotor12x18MapProvider, {
-            seed: 7, maxTurns: 24, engines: [feintEngine, feintEngine],
+            seed: 7, maxTurns: 24, engines: [parthianEngine, parthianEngine],
         });
         const ms = now() - start;
         console.log(`bench match: ${ms.toFixed(0)} ms wall, planMs [${result.planMs.map((v) => v.toFixed(0)).join(', ')}], digest ${result.eventDigest} (${result.reason})`);

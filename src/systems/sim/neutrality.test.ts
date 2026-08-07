@@ -25,7 +25,7 @@ import { rotor12x18MapProvider } from '../maps/Rotor12x18MapProvider';
 import { mirror8MapProvider } from '../maps/Mirror8MapProvider';
 import { getEngine } from './ai/engineRegistry';
 
-// Deliberately spread across two maps, four seeds and three engines, so a
+// Deliberately spread across two maps, several seeds and both engines, so a
 // change that only shows up on one board or one search shape still moves at
 // least one row.
 //
@@ -39,14 +39,14 @@ const FAST_PLAN = {
     beamChildCounts: [8, 4, 3, 2, 2],
 };
 const CASES: Array<{ name: string; map: any; seed: number; engines: [string, string]; digest: string }> = [
-    { name: 'rotor12x18 feint vs feint, seed 1', map: rotor12x18MapProvider, seed: 1, engines: ['feint', 'feint'], digest: '672d57dc:119' },
-    { name: 'rotor12x18 feint vs feint, seed 2', map: rotor12x18MapProvider, seed: 2, engines: ['feint', 'feint'], digest: '95996043:102' },
-    { name: 'rotor12x18 feint vs gambit, seed 3', map: rotor12x18MapProvider, seed: 3, engines: ['feint', 'gambit'], digest: '98c15985:139' },
-    { name: 'rotor12x18 baseline vs feint, seed 4', map: rotor12x18MapProvider, seed: 4, engines: ['baseline', 'feint'], digest: 'cdfd193d:112' },
-    { name: 'mirror8 feint vs feint, seed 1', map: mirror8MapProvider, seed: 1, engines: ['feint', 'feint'], digest: '601893ff:100' },
-    { name: 'mirror8 feint vs feint, seed 5', map: mirror8MapProvider, seed: 5, engines: ['feint', 'feint'], digest: '172e2225:106' },
-    { name: 'mirror8 gambit vs baseline, seed 6', map: mirror8MapProvider, seed: 6, engines: ['gambit', 'baseline'], digest: '6fd90d29:93' },
-    { name: 'mirror8 feint vs baseline, seed 7', map: mirror8MapProvider, seed: 7, engines: ['feint', 'baseline'], digest: '032b6138:97' },
+    { name: 'rotor12x18 parthian vs parthian, seed 1', map: rotor12x18MapProvider, seed: 1, engines: ['parthian', 'parthian'], digest: '550be0ac:85' },
+    { name: 'rotor12x18 parthian vs parthian, seed 2', map: rotor12x18MapProvider, seed: 2, engines: ['parthian', 'parthian'], digest: '5d7b5b0b:74' },
+    { name: 'rotor12x18 parthian vs baseline, seed 3', map: rotor12x18MapProvider, seed: 3, engines: ['parthian', 'baseline'], digest: '49f42468:129' },
+    { name: 'rotor12x18 baseline vs parthian, seed 4', map: rotor12x18MapProvider, seed: 4, engines: ['baseline', 'parthian'], digest: 'a295825e:92' },
+    { name: 'mirror8 parthian vs parthian, seed 1', map: mirror8MapProvider, seed: 1, engines: ['parthian', 'parthian'], digest: '9d007e65:159' },
+    { name: 'mirror8 parthian vs parthian, seed 5', map: mirror8MapProvider, seed: 5, engines: ['parthian', 'parthian'], digest: 'cf096092:54' },
+    { name: 'mirror8 baseline vs baseline, seed 6', map: mirror8MapProvider, seed: 6, engines: ['baseline', 'baseline'], digest: 'ddcfba74:57' },
+    { name: 'mirror8 parthian vs baseline, seed 7', map: mirror8MapProvider, seed: 7, engines: ['parthian', 'baseline'], digest: '5b189ef6:86' },
 ];
 
 function play(testCase: typeof CASES[number]) {

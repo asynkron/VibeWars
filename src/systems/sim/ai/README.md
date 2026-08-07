@@ -9,18 +9,22 @@ only honest way to decide whether a tweak was an improvement.
 AIEngine.ts          the interface + createEngine + withBudget
 engineRegistry.ts    id -> engine, used by both the game and the tournament
 engines/baseline.ts  the AI as originally shipped -- the control
-engines/wolfpack.ts  a challenger: baseline with different weights + a gene
-engines/gambit.ts    a challenger that changes the SEARCH, not the weights
-engines/feint.ts     gambit at depth 3 -- the ablation that held the default
-engines/mirage.ts    feint with duplicate child outcomes collapsed
-engines/talus.ts     feint with spread sacrifice slots
-engines/parthian.ts  talus + the hit-and-run gene -- now the default
-engines/quickdraw.ts parthian with NO sweep -- the refuted counter-hypothesis
+engines/parthian.ts  the default, and the only other engine that ships
 genes/hitAndRun.ts   step into the bracket, shoot, fall back out of reach
-genes/regroup.ts     a gene only wolfpack registers
-planners/beam.ts     a beam tree search, used by every feint-family engine
+genes/shootAdvance.ts, shootBlock.ts, stormCapture.ts   the press family
+planners/beam.ts     the beam tree search parthian uses
 tournament.ts        seed pairs played from both seatings + significance test
 ```
+
+Just two engines now. Parthian's own header lists the whole retired chain
+that got it here in two stages: an ablation chain (wolfpack, gambit,
+feint, mirage, talus, aegis, convoy, dredge, fitter, gatekeeper, mender,
+sapper) whose winning values it inlined first, and a second retirement
+(quickdraw, vanguard, bastion -- engines that once stood beside it) folded
+in later on direct instruction rather than a tournament result. The table
+below is what the ablation chain found; "What vanguard and bastion found"
+after it covers the second retirement, including a real regression that
+came with it.
 
 An engine owns **values** (how the board is scored, which genes exist, how
 plans mutate) and may also own its **search algorithm**, via `planner`. The
@@ -62,6 +66,14 @@ already buys redundancy and neither refinement separates from feint —
 which was the opposite of the prediction both engine headers went in with,
 and is exactly why the wide run existed.
 
+(Dedup got a second life later as a **state-hash** — `SimState.stateHash`,
+maintained incrementally per write, so two gene orders reaching the same
+board collapse and the key rides the spread protocol's metadata, lifting
+the old dedupe/spreadWorst exclusivity. Measured against parthian twice
+at 40 matches each: no strength either time, compute parity 1.02× once
+the hash went incremental. The flag exists, costs nothing, and stays off
+until it wins something — `dedupProbe.test.ts` reruns the question.)
+
 The third round changed the MOVE VOCABULARY and the sweep, and told a
 different story:
 
@@ -77,21 +89,58 @@ mass carrying shots, enough plans still forget to fire that removing the
 floor costs ~11 points of share. Timing belongs in the genome; the
 guarantee belongs in the floor; they compose rather than compete.
 
+## What vanguard and bastion found, and the merge that retired them
+
+Two more engines stood beside parthian for a while, each an ablation of
+it: **vanguard** added the press family (shootAdvance, shootBlock,
+stormCapture — hit-and-run's siblings, one per way to spend the movement
+a sweep-only shot leaves dead), and **bastion** added a blockade gene
+(stand on the hex that denies the enemy the most path — the word the
+water-choke retreat board's autopsy showed the vocabulary was missing).
+Neither had a finished tournament verdict; vanguard's own header ended
+"the verdict on whether they PAY is the tournament's, as always."
+
+Both were folded into parthian directly rather than measured to a verdict
+first — on instruction, not on a result — and blockade was then removed
+again the same day, also on instruction. `waterChoke.test.ts` is the
+closest thing to a measurement that exists for the merge, and its story
+has a twist worth keeping:
+
+| board | plain parthian | merged, with blockade | merged, blockade removed (current) |
+|---|---|---|---|
+| water choke (hold the formation) | 6/6 | 3/6 | **2/6 — regressed** |
+| the retreat (walk back and shut the door) | 0/6 (bastion alone: 2/6) | 5/6 | **4/6** |
+| the twin pass (compose two bodies) | 0/6 (bastion alone: 3/6) | 4/6 | **4/6** |
+
+The twist: blockade was the obvious suspect for the choke regression, and
+removing it changed nothing there (3/6 vs 2/6 is dice) — the press family
+itself is what competes with the choke's precise two-hex-back shelling
+formation. Meanwhile the retreat and twin gains **survive** blockade's
+removal, so the press family alone lifted the two boards the blockade
+gene's own autopsy was written about. The choke regression was not tuned
+away; `waterChoke.test.ts`'s gate was lowered to the measured floor and
+says so. A future weight pass could try to recover the formation-holding
+ground without giving back the retreat and twin gains, but nothing here
+has tried yet.
+
 ## Adding a variant
 
 1. Copy `engines/baseline.ts`, change the `id`, `name`, `notes` and whatever
    values the hypothesis is about. Copy the whole options block rather than
    spreading baseline's — the diff between two engine files should be
-   readable in one screen. (An **ablation** is the exception: `feint.ts`
-   spreads gambit's options on purpose, because there the two must be
-   provably identical apart from the one value under test.)
+   readable in one screen. (An **ablation** is the exception: spread the
+   engine under test's options on purpose, because there the two must be
+   provably identical apart from the one value being measured. Once the
+   measurement is in, retire the ablation engine and inline its winning
+   value into whichever engine keeps it — see parthian.ts's header for an
+   example of a whole retired chain folded into one file.)
 2. Change **one thing**, or accept that the result will not say which change
-   did it. Wolfpack changed seven and was unreadable even before it turned
-   out to be noise.
+   did it. Wolfpack (see the table below) changed seven and was unreadable
+   even before it turned out to be noise.
 3. Keep the **search budget** comparable, and read the tournament's compute
    line before believing a win. An engine that simply thinks longer wins for
    an uninteresting reason. Where a challenger deliberately spends more —
-   Gambit does — say so in its header and treat the cost as part of the
+   Gambit did — say so in its header and treat the cost as part of the
    result.
 4. Register it in `engineRegistry.ts`.
 
@@ -106,6 +155,25 @@ must go through `recordSimMove` or a unit that steps onto an enemy building
 will not capture it. Engines that do not register the kind treat it as a
 no-op rather than an error, so a plan can cross between engines safely.
 
+A new **skill** (a `SkillDef` on a unit type) does NOT need a new gene or a
+dialect edit: `genes/useSkill.ts` is one dialect word that delegates to
+every skill-backed gene (burn, repair, load, unload -- add yours to its
+`SKILL_GENES` table). It exists because the per-skill wiring failed in
+practice: the burn gene fell out of every dialect when the engine roster
+was flattened, and the AI silently lost arson -- see `fireGrove.test.ts`
+for the exam that caught it.
+
+**Frozen-future foresight** (`PlanTurnOptions.foresight`, implemented in
+`simJob.frozenFutureValue`) is how a depth-3 beam sees payoffs that need
+many turns but no decisions: every scored board with fire on it is also
+scored ~20 decision-free turns ahead (fire spreads, standing units burn,
+nobody moves) and the future blends in at half weight. Quiescence for
+physics. It is what turned the grove exam from 0/6 to a real gate -- the
+shipped engine now opens with the ignition, steps away from its own fire,
+and burns the artillery to death -- and it is free on fireless boards
+(guarded on `hasFire`), which the choke suite and neutrality fixture
+confirm by not moving at all.
+
 ## Running matches
 
 ```bash
@@ -113,7 +181,7 @@ npm run tournament
 ```
 
 ```bash
-ROUNDS=200 ENGINES=baseline:wolfpack MAP=rotor12x18 npm run tournament
+ROUNDS=200 ENGINES=baseline:parthian MAP=rotor12x18 npm run tournament
 ```
 
 `ROUNDS` counts **seed pairs**: each is played twice with the seats swapped,
@@ -135,16 +203,17 @@ the wide rows in the table above were played.
 ## Playing a variant in the browser
 
 ```
-?ai=gambit               both CPU sides use it
-?ai=baseline:feint       one engine per side
+?ai=baseline              both CPU sides play the control instead
+?ai=baseline:parthian     one engine per side
 ```
 
 The default is **parthian** — chosen on the measured results above: it
 beat the previous default at batch width and held the same effect size at
 six times the width, which is the signature of a real tactic rather than
-a selection artifact. It inherits talus's spread sacrifice slots, so the
-live game runs its levels two-phase: metadata first, selection in the
-planner, then a recompute of just the picked children by absolute index —
-proven event-identical to the serial planner in beamParallel.test.ts. Its
-hit-and-run gene crosses to the workers by name through genes/registry.ts,
+a selection artifact. It carries spread sacrifice slots (inlined from the
+retired talus ablation), so the live game runs its levels two-phase:
+metadata first, selection in the planner, then a recompute of just the
+picked children by absolute index — proven event-identical to the serial
+planner in beamParallel.test.ts. Its custom genes (hit-and-run and the
+press family) cross to the workers by name through genes/registry.ts,
 like every custom gene.

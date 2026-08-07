@@ -24,6 +24,7 @@ import { UnitSystem } from './UnitSystem';
 import { VisualizationSystem } from './VisualizationSystem';
 import { getGameState } from '../../systems/gameStateStore';
 import { selectedMapProvider } from '../../systems/maps/mapRegistry';
+import { PRODUCTION_INTERVAL } from './production';
 import type { Building, GameUnit } from '../../types';
 
 // Neutral (unowned) buildings render in gray; owned ones in player color.
@@ -157,6 +158,10 @@ class BuildingSystem {
         const pieces = this.groupOf(building);
         for (const piece of pieces) {
             piece.ownerIndex = unit.playerIndex;
+            // The conqueror waits a full production cycle -- mirrors
+            // SimState's buildingCaptured rule exactly, or the AI would
+            // plan around deliveries the real game refuses.
+            piece.productionCountdown = PRODUCTION_INTERVAL;
             this.attachVisual(piece); // retint
         }
 
@@ -167,6 +172,11 @@ class BuildingSystem {
             if (!piece.hiddenUnitType) continue;
             const type = piece.hiddenUnitType;
             piece.hiddenUnitType = null;
+            // The prize IS the product line: from here on the factory
+            // builds this type every cycle (production.ts). Recorded on
+            // the ENTRANCE piece -- the countdown ticks there -- however
+            // deep in the group the prize was stored.
+            building.productType = type;
             this.yieldHiddenUnit(building, type, unit.playerIndex);
         }
         return true;

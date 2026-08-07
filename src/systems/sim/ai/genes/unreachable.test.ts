@@ -14,11 +14,6 @@ import { nearestCapturableBuildingIndex } from '../../SimCommands';
 import { MEND, mendGene } from './mend';
 import { SINK, sinkGene } from './sink';
 import { HOLD_DOOR, holdDoorGene } from './holdDoor';
-import { menderEngine } from '../engines/mender';
-import { dredgeEngine } from '../engines/dredge';
-import { gatekeeperEngine } from '../engines/gatekeeper';
-import { sapperEngine } from '../engines/sapper';
-import { feintEngine } from '../engines/feint';
 
 const mk = (type: string, q: number, r: number, playerIndex: number, hp?: number) => {
     const s = unitTypesRecord[type];
@@ -169,86 +164,7 @@ describe('holdDoor -- denying a capture', () => {
     });
 });
 
-describe('each engine is Feint plus exactly one gene', () => {
-    const cases = [
-        ['mender', menderEngine, MEND],
-        ['dredge', dredgeEngine, SINK],
-        ['gatekeeper', gatekeeperEngine, HOLD_DOOR],
-    ] as const;
-
-    for (const [name, engine, kind] of cases) {
-        it(`${name} differs from feint only in its dialect`, () => {
-            const { dialect: a, ...rest } = engine.options as any;
-            const { dialect: f, ...feintRest } = feintEngine.options as any;
-            expect(rest).toEqual(feintRest);
-            expect(engine.options.beam).toEqual(feintEngine.options.beam);
-            expect(engine.options.score).toEqual(feintEngine.options.score);
-        });
-
-        it(`${name} registers its gene and keeps the roulette at 1.00`, () => {
-            expect(Object.keys(engine.options.dialect!.extras)).toEqual([kind]);
-            const total = engine.options.dialect!.weights.reduce((sum, [, w]) => sum + w, 0);
-            expect(total).toBeCloseTo(1, 6);
-        });
-
-        it(`${name} leaves the purposeful weights where Feint had them`, () => {
-            const weightOf = (e: any, k: string) =>
-                (e.options.dialect.weights.find(([key]: any[]) => key === k) ?? [, 0])[1];
-            for (const k of ['attack', 'moveTowards', 'standoff', 'moveAway', 'moveToBuilding']) {
-                expect(weightOf(engine, k), k).toBe(weightOf(feintEngine, k));
-            }
-        });
-    }
-
-    it('gives each engine a different gene, so each benchmark asks one question', () => {
-        const kinds = cases.map(([, engine]) => Object.keys(engine.options.dialect!.extras)[0]);
-        expect(new Set(kinds).size).toBe(kinds.length);
-    });
-});
-
-describe('sapper carries all three, and nothing else', () => {
-    it('registers exactly the three genes', () => {
-        expect(Object.keys(sapperEngine.options.dialect!.extras).sort())
-            .toEqual([HOLD_DOOR, MEND, SINK].sort());
-    });
-
-    it('still differs from feint only in its dialect', () => {
-        const { dialect: a, ...rest } = sapperEngine.options as any;
-        const { dialect: f, ...feintRest } = feintEngine.options as any;
-        expect(rest).toEqual(feintRest);
-    });
-
-    it('leaves every purposeful weight where feint had it', () => {
-        // The whole budget comes out of moveRandom and idle, so a win here
-        // is about the genes and not about having quietly reweighted the
-        // search underneath them.
-        const weightOf = (e: any, k: string) =>
-            (e.options.dialect.weights.find(([key]: any[]) => key === k) ?? [, 0])[1];
-        for (const k of ['attack', 'moveTowards', 'standoff', 'moveAway', 'moveToBuilding']) {
-            expect(weightOf(sapperEngine, k), k).toBe(weightOf(feintEngine, k));
-        }
-        expect(weightOf(sapperEngine, 'moveRandom')).toBeLessThan(weightOf(feintEngine, 'moveRandom'));
-        expect(weightOf(sapperEngine, 'idle')).toBeLessThan(weightOf(feintEngine, 'idle'));
-    });
-
-    it('weights the niche gene lowest and the common one highest', () => {
-        // holdDoor almost never applies; mend applies to any damaged unit.
-        const weightOf = (k: string) =>
-            (sapperEngine.options.dialect!.weights.find(([key]) => key === k) ?? [, 0])[1];
-        expect(weightOf(HOLD_DOOR)).toBeLessThan(weightOf(SINK));
-        expect(weightOf(SINK)).toBeLessThan(weightOf(MEND));
-    });
-
-    it('keeps the roulette summing to one', () => {
-        const total = sapperEngine.options.dialect!.weights.reduce((sum, [, w]) => sum + w, 0);
-        expect(total).toBeCloseTo(1, 6);
-    });
-
-    it('is decomposable: each of its genes also ships alone', () => {
-        // The reason combining three at once is acceptable here. A win can
-        // be attributed afterwards instead of being a dead end.
-        const solo = [menderEngine, dredgeEngine, gatekeeperEngine]
-            .map((e) => Object.keys(e.options.dialect!.extras)[0]).sort();
-        expect(solo).toEqual(Object.keys(sapperEngine.options.dialect!.extras).sort());
-    });
-});
+// mender, dredge, gatekeeper and sapper -- the engines that carried MEND,
+// SINK and HOLD_DOOR into a tournament -- were retired once their
+// measurement was in; see engineRegistry.ts. The genes themselves stay
+// registered (genes/registry.ts) and are tested directly above.

@@ -1,29 +1,24 @@
 // Standing tuning probes, env-gated, never part of the suite.
 //
-// PROBE=1  runs press-family weight variants against the choke -- the
-//          instrument that shaped vanguard's second draft.
-// PROBE2=1 maps robustness: engines x eight seeds x two widths. This is
-//          the run that recalibrated the choke itself: healthy engines
-//          hold ~6 of 8 with the failures landing on different seeds, so
-//          single-seed verdicts between them are dice -- and MORE width
-//          made both engines hold LESS, a horizon effect worth its own
-//          investigation someday. Class failures (baseline, quickdraw)
-//          are total at every seed, which is what the suite's rate-gate
-//          in waterChoke.test.ts is calibrated against.
+// PROBE2=1 maps robustness: engine x eight seeds x two widths. This is the
+//          run that recalibrated the choke itself: a healthy engine holds
+//          ~6 of 8 with the failures landing on different seeds, so
+//          single-seed verdicts are dice -- and MORE width made it hold
+//          LESS, a horizon effect worth its own investigation someday.
+//
+// The press-family weight probe (PROBE=1) and the bastion-vs-parthian
+// probe (PROBE6=1) that used to live here measured their questions and
+// are gone: the press family is now inlined in parthian.ts at its
+// settled weights -- see its header -- so there is no longer a second
+// engine to A/B against. (Bastion's blockade gene was tried in the same
+// merge and removed again; waterChoke.test.ts tells that story.)
 
 import '../../../test/threeStub';
 import { describe, it } from 'vitest';
 import { scenario } from './scenario';
 import { CHOKE_PICTURE, RETREAT_PICTURE, CHOKE_LEGEND } from '../../maps/ChokeMapProvider';
 import { runHeadlessMatch } from '../headless';
-import { createEngine } from '../ai/AIEngine';
-import { beamPlanGen } from '../ai/planners/beam';
 import { parthianEngine } from '../ai/engines/parthian';
-import { vanguardEngine } from '../ai/engines/vanguard';
-import { HIT_AND_RUN, hitAndRunGene } from '../ai/genes/hitAndRun';
-import { SHOOT_ADVANCE, shootAdvanceGene } from '../ai/genes/shootAdvance';
-import { SHOOT_BLOCK, shootBlockGene } from '../ai/genes/shootBlock';
-import { STORM_CAPTURE, stormCaptureGene } from '../ai/genes/stormCapture';
 
 declare const process: { env: Record<string, string | undefined> };
 
@@ -31,82 +26,132 @@ const CHOKE = scenario('water-choke-probe', CHOKE_PICTURE, CHOKE_LEGEND);
 
 const PLAN = { beamChildCounts: [48, 24, 12], beamDepth: 3 };
 
-const FULL_EXTRAS = {
-    [HIT_AND_RUN]: hitAndRunGene,
-    [SHOOT_ADVANCE]: shootAdvanceGene,
-    [SHOOT_BLOCK]: shootBlockGene,
-    [STORM_CAPTURE]: stormCaptureGene,
-};
-
-// Each variant is parthian with a different press-family weight table.
-const VARIANTS: Record<string, { weights: ReadonlyArray<readonly [string, number]>; extras: any }> = {
-    // B: hitAndRun restored to 0.10; the family funded from moveTowards
-    // instead, offsetting the reroll inflation narrow genes cause on
-    // buildingless boards.
-    'fund-from-movetowards': {
-        weights: [
-            ['attack', 0.30], ['moveTowards', 0.16], ['standoff', 0.10], ['moveAway', 0.10],
-            ['moveToBuilding', 0.10], [HIT_AND_RUN, 0.10], [SHOOT_ADVANCE, 0.04],
-            [SHOOT_BLOCK, 0.03], [STORM_CAPTURE, 0.03], ['moveRandom', 0.02], ['idle', 0.02],
-        ],
-        extras: FULL_EXTRAS,
-    },
-    // D: drop shootAdvance entirely -- the defensive/assault genes only.
-    'no-shootadvance': {
-        weights: [
-            ['attack', 0.30], ['moveTowards', 0.20], ['standoff', 0.10], ['moveAway', 0.10],
-            ['moveToBuilding', 0.10], [HIT_AND_RUN, 0.10], [SHOOT_BLOCK, 0.03],
-            [STORM_CAPTURE, 0.03], ['moveRandom', 0.02], ['idle', 0.02],
-        ],
-        extras: { [HIT_AND_RUN]: hitAndRunGene, [SHOOT_BLOCK]: shootBlockGene, [STORM_CAPTURE]: stormCaptureGene },
-    },
-    // E: vanguard's exact current weights -- the failing control.
-    'vanguard-as-is': {
-        weights: [
-            ['attack', 0.30], ['moveTowards', 0.20], ['standoff', 0.10], ['moveAway', 0.10],
-            ['moveToBuilding', 0.10], [HIT_AND_RUN, 0.06], [SHOOT_ADVANCE, 0.04],
-            [SHOOT_BLOCK, 0.03], [STORM_CAPTURE, 0.03], ['moveRandom', 0.02], ['idle', 0.02],
-        ],
-        extras: FULL_EXTRAS,
-    },
-};
-
-describe.skipIf(!process.env.PROBE2)('robustness: engines x seeds x widths', () => {
+describe.skipIf(!process.env.PROBE2)('robustness: engine x seeds x widths', () => {
     it('maps the boundary', () => {
         for (const [planName, plan] of [['w48', PLAN], ['w96', { beamChildCounts: [96, 48, 24], beamDepth: 3 }]] as Array<[string, any]>) {
-            for (const engine of [parthianEngine, vanguardEngine]) {
-                let held = 0;
-                const fails: number[] = [];
-                for (let seed = 1; seed <= 8; seed++) {
-                    const result = runHeadlessMatch(CHOKE, { seed, maxTurns: 80, engines: [engine, engine], plan });
-                    if (result.winner === 0 && result.survivors[0].includes('Pyramid')) held++;
-                    else fails.push(seed);
-                }
-                console.log(`robust ${planName} ${engine.id.padEnd(10)} ${held}/8 håller${fails.length ? ` | föll: ${fails.join(',')}` : ''}`);
+            let held = 0;
+            const fails: number[] = [];
+            for (let seed = 1; seed <= 8; seed++) {
+                const result = runHeadlessMatch(CHOKE, { seed, maxTurns: 80, engines: [parthianEngine, parthianEngine], plan });
+                if (result.winner === 0 && result.survivors[0].includes('Pyramid')) held++;
+                else fails.push(seed);
             }
+            console.log(`robust ${planName} ${held}/8 håller${fails.length ? ` | föll: ${fails.join(',')}` : ''}`);
         }
     }, 900_000);
 });
 
-describe.skipIf(!process.env.PROBE6)('bastion against the boards', () => {
-    it('measures the blockade engine where parthian failed', async () => {
-        const { bastionEngine } = await import('../ai/engines/bastion');
+
+describe.skipIf(!process.env.PROBE7)('open-board dissection: why no two-round hunt', () => {
+    it('census of level 0 plus the hand-built march line', async () => {
+        const { stateFromProvider } = await import('../headless');
+        const { startTurn, applyGene, sweepAttacks, DEFAULT_DIALECT } = await import('../SimCommands');
+        const { scoreState } = await import('../score');
+        const { mulberry32, combineSeed } = await import('../resolveAttack');
+        const { runSimJob } = await import('../ai/simJob');
+        const HexCoord = await import('../../../shared/hexengine/hexMath');
+
+        // Open grass, no water, nothing blocking: Pyramid in the north,
+        // Boll eight hexes south of it (two rounds at move 4), Klosses far
+        // east where they block nothing -- Rogers screenshot, distilled.
+        const OPEN = scenario('open-hunt', [
+            '............',
+            '...A........',
+            '............',
+            '............',
+            '............',
+            '.........K..',
+            '............',
+            '............',
+            '..........K.',
+            '...B........',
+            '............',
+        ], {
+            K: { type: 'Kloss', player: 0 },
+            A: { type: 'Pyramid', player: 0 },
+            B: { type: 'Boll', player: 1 },
+        });
+
+        const seed = 1;
+        let state = stateFromProvider(OPEN as any);
+        startTurn(state, 1, mulberry32(combineSeed(seed, 0)));
+        const snap = state.condense();
+        const units = [...snap.liveUnits()].map(([i, u]) => `${i}:${u.type}(${u.q},${u.r})`);
+        console.log(`board: ${units.join(' ')}`);
+        const boll = [...snap.liveUnits()].find(([, u]) => u.type === 'Boll')![0];
+        const pyr = [...snap.liveUnits()].find(([, u]) => u.type === 'Pyramid')![1];
+        const weights = parthianEngine.options.score!;
+        const dialect = parthianEngine.options.dialect!;
+
+        // 1. The whole level-0 child population at live Low width, no keep.
+        const jobSeed = combineSeed(combineSeed(seed, 0), 0, 0);
+        const children = runSimJob(snap, {
+            parentEvents: [], side: 1, scoreFor: 1, resetTurn: false,
+            count: 160, seed: jobSeed, genesPerUnit: 3,
+        }, { dialect, score: weights });
+
+        const startDist = HexCoord.getDistance(
+            [...snap.liveUnits()].find(([, u]) => u.type === 'Boll')![1].q,
+            [...snap.liveUnits()].find(([, u]) => u.type === 'Boll')![1].r,
+            pyr.q, pyr.r);
+        const marchers: Array<{ index: number; value: number; closer: number }> = [];
+        for (const child of children) {
+            const played = snap.fork();
+            for (const event of child.events) played.record(event);
+            const u = played.getUnit(boll)!;
+            const d = HexCoord.getDistance(u.q, u.r, pyr.q, pyr.r);
+            if (startDist - d >= 3) marchers.push({ index: child.index, value: child.value, closer: startDist - d });
+        }
+        const sorted = [...children].sort((a, b) => b.value - a.value || a.index - b.index);
+        const rankOf = (index: number) => sorted.findIndex((c) => c.index === index) + 1;
+        const kept = new Set<number>();
+        sorted.slice(0, 7).forEach((c) => kept.add(c.index));
+        sorted.slice(7).slice(-4).forEach((c) => kept.add(c.index));
+        console.log(`startdist ${startDist} | barn ${children.length} | marschbarn (>=3 narmare): ${marchers.length}`);
+        console.log(`marschranker: ${marchers.map((m) => `#${rankOf(m.index)}(v${m.value.toFixed(0)},+${m.closer})`).join(' ')}`);
+        console.log(`vardespann: bast ${sorted[0].value.toFixed(0)} / median ${sorted[80].value.toFixed(0)} / samst ${sorted[sorted.length - 1].value.toFixed(0)}`);
+        console.log(`marschbarn bland de 11 behallna: ${marchers.filter((m) => kept.has(m.index)).length}`);
+
+        // 2. The hand-built two-round kill line, scored inside depth 3.
+        const line = snap.fork();
+        applyGene(line, { kind: 'moveTowards', unitIndex: boll, targetIndex: 1, seed: 5 }, dialect.extras);
+        sweepAttacks(line, 1, DEFAULT_DIALECT.sweep!);
+        const afterT0 = scoreState(line, 1, weights);
+        startTurn(line, 0, mulberry32(99));           // defense reply (idle board)
+        startTurn(line, 1, mulberry32(combineSeed(seed, 2)));
+        applyGene(line, { kind: 'moveTowards', unitIndex: boll, targetIndex: 1, seed: 6 }, dialect.extras);
+        applyGene(line, { kind: 'attack', unitIndex: boll, targetIndex: 1, seed: 7 }, dialect.extras);
+        sweepAttacks(line, 1, DEFAULT_DIALECT.sweep!);
+        const u2 = line.getUnit(boll)!;
+        const pyrAlive = [...line.liveUnits()].some(([, u]) => u.type === 'Pyramid');
+        console.log(`handlinje: t0-score ${afterT0.toFixed(0)} | t2 Boll(${u2.q},${u2.r}) Pyramid ${pyrAlive ? 'LEVER' : 'DOD'} | t2-score ${scoreState(line, 1, weights).toFixed(0)}`);
+
+        // 3. What the planner actually returns at the live Low budget.
+        const live = parthianEngine.withBudget({ beamChildCounts: [160, 120, 60, 40, 32], beamDepth: 3 });
+        const plan = live.planTurn(snap, 1, combineSeed(seed, 0));
+        const played = snap.fork();
+        for (const event of plan.events) played.record(event);
+        const after = played.getUnit(boll)!;
+        console.log(`planner: [${plan.events.map((e) => e.type).join(',')}] Boll->(${after.q},${after.r}) dist ${HexCoord.getDistance(after.q, after.r, pyr.q, pyr.r)} (start ${startDist})`);
+    }, 600_000);
+});
+
+describe.skipIf(!process.env.PROBE6)('parthian against the choke boards', () => {
+    it('measures the boards bastion used to be A/B tested against', async () => {
         const { TWIN_PICTURE } = await import('../../maps/ChokeMapProvider');
         const RETREAT = scenario('bastion-retreat', RETREAT_PICTURE, CHOKE_LEGEND);
         const TWIN = scenario('bastion-twin', TWIN_PICTURE, CHOKE_LEGEND);
         for (const [name, board] of [['twin', TWIN], ['retreat', RETREAT], ['choke', CHOKE]] as const) {
-            for (const engine of [bastionEngine, parthianEngine]) {
-                let held = 0;
-                const fails: number[] = [];
-                for (let seed = 1; seed <= 6; seed++) {
-                    const result = runHeadlessMatch(board as any, {
-                        seed, maxTurns: 80, engines: [engine, engine], plan: PLAN,
-                    });
-                    if (result.winner === 0 && result.survivors[0].includes('Pyramid')) held++;
-                    else fails.push(seed);
-                }
-                console.log(`bastion-probe ${name.padEnd(8)} ${engine.id.padEnd(9)} ${held}/6${fails.length ? ` | föll: ${fails.join(',')}` : ''}`);
+            let held = 0;
+            const fails: number[] = [];
+            for (let seed = 1; seed <= 6; seed++) {
+                const result = runHeadlessMatch(board as any, {
+                    seed, maxTurns: 80, engines: [parthianEngine, parthianEngine], plan: PLAN,
+                });
+                if (result.winner === 0 && result.survivors[0].includes('Pyramid')) held++;
+                else fails.push(seed);
             }
+            console.log(`parthian-probe ${name.padEnd(8)} ${held}/6${fails.length ? ` | föll: ${fails.join(',')}` : ''}`);
         }
     }, 900_000);
 });
@@ -228,35 +273,3 @@ describe.skipIf(!process.env.PROBE3)('retreat scenario: is the failure the horiz
     }, 900_000);
 });
 
-describe.skipIf(!process.env.PROBE)('vanguard weight probe against the choke', () => {
-    it('prints each variant against the choke', () => {
-        const probes: Array<[string, any]> = Object.entries(VARIANTS).map(([name, variant]) => [
-            name,
-            createEngine({
-                id: `probe-${name}`,
-                name,
-                notes: 'probe',
-                planner: beamPlanGen,
-                options: {
-                    ...parthianEngine.options,
-                    dialect: {
-                        ...parthianEngine.options.dialect!,
-                        weights: variant.weights as any,
-                        extras: variant.extras,
-                    },
-                },
-            }),
-        ]);
-        probes.push(['vanguard-v2-idle-fallback', vanguardEngine]);
-
-        for (const [name, engine] of probes) {
-            for (const seed of [1, 2, 3]) {
-                const result = runHeadlessMatch(CHOKE, {
-                    seed, maxTurns: 80, engines: [engine, engine], plan: PLAN,
-                });
-                const pyramid = result.survivors[0].includes('Pyramid') ? 'Pyramid lever' : 'Pyramid DOG';
-                console.log(`probe ${name.padEnd(26)} seed ${seed} | vinnare ${result.winner} | ${pyramid} | ${result.reason} | ${result.turns}t`);
-            }
-        }
-    }, 600_000);
-});

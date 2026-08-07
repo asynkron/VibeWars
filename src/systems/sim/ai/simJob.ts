@@ -16,7 +16,7 @@
 // is what makes a parallel search comparable to a serial one at all.
 
 import { SimState, GameEvent } from '../SimState';
-import { randomPlanFor } from '../search';
+import { randomPlanFor, FireForesight } from '../search';
 import { applyGene, sweepAttacks, GeneDialect, DEFAULT_DIALECT, startTurn} from '../SimCommands';
 import { scoreState, ScoreWeights, DEFAULT_SCORE_WEIGHTS } from '../score';
 import { mulberry32, combineSeed } from '../resolveAttack';
@@ -42,12 +42,19 @@ export interface SimJob {
     // node run whole -- which is what lets the planner chunk a wide level
     // without the plan changing. Omitted means 0: the whole node.
     startIndex?: number;
-    // Collapse children whose event logs are identical before pruning,
+    // Collapse children whose RESULTING BOARD is identical before pruning,
     // keeping the lowest index of each duplicate group. Random plans
-    // repeat outcomes constantly -- idle-heavy turns, the same move
+    // repeat outcomes constantly -- idle-heavy turns, the same board
     // reached by different gene orders -- and at width 80 the same turn
     // can occupy several of the dozen keep slots. Deduplicated, the slots
     // go to DISTINCT outcomes: effective width up, zero extra rollouts.
+    //
+    // Identity is a STATE HASH (see SimState.stateHash), not the event log the
+    // first draft compared: two children that walked different routes to
+    // the same board are the same outcome to the search, and an event-log
+    // key kept both. The hash is also what lets dedup ride the metadata
+    // round -- a hash is metadata -- which is what dissolved the old
+    // mutual exclusion between dedupe and the spread protocol.
     //
     // BEFORE pruning, not after, or the pruned dozen could be one outcome
     // seven times. The planner runs a second pass across chunk boundaries;
@@ -60,8 +67,9 @@ export interface SimJob {
     // This is round one of the spread-sacrifice protocol: selection needs
     // the WHOLE ranking, and shipping whole rankings is the exact cost the
     // keep-pruning exists to avoid, so the planner selects on metadata and
-    // then fetches only its picks. Incompatible with `dedupe`, which has
-    // nothing to compare without the logs.
+    // then fetches only its picks. Composes with `dedupe`: the state hash
+    // rides along as metadata, so duplicates collapse before selection
+    // even though no logs are shipped.
     meta?: boolean;
     // Round two: recompute exactly these ABSOLUTE child indices, events
     // included. A child is a pure function of (seed, index) -- the same
@@ -101,6 +109,12 @@ export interface SimJobChild {
     // they are shipped; carried explicitly because metadata-mode children
     // ship without them and the opponent selection still needs the fact.
     acted: boolean;
+    // Hash of the board this child's turn produced -- see
+    // SimState.stateHash.
+    // Present only when the job asked for dedup (it is what dedup keys
+    // on), absent otherwise so the common path pays nothing for it. Plain
+    // data, so it crosses postMessage with the rest of the child.
+    stateHash?: string;
 }
 
 // Everything a job needs that is not the snapshot. Kept separate because
@@ -114,6 +128,9 @@ export interface SimJobConfig {
     // their dialect whole.
     extraKinds?: readonly string[];
     score?: ScoreWeights;
+    // Frozen-future foresight -- see PlanTurnOptions.foresight and
+    // frozenFutureValue below. Plain data, crosses postMessage.
+    foresight?: FireForesight;
 }
 
 // Run one job against a snapshot. Pure: same inputs, same output, on any
@@ -135,12 +152,6 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
     const parent = snapshot.fork();
     for (const event of job.parentEvents) parent.record(event);
     const parentEventCount = parent.events.length;
-
-    if (job.dedupe && job.meta) {
-        // Dedup compares event logs and metadata mode ships none. The
-        // planners refuse the flag combination too; this is the backstop.
-        throw new Error('SimJob.dedupe and SimJob.meta are mutually exclusive');
-    }
 
     const first = job.startIndex ?? 0;
     const wanted: readonly number[] = job.indices
@@ -168,32 +179,99 @@ export function runSimJob(snapshot: SimState, job: SimJob, config: SimJobConfig 
             index,
             // Only what THIS turn added; the caller already holds the rest.
             events: job.meta ? [] : branch.events.slice(parentEventCount),
-            value: scoreState(branch, job.scoreFor, weights),
+            value: frozenFutureValue(branch, job, weights, config.foresight),
             acted: branch.events.length > parentEventCount,
+            // O(1): SimState maintains the hash incrementally as events
+            // apply -- see SimState.stateHash. Shipped only when dedup
+            // will compare it. All of a job's branches fork the same
+            // parent, which is the hash's comparability requirement.
+            ...(job.dedupe ? { stateHash: branch.stateHash } : {}),
         });
     }
     const distinct = job.dedupe ? dedupeChildren(children) : children;
     return job.keep ? pruneChildren(distinct, job.keep) : distinct;
 }
 
+// -------- Frozen-future foresight. --------
+//
+// Score the child's board, and -- when fire is on it -- also the board
+// `foresight.turns` DECISION-FREE turns later: alternating startTurns with
+// no genes, so the only things that happen are the passive dynamics the
+// turn reset owns (fire spreads and ages, units standing in flame burn
+// and die, cooldowns tick, factory repair drips). The returned value is
+// now + weight * (future - now).
+//
+// This is the quiescence idea applied to physics instead of captures: a
+// lit fire is a FORCED sequence whose payoff needs ~15 turns but zero
+// decisions, so the beam can see it at depth 3 for the price of ticking
+// the fire rules -- no recursive search, no children, no replies. The
+// discount weight is honesty about the freeze: nobody dodges in this
+// future, so it overstates flame damage against anything mobile.
+//
+// Guarded on hasFire, which makes it FREE on the boards that have no fire
+// -- almost every board, almost all of the time -- and bit-identical to
+// not existing at all: the value path does not even fork. The rollout
+// also stops early the moment the last flame burns out, so the cost is
+// bounded by the fire's own lifetime, not by `turns`.
+//
+// DETERMINISM. The frozen dice derive from (job.seed, side) alone -- NOT
+// from the child index -- so every child of a node faces the same future
+// weather and differences in value come only from differences on their
+// boards. It also keeps the serial planner, the chunked planner and a
+// round-two recompute bit-identical, same as every other seed here.
+function frozenFutureValue(
+    branch: SimState,
+    job: SimJob,
+    weights: ScoreWeights,
+    foresight: FireForesight | undefined
+): number {
+    const now = scoreState(branch, job.scoreFor, weights);
+    if (!foresight || foresight.weight === 0) return now;
+    // The two passive dynamics worth rolling forward: fire, and factory
+    // production (a delivery due in N owner-turns arrives in the frozen
+    // future and scores as the material it is -- which is what makes an
+    // owned factory worth holding and a blocked one worth besieging).
+    // Neither present: free, and the value path does not even fork.
+    if (!branch.hasFire && !branch.hasProduction) return now;
+
+    const future = branch.fork();
+    const rng = mulberry32(combineSeed(job.seed, 0x50f7));
+    for (let tick = 0; tick < foresight.turns; tick++) {
+        if (!future.hasFire && !future.hasProduction) break;
+        startTurn(future, (job.side + 1 + tick) % 2, rng);
+    }
+    return now + foresight.weight * (scoreState(future, job.scoreFor, weights) - now);
+}
+
 // Collapse identical outcomes, keeping the FIRST (lowest-index) copy of
 // each -- children arrive in index order, so first is lowest. Identity is
-// the event log verbatim: two children with the same events reached the
-// same board by the same facts, and their values are equal by
-// construction. Lowest index rather than any other choice because index
-// breaks value ties everywhere else in the beam, so the survivor is the
-// copy selection would have preferred anyway.
+// the RESULTING BOARD, via the child's stateHash: two children whose turns
+// leave the same board are the same outcome whatever route their events
+// took, and their values are equal by construction because the score is a
+// function of the state. (Children built without a hash -- tests, older
+// callers -- fall back to the event log verbatim, which is the stricter
+// key: it never merges what the hash would keep apart.) Lowest index
+// rather than any other choice because index breaks value ties everywhere
+// else in the beam, so the survivor is the copy selection would have
+// preferred anyway.
 export function dedupeChildren(children: SimJobChild[]): SimJobChild[] {
     const seen = new Set<string>();
     const distinct: SimJobChild[] = [];
     for (const child of children) {
-        const key = JSON.stringify(child.events);
+        const key = child.stateHash ?? JSON.stringify(child.events);
         if (seen.has(key)) continue;
         seen.add(key);
         distinct.push(child);
     }
     return distinct;
 }
+
+// The state hash dedup keys on lives in SimState (see SimState.stateHash):
+// maintained incrementally as events apply, so reading it here is O(1)
+// per child instead of a walk over the whole board. The first draft
+// walked -- every unit, every building, all 216 tiles, per child -- and
+// the walk measured 1.53x total thinking time for rollouts it saved that
+// were cheaper than itself.
 
 // The snapshot as plain data, for structured-clone to a worker. SimState
 // holds no functions, but it is a class instance with private fields, so

@@ -9,7 +9,7 @@ import '../../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { runTournament, wilsonInterval, formatTournament, TOURNAMENT_BUDGET } from './tournament';
 import { baselineEngine } from './engines/baseline';
-import { wolfpackEngine } from './engines/wolfpack';
+import { parthianEngine } from './engines/parthian';
 import { mirror8MapProvider } from '../../maps/Mirror8MapProvider';
 
 // Tiny budget: these tests care about bookkeeping, not play strength.
@@ -55,7 +55,7 @@ describe('wilsonInterval', () => {
 });
 
 describe('runTournament', () => {
-    const run = (rounds: number) => runTournament(baselineEngine, wolfpackEngine, {
+    const run = (rounds: number) => runTournament(baselineEngine, parthianEngine, {
         provider: mirror8MapProvider,
         rounds,
         seed: 500,
@@ -79,7 +79,7 @@ describe('runTournament', () => {
         const result = run(4);
         const firstSeat = result.matches.map((m) => m.seats[0]);
         expect(firstSeat.filter((id) => id === baselineEngine.id)).toHaveLength(4);
-        expect(firstSeat.filter((id) => id === wolfpackEngine.id)).toHaveLength(4);
+        expect(firstSeat.filter((id) => id === parthianEngine.id)).toHaveLength(4);
     }, 120_000);
 
     it('books every match to exactly one outcome per engine', () => {
@@ -133,9 +133,9 @@ describe('runTournament', () => {
     });
 
     it('reports the result in a form that explains itself', () => {
-        const text = formatTournament(baselineEngine, wolfpackEngine, run(2));
+        const text = formatTournament(baselineEngine, parthianEngine, run(2));
         expect(text).toContain(baselineEngine.notes);
-        expect(text).toContain(wolfpackEngine.notes);
+        expect(text).toContain(parthianEngine.notes);
         expect(text).toContain('compute parity');
         expect(text).toContain('VERDICT');
     }, 120_000);

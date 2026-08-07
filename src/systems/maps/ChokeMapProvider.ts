@@ -49,7 +49,25 @@ export const CHOKE_LEGEND: Record<string, { type: string; player: 0 | 1 }> = {
 const ROWS = CHOKE_PICTURE.length;
 const COLS = CHOKE_PICTURE[0].length;
 
-function providerFrom(key: string, name: string, picture: string[], legend: Record<string, { type: string; player: 0 | 1 }>): MapProvider {
+// The terrain a picture character makes. Unit characters resolve through
+// their legend entry's `ground` instead (default grass), so a piece can
+// stand in a forest without the picture losing the tile under it.
+const PICTURE_TERRAIN: Record<string, string> = {
+    '~': 'WATER',
+    '#': 'FOREST',
+    '.': 'GRASS',
+};
+
+export interface PictureLegendEntry {
+    type: string;
+    player: 0 | 1;
+    // Terrain character under the unit; '.' (grass) when omitted.
+    ground?: string;
+}
+
+// Exported for sibling scenario maps (see GroveMapProvider) -- one
+// picture-to-provider rule, not a copy per file.
+export function providerFrom(key: string, name: string, picture: string[], legend: Record<string, PictureLegendEntry>): MapProvider {
     const rows = picture.length;
     const cols = picture[0].length;
     const spawnsFor = (player: 0 | 1): StartingUnit[] => {
@@ -75,7 +93,9 @@ function providerFrom(key: string, name: string, picture: string[], legend: Reco
             for (let q = 0; q < cols; q++) {
                 tiles[q] = [];
                 for (let r = 0; r < rows; r++) {
-                    const terrainType = picture[r][q] === '~' ? 'WATER' : 'GRASS';
+                    const character = picture[r][q];
+                    const ground = legend[character]?.ground ?? character;
+                    const terrainType = PICTURE_TERRAIN[legend[character] ? ground : character] ?? 'GRASS';
                     const height = TerrainSystem.getTerrainBaseHeight(terrainType)
                         + (terrainType === 'WATER' ? 0 : 0.1);
                     tiles[q][r] = new Tile(height, terrainType, TerrainSystem.getTerrainColor(terrainType));
@@ -120,8 +140,8 @@ export const chokeRetreatMapProvider: MapProvider = providerFrom(
 // COMPOSITION: the pair is worth everything, each half alone is worth
 // nothing, and the second blocker can only see its value on a board
 // where the first is already standing. Sequential gene application is
-// the mechanism under test; blockade.test.ts pins it at the gene level,
-// this board asks whether the full search finds it under fire.
+// the mechanism under test, and this board asks whether the full search
+// finds it under fire.
 export const TWIN_PICTURE: string[] = [
     'B.......',
     '........',

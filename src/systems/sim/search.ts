@@ -123,9 +123,27 @@ export interface PlanTurnOptions {
     // own beam.depth so a batch run cannot inherit a browser's budget.
     //
     // NEVER SET IT BELOW 3. skills.ts refuses to author a cooldown longer
-    // than the default engine is deep, and Feint's 3 is what makes a
+    // than the default engine is deep, and Parthian's 3 is what makes a
     // three-turn cooldown visible to the search.
     beamDepth?: number;
+    // Frozen-future foresight: before a candidate board is scored, roll
+    // this many DECISION-FREE turns on a fork -- fire spreads, standing
+    // units burn, nobody moves -- and blend the future board's score in.
+    // The quiescence idea for passive dynamics: a payoff that needs
+    // fifteen turns of physics but zero decisions becomes visible at
+    // depth 3 for the price of ticking the fire rules. Guarded to cost
+    // nothing on a board with no fire. See runSimJob, which implements
+    // it; the hillclimb never reads it.
+    foresight?: FireForesight;
+}
+
+export interface FireForesight {
+    // Frozen turns to roll (a fire lives 6 player-turns; chains longer).
+    turns: number;
+    // Blend weight on (future - now). Below 1 on purpose: the frozen
+    // future assumes nobody dodges, so it overstates fire damage against
+    // anything mobile -- a discount for "they might walk out of it".
+    weight: number;
 }
 
 export interface TurnPlanResult {

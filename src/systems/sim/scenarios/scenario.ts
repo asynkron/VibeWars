@@ -9,7 +9,9 @@
 //
 // Terrain characters:
 //   .  grass        ~  water        ^  mountain        ,  sand
-//   anything in the legend: a unit standing on grass
+//   #  forest (vegetated: this is the tile fire can catch on)
+//   anything in the legend: a unit standing on grass, unless its legend
+//   entry names a `ground` character to stand on instead
 //
 // Row index is r, column index is q -- exactly how the pictures read.
 // Remember the grid is odd-q offset: a single unbroken row of water DOES
@@ -19,7 +21,7 @@
 import type { StartingUnit } from '../../maps/MapProvider';
 
 export interface ScenarioLegend {
-    [character: string]: { type: string; player: 0 | 1 };
+    [character: string]: { type: string; player: 0 | 1; ground?: string };
 }
 
 export interface ScenarioMap {
@@ -38,6 +40,7 @@ const TERRAIN: Record<string, { type: string; height: number; moveCost: number }
     ',': { type: 'SAND', height: 1, moveCost: 1 },
     '~': { type: 'WATER', height: 0.3, moveCost: Infinity },
     '^': { type: 'MOUNTAIN', height: 2.4, moveCost: Infinity },
+    '#': { type: 'FOREST', height: 1.1, moveCost: 2 },
 };
 
 export function scenario(name: string, picture: string[], legend: ScenarioLegend): ScenarioMap {
@@ -55,14 +58,18 @@ export function scenario(name: string, picture: string[], legend: ScenarioLegend
         for (let q = 0; q < cols; q++) {
             const character = picture[r][q];
             const unit = legend[character];
-            const ground = TERRAIN[unit ? '.' : character];
+            const ground = TERRAIN[unit ? unit.ground ?? '.' : character];
             if (!ground) throw new Error(`scenario "${name}": unknown character "${character}" at (${q},${r})`);
             tiles[q][r] = {
                 height: ground.height,
                 type: ground.type,
                 hasRoad: false,
                 moveCost: ground.moveCost,
-                vegetated: false,
+                // The one scenario terrain fire can catch on. Mirrors the
+                // live rule (hasVegetation: FOREST is always a grove);
+                // scenario grass stays bare so boards burn only where the
+                // picture says forest.
+                vegetated: ground.type === 'FOREST',
                 burning: 0,
                 burned: false,
             };

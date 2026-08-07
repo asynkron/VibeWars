@@ -18,12 +18,8 @@ import { scoreState } from '../../score';
 import { sweepAttacks, DEFAULT_DIALECT } from '../../SimCommands';
 import { drivePlanner } from '../../search';
 import { beamPlanGen, DEFAULT_BEAM } from './beam';
-import { gambitEngine } from '../engines/gambit';
+import { parthianEngine } from '../engines/parthian';
 import { baselineEngine } from '../engines/baseline';
-import { feintEngine } from '../engines/feint';
-import { mirageEngine } from '../engines/mirage';
-import { talusEngine } from '../engines/talus';
-import { quickdrawEngine } from '../engines/quickdraw';
 
 const mk = (type: string, q: number, r: number, playerIndex: number) => {
     const s = UnitSystem.unitTypesRecord[type];
@@ -46,25 +42,28 @@ const FAST = { depth: 5, childCounts: [24, 10, 8, 5, 4], keepBest: 3, keepWorst:
 // Play the plan and report where the unit ended up relative to the enemy.
 function distanceAfterPlanning(attacker: string, gap: number, seed: number, beam = FAST) {
     const state = board([mk(attacker, 5, 2, 0), mk('Halberd', 5, 2 + gap, 1)]);
-    const plan = drivePlanner(beamPlanGen(state, 0, { seed, beam, score: gambitEngine.options.score }));
+    const plan = drivePlanner(beamPlanGen(state, 0, { seed, beam, score: parthianEngine.options.score }));
     const after = state.fork();
     for (const event of plan.events) after.record(event);
     const unit = after.getUnit(0)!;
     return { dist: HexCoord.getDistance(unit.q, unit.r, 5, 2 + gap), plan };
 }
 
-// A Halberd covers move 2 + range 2 = 4 hexes. That number is the whole
-// geometry of both tests below.
-const AA_REACH = 4;
+// A Halberd covers move 3 + range 2 = 5 hexes (move went 2 -> 3 when AA
+// was buffed to actually contest helicopters). That number is the whole
+// geometry of both tests below: the attacker starts one hex OUTSIDE it.
+const AA_REACH = 5;
+const START_GAP = AA_REACH + 1;
 
 describe('beam planner finds matchups the evaluation never mentions', () => {
     it('sends a tank at the AA it one-shots', () => {
         // Bulwark deals 10 into 8 hp; the Halberd deals 2 back into 10. A
-        // free kill, but two turns away at move 2 -- which is exactly the
-        // payoff the shallow hillclimb cannot see, so it parks at the edge
-        // of the AA's reach instead.
+        // free kill, but starting outside the AA's reach the closing costs
+        // chip damage now for a payoff turns away -- which is exactly what
+        // the shallow hillclimb cannot see, so it parks at the edge of the
+        // reach instead. The beam must close the distance.
         for (const seed of [1, 2, 3]) {
-            expect(distanceAfterPlanning('Bulwark', 5, seed).dist).toBeLessThan(5);
+            expect(distanceAfterPlanning('Bulwark', START_GAP, seed).dist).toBeLessThan(START_GAP);
         }
     }, 60_000);
 
@@ -81,7 +80,7 @@ describe('beam planner finds matchups the evaluation never mentions', () => {
         // survivor was always our worst opening -- which the search then
         // returned as its answer.
         for (const seed of [1, 2, 3]) {
-            expect(distanceAfterPlanning('Nightjar', 5, seed).dist).toBeGreaterThan(AA_REACH);
+            expect(distanceAfterPlanning('Nightjar', START_GAP, seed).dist).toBeGreaterThan(AA_REACH);
         }
     }, 60_000);
 
@@ -89,12 +88,12 @@ describe('beam planner finds matchups the evaluation never mentions', () => {
         const state = board([mk('Bulwark', 5, 2, 0), mk('Halberd', 5, 4, 1)]);
         const idle = state.fork();
         sweepAttacks(idle, 0, DEFAULT_DIALECT.sweep!);
-        const idleScore = scoreState(idle, 0, gambitEngine.options.score);
+        const idleScore = scoreState(idle, 0, parthianEngine.options.score);
 
-        const plan = drivePlanner(beamPlanGen(state, 0, { seed: 4, beam: FAST, score: gambitEngine.options.score }));
+        const plan = drivePlanner(beamPlanGen(state, 0, { seed: 4, beam: FAST, score: parthianEngine.options.score }));
         const played = state.fork();
         for (const event of plan.events) played.record(event);
-        expect(scoreState(played, 0, gambitEngine.options.score)).toBeGreaterThan(idleScore);
+        expect(scoreState(played, 0, parthianEngine.options.score)).toBeGreaterThan(idleScore);
     }, 60_000);
 });
 
@@ -181,133 +180,35 @@ describe('beam planner mechanics', () => {
     });
 });
 
-describe('feint is an ablation of gambit, not a second variant', () => {
-    it('differs from gambit in exactly one value: beam.depth', () => {
-        // The experiment only means something if everything else is
-        // identical. A drifted weight would turn "depth 3 vs depth 5" into
-        // "two different engines", and the result would answer nothing.
-        const { beam: feintBeam, ...feintRest } = feintEngine.options as any;
-        const { beam: gambitBeam, ...gambitRest } = gambitEngine.options as any;
-        expect(feintRest).toEqual(gambitRest);
+// The ablation chain that produced parthian's beam settings --
+// gambit (the beam itself) -> feint (shallower) -> mirage/talus (selection
+// tweaks) -- answered its questions and was retired; see engineRegistry.ts
+// and ai/README.md for the measured table. Its winning values are inlined
+// in parthian.ts directly, so there is no longer a second engine to diff
+// against for depth, dedupeChildren or spreadWorst.
 
-        const { depth: feintDepth, ...feintBeamRest } = feintBeam;
-        const { depth: gambitDepth, ...gambitBeamRest } = gambitBeam;
-        expect(feintBeamRest).toEqual(gambitBeamRest);
-        expect(feintDepth).toBeLessThan(gambitDepth);
-    });
+// quickdraw (Parthian with the attack sweep removed) measured its
+// hypothesis and lost cleanly at both widths -- the sweepless attempt
+// walked into range and dealt nothing often enough to cost ~11 points of
+// share -- so the sweep stays in Parthian and quickdraw is retired. See
+// ai/README.md for the numbers.
 
-    it('keeps its shallower depth when a live budget is applied', () => {
-        // REGRESSION: LIVE_BUDGET used to carry a whole beam object, which
-        // replaced the engine's own -- depth included. Selecting Feint for
-        // a live game would silently have played Gambit. Budgets set width
-        // now, never depth.
-        const live = feintEngine.withBudget({ beamChildCounts: [160, 120, 60, 40, 32] } as any);
-        expect(live.options.beam.depth).toBe(feintEngine.options.beam.depth);
-    });
-
-    it('actually searches shallower, measured in work done', () => {
-        // Not just a different number in a config: fewer levels means the
-        // planner really does less. Compared by wall-clock on one position,
-        // which is coarse but cannot be satisfied by a mislabelled field.
-        //
-        // MEASURED AS THE BEST OF THREE, INTERLEAVED, because a single pair
-        // of samples measures the machine as much as the planner. It failed
-        // once at 3563 against 1488 -- feint three times slower than
-        // gambit, which is not a thing that can happen -- while an AI match
-        // was running in a browser on the same box eating every core. A
-        // minimum is the right statistic here: load can only ever make a
-        // run slower, so the fastest of several is the closest look at the
-        // work itself. Interleaved so a drift partway through hits both.
-        //
-        // Still not a true work counter. The honest one would count node
-        // evaluations, and nothing reports them today -- TurnPlanResult
-        // carries events, score and genes, and the progress ticks yield
-        // once per depth level, which is the very thing already asserted
-        // above.
-        const state = board([mk('Bulwark', 5, 2, 0), mk('Nightjar', 3, 3, 0), mk('Halberd', 5, 7, 1)]);
-        const once = (engine: any) => {
-            const started = Date.now();
-            engine.planTurn(state, 0, 5);
-            return Date.now() - started;
-        };
-
-        let feint = Infinity;
-        let gambit = Infinity;
-        for (let run = 0; run < 3; run++) {
-            feint = Math.min(feint, once(feintEngine));
-            gambit = Math.min(gambit, once(gambitEngine));
-        }
-        expect(feint, `feint ${feint}ms vs gambit ${gambit}ms`).toBeLessThan(gambit);
-    }, 120_000);
-});
-
-describe('mirage and talus are ablations of feint', () => {
-    // Same contract the feint-vs-gambit test pins: one changed value, or
-    // the tournament result cannot say what caused it.
-    const beamAblation = (variant: any, flag: string) => {
-        const { beam: variantBeam, ...variantRest } = variant.options as any;
-        const { beam: feintBeam, ...feintRest } = feintEngine.options as any;
-        expect(variantRest).toEqual(feintRest);
-        const { [flag]: changed, ...variantBeamRest } = variantBeam;
-        expect(variantBeamRest).toEqual(feintBeam);
-        expect(changed).toBe(true);
-    };
-
-    it('mirage changes exactly beam.dedupeChildren', () => {
-        beamAblation(mirageEngine, 'dedupeChildren');
-    });
-
-    it('talus changes exactly beam.spreadWorst', () => {
-        beamAblation(talusEngine, 'spreadWorst');
-    });
-
-    it('talus plans deterministically through the serial planner', () => {
-        const build = () => board([mk('Bulwark', 5, 2, 0), mk('Nightjar', 3, 3, 0), mk('Halberd', 5, 7, 1)]);
-        const run = () => talusEngine.planTurn(build(), 0, 9).events;
-        expect(run()).toEqual(run());
-    }, 60_000);
-});
-
-describe('quickdraw has no sweep and shoots anyway', () => {
-    it('names its change: sweep null, hit-and-run frequent', () => {
-        expect(quickdrawEngine.options.dialect!.sweep).toBeNull();
-        const weights = new Map(quickdrawEngine.options.dialect!.weights);
-        expect(weights.get('hitAndRun')).toBeGreaterThanOrEqual(0.2);
-        // The search itself is untouched Talus: same beam, same everything
-        // outside the dialect.
-        expect(quickdrawEngine.options.beam).toEqual(talusEngine.options.beam);
-    });
-
-    it('still deals damage through explicit genes alone', () => {
-        // A free kill standing adjacent: a one-hit enemy, no return worth
-        // fearing. If the genome could not shoot, this engine would be a
-        // pacifist and leave it alive -- which is the wiring mistake this
-        // test exists to catch. (A FAIR trade it may legitimately refuse;
-        // the first draft offered one and quickdraw correctly walked away.)
-        const spot = HexCoord.getNeighbors(5, 5)[0];
-        const state = board([mk('Lynx', 5, 5, 0), { ...mk('Bulwark', spot.q, spot.r, 1), hp: 1 }]);
-        const plan = quickdrawEngine.planTurn(state, 0, 3);
-        expect(plan.events.some((e: any) => e.type === 'unitAttacked')).toBe(true);
-        expect(plan.events.some((e: any) => e.type === 'unitDied')).toBe(true);
-    }, 60_000);
-});
-
-describe('gambit engine', () => {
+describe('parthian engine', () => {
     it('uses the beam rather than the hillclimb', () => {
-        expect(gambitEngine.options.beam).toBeDefined();
-        expect(gambitEngine.options.beam.keepWorst).toBeGreaterThan(0);
+        expect(parthianEngine.options.beam).toBeDefined();
+        expect(parthianEngine.options.beam.keepWorst).toBeGreaterThan(0);
     });
 
     it('keeps its beam when a budget is applied', () => {
         // withBudget must not be able to turn one engine into another. The
-        // tournament budget carries no beam, so Gambit's own must survive.
-        const cheap = gambitEngine.withBudget({ population: 4, rounds: 1 });
-        expect(cheap.options.beam).toEqual(gambitEngine.options.beam);
+        // tournament budget carries no beam, so parthian's own must survive.
+        const cheap = parthianEngine.withBudget({ population: 4, rounds: 1 });
+        expect(cheap.options.beam).toEqual(parthianEngine.options.beam);
     });
 
     it('values unit types differently, which baseline does not', () => {
         expect(baselineEngine.options.score!.typeValue).toBeUndefined();
-        const table = gambitEngine.options.score!.typeValue!;
+        const table = parthianEngine.options.score!.typeValue!;
         expect(table.Nightjar).toBeGreaterThan(table.Bulwark);
         // Every type on the shipped roster has an entry -- a missing one is
         // silently valued at 1.0, which is a bug that never announces itself.

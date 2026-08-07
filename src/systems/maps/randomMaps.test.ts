@@ -20,9 +20,12 @@ import { unitTypesRecord } from '../../shared/hexengine/unitStats';
 import type { BuildingSpawn, TileLike } from '../../types';
 
 const EXPECTED = {
+    // Authored per size: 1/2/3 Pike + 1/2/3 Drover on top of the rest.
+    // Small fields no AA because it fields no air -- see the roster note
+    // in PerlinMapProvider.
     random20: { units: 3, depots: 2 },
-    random30: { units: 5, depots: 3 },
-    random50: { units: 10, depots: 7 },
+    random30: { units: 8, depots: 3 },
+    random50: { units: 13, depots: 7 },
 } as const;
 
 const neighbourOffsets = (q: number) => (q % 2 === 0

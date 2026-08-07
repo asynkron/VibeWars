@@ -201,6 +201,15 @@ export interface Building {
   // piece marked, or the structure cannot be captured at all.
   isEntrance?: boolean;
   destroyed: boolean;
+  // The factory's product line: once opened by capture, it delivers one
+  // unit of this type every PRODUCTION_INTERVAL owner turns -- see
+  // shared/hexengine/production.ts. Set from hiddenUnitType at yield
+  // (the prize and the product are the same type); null before opening
+  // or when the factory never had content.
+  productType?: string | null;
+  // Owner turns until the next delivery. Ticks at the owner's turn
+  // start, floors at "due" while the door is blocked; capture resets it.
+  productionCountdown?: number;
   // Y rotation in degrees, applied to the model. The depot's southern copy
   // is the northern one turned half a turn, so its pieces must turn with
   // it or their joining edges would face the wrong way.

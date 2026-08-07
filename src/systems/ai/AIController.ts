@@ -48,9 +48,9 @@ const ACTION_PAUSE_MS = 300;
 // player who never touches it gets the same opponent as yesterday.
 //
 // DEPTH NEVER GOES BELOW 3 at any level. skills.ts refuses to author a
-// cooldown longer than the default engine is deep, and Feint's 3 is what
-// makes Repair and Start Fire visible to the search -- a shallower setting
-// would spend them as though they were free.
+// cooldown longer than the default engine is deep, and the default's 3 is
+// what makes Repair and Start Fire visible to the search -- a shallower
+// setting would spend them as though they were free.
 const DIFFICULTY_BUDGETS = {
     low: {
         population: 32,
@@ -111,7 +111,7 @@ function budgetFor(difficulty: string | null) {
 
 const LIVE_BUDGET = budgetFor(AI_DIFFICULTY);
 
-// ?ai=wolfpack picks a variant for BOTH CPU sides; ?ai=baseline:wolfpack
+// ?ai=baseline picks a variant for BOTH CPU sides; ?ai=baseline:parthian
 // gives each side its own, so an AI-vs-AI game in the browser is a visible
 // version of what the headless tournament measures.
 function enginesFromQuery(): [AIEngine, AIEngine] {
