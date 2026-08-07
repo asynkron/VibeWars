@@ -230,40 +230,127 @@ const GROUND_FRAGMENT = /* glsl */ `
         float toRock   = smoothstep(1.60, 2.05, y + wob * 0.30);
         float toSnow   = smoothstep(uSnowStart, uSnowFull, y + wob * 1.2);
 
+        // What each band is actually WORTH once the bands above it have had
+        // their say -- the mix chain at the bottom is
+        //   low*(1-toForest)(1-toRock)(1-toSnow) + forest*toForest(1-toRock)(1-toSnow)
+        //   + rock*toRock(1-toSnow) + snow*toSnow
+        // and a band whose weight is zero cannot change a single pixel.
+        //
+        // Every band used to be computed for every fragment and then
+        // multiplied away, which is where this shader's time went: a beach
+        // pixel paid for the rock band's voronoi (nine cells, eighteen
+        // hashes), its crack zones, its ridges and its lichen; a mountain
+        // top paid for wind ripples in sand it is two kilometres above.
+        // Roughly 250 sin() a fragment, of which a grass pixel needs 68.
+        //
+        // The gates are exact, not approximate: smoothstep returns exactly
+        // 0 and exactly 1 outside its edges, so this skips only terms that
+        // were already contributing nothing. Nothing about the picture
+        // changes. And the branches are coherent in practice -- a warp of
+        // neighbouring fragments is almost always inside one band, and
+        // where it straddles a boundary both sides run and it costs what it
+        // always did.
+        float wSnow   = toSnow;
+        float wRock   = toRock * (1.0 - toSnow);
+        float wForest = toForest * (1.0 - toRock) * (1.0 - toSnow);
+        float wLow    = (1.0 - toForest) * (1.0 - toRock) * (1.0 - toSnow);
+
+        // Hoisted OUT of the branches on purpose: groundDetailFade takes
+        // fwidth, and a derivative inside control flow some lanes skip is
+        // undefined -- the one thing that makes this restructuring unsafe
+        // if done carelessly. They are pure gradient math with no hashes in
+        // them, so computing them unconditionally costs nothing.
+        float fade42 = groundDetailFade(gp * 42.0);
+        float fade36 = groundDetailFade(gp * 36.0);
+        float fade52 = groundDetailFade(gp * 52.0);
+
+        // Cheap enough to keep in the open, and the texture-toggle path
+        // below needs it whether or not the rock band is live.
+        float rockLum = dot(uRockColor, vec3(0.299, 0.587, 0.114));
+
         // Shared domain warp: every band's patchwork is bent through the
         // same low-frequency field, so patches meander organically instead
-        // of showing value-noise's axis-aligned blobbiness.
-        vec2 warp = vec2(groundFbm(gp * 1.1), groundFbm(gp * 1.1 + vec2(5.2, 1.3))) - 0.5;
+        // of showing value-noise's axis-aligned blobbiness. Under full snow
+        // nothing it feeds is visible.
+        vec2 warp = vec2(0.0);
+        if (wSnow < 1.0) {
+            warp = vec2(groundFbm(gp * 1.1), groundFbm(gp * 1.1 + vec2(5.2, 1.3))) - 0.5;
+        }
 
+        // --- The LOW band: sand, the grass front that closes over it, and
+        // the straw and tufts along that front. One block, because the
+        // grass mask is what mixes sand into grass and both heights feed
+        // the same relief term.
+        vec3 lowC = vec3(0.0);
+        float lowH = 0.0;
+        if (wLow > 0.0) {
         // --- Sand: broad patches, fine grain, and WIND RIPPLES -- a
         // noise-warped sine so the ridges run in drifts the way windblown
         // sand actually lies, and they carry most of the band's relief.
         // (The voronoi pebbles this band used to scatter are gone: at map
         // scale they read as strewn potatoes, not stones.)
-        float patches = groundFbm(gp * 1.7 + warp * 2.6);
-        // The finest noises are band-limited: past the point where a pixel
-        // can resolve them they collapse to their mean instead of
-        // shimmering. See groundDetailFade.
-        float grain = mix(0.5, groundNoise(gp * 42.0), groundDetailFade(gp * 42.0));
-        float rippleS = sin(dot(gp, vec2(9.0, 4.0)) + groundFbm(gp * 1.2) * 9.0) * 0.5 + 0.5;
-        vec3 sandC = uSandColor * (0.80 + 0.40 * patches) * (0.94 + 0.10 * grain)
-            * (0.90 + 0.14 * rippleS);
+            float patches = groundFbm(gp * 1.7 + warp * 2.6);
+            // The finest noises are band-limited: past the point where a
+            // pixel can resolve them they collapse to their mean instead
+            // of shimmering. See groundDetailFade.
+            float grain = mix(0.5, groundNoise(gp * 42.0), fade42);
+            float rippleS = sin(dot(gp, vec2(9.0, 4.0)) + groundFbm(gp * 1.2) * 9.0) * 0.5 + 0.5;
+            vec3 sandC = uSandColor * (0.80 + 0.40 * patches) * (0.94 + 0.10 * grain)
+                * (0.90 + 0.14 * rippleS);
 
-        // --- Grass: mottled meadow -- dark mossy hollows to worn
-        // yellow-green, plus a fine blade-scale shimmer. Mixing between two
-        // TINTS of the palette green (not scaling one) is what gives the
-        // hue drift real turf has.
-        float meadow = groundFbm(gp * 2.6 + warp * 3.0);
-        float blades = mix(0.5, groundNoise(gp * 36.0), groundDetailFade(gp * 36.0));
-        vec3 grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
-                          uGrassColor * vec3(1.55, 1.45, 1.00), meadow);
-        grassC *= 0.90 + 0.20 * blades;
+            // --- Grass: mottled meadow -- dark mossy hollows to worn
+            // yellow-green, plus a fine blade-scale shimmer. Mixing between
+            // two TINTS of the palette green (not scaling one) is what
+            // gives the hue drift real turf has.
+            float meadow = groundFbm(gp * 2.6 + warp * 3.0);
+            float blades = mix(0.5, groundNoise(gp * 36.0), fade36);
+            vec3 grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
+                              uGrassColor * vec3(1.55, 1.45, 1.00), meadow);
+            grassC *= 0.90 + 0.20 * blades;
+
+            // --- Sand -> grass: not a fade but a FRONT. The turf closes in
+            // patches (clump noise pushing against the transition height),
+            // a fringe of dry straw runs ahead of every patch edge, and
+            // lone tufts stand out on the open sand -- the way grassland
+            // actually gives out into beach, instead of one airbrushed
+            // gradient. The window opens at 0.70 -- sand's own base height
+            // -- so even sand tiles a step from the grass line carry some
+            // of the front, not just the narrow smoothed ramps between
+            // tiles.
+            float trans = smoothstep(0.70, 0.98, y + wob * 0.10);
+            float clump = groundFbm(gp * 4.5 + warp * 3.5);
+            float front = trans * 0.75 + clump * 0.45;
+            float grassMask = smoothstep(0.52, 0.72, front);
+            float straw = smoothstep(0.28, 0.56, front) * (1.0 - grassMask);
+            vec3 tuft = groundVoronoi(gp * 8.0 + warp * 2.0);
+            float tufts = (1.0 - smoothstep(0.12, 0.24, tuft.x)) * step(0.45, tuft.z)
+                * smoothstep(0.02, 0.25, trans) * (1.0 - grassMask);
+            vec3 dryC = mix(uSandColor * vec3(0.95, 0.88, 0.62),
+                            uGrassColor * vec3(1.60, 1.45, 0.70), 0.45)
+                * (0.85 + 0.30 * clump);
+
+            lowC = mix(sandC, grassC, grassMask);
+            lowC = mix(lowC, dryC, max(straw * 0.85, tufts * 0.9));
+
+            // Relief for the bump pass, reusing the values the colour was
+            // computed from so light and shadow fall exactly where the
+            // colour says they should. Tufts and the straw fringe stand a
+            // little proud of the sand.
+            float sandH = patches * 0.20 + grain * 0.06 + rippleS * 0.45;
+            float grassH = meadow * 0.30 + blades * 0.10;
+            lowH = mix(sandH * 0.6 + tufts * 0.55 + straw * 0.15, grassH, grassMask);
+        }
 
         // --- Forest floor: the same recipe pitched darker and mossier.
-        float moss = groundFbm(gp * 3.2 + warp * 2.2);
-        vec3 forestC = mix(uForestColor * vec3(0.62, 0.72, 0.52),
-                           uForestColor * vec3(1.55, 1.50, 1.10), moss);
-        forestC *= 0.88 + 0.24 * groundNoise(gp * 18.0);
+        vec3 forestC = vec3(0.0);
+        float forestH = 0.0;
+        if (wForest > 0.0) {
+            float moss = groundFbm(gp * 3.2 + warp * 2.2);
+            forestC = mix(uForestColor * vec3(0.62, 0.72, 0.52),
+                          uForestColor * vec3(1.55, 1.50, 1.10), moss);
+            forestC *= 0.88 + 0.24 * groundNoise(gp * 18.0);
+            forestH = moss * 0.35;
+        }
 
         // --- Rock: mostly UNBROKEN stone. Cracks live only in patchy
         // fracture zones (crackZone gates them off elsewhere), because a
@@ -273,57 +360,47 @@ const GROUND_FRAGMENT = /* glsl */ `
         // dark gray, mossy, dirt-stained -- and 1 high up where the stone
         // finally stands clean. That reads as forest -> dark mossy rock ->
         // bare gray, instead of a hard green-to-gray seam.
-        vec3 plate = groundVoronoi(gp * 1.3 + warp * 1.2);
-        // High threshold on purpose: deep seams are fine, MANY seams are
-        // not -- only the strongest patches of the zone field crack at all,
-        // so most faces stay whole.
-        float crackZone = smoothstep(0.62, 0.86, groundFbm(gp * 1.3 + warp * 1.6));
-        float crack = (1.0 - smoothstep(0.02, 0.14, plate.y - plate.x)) * crackZone;
-        float ridge = 1.0 - abs(2.0 * groundFbm(gp * 5.0) - 1.0);
-        float bare = smoothstep(1.9, 3.6, y);
-        float rockLum = dot(uRockColor, vec3(0.299, 0.587, 0.114));
-        vec3 rockBase = vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05) * mix(0.52, 1.0, bare);
-        vec3 rockC = rockBase * (0.88 + 0.22 * plate.z) * (0.86 + 0.22 * ridge)
-            * (0.90 + 0.20 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6)));
-        // Cracks: shadowed, and floored with dirt rather than black.
-        rockC = mix(rockC, rockBase * 0.50, crack * 0.45);
-        rockC = mix(rockC, uSandColor * vec3(0.50, 0.44, 0.38), crack * 0.30);
-        // Life on the stone -- moss/lichen carrying the FOREST's tone up
-        // over the transition zone, dirt staining with it, both gone by
-        // the time the rock is bare.
-        float stain = smoothstep(0.50, 0.80, groundFbm(gp * 2.0 + warp * 2.5));
-        float mossPatch = smoothstep(0.40, 0.75, groundFbm(gp * 3.5 + warp * 1.8));
-        rockC = mix(rockC, uForestColor * vec3(1.30, 1.40, 1.00), mossPatch * 0.60 * (1.0 - bare));
-        rockC = mix(rockC, uSandColor * vec3(0.55, 0.50, 0.44) * (0.85 + 0.30 * plate.z),
-                    stain * 0.35 * (1.0 - bare));
-        rockC += vec3(0.45, 0.47, 0.52) * smoothstep(0.90, 0.98, groundNoise(gp * 52.0))
-            * groundDetailFade(gp * 52.0) * (1.0 - crack) * bare;
+        vec3 rockC = vec3(0.0);
+        float rockH = 0.0;
+        if (wRock > 0.0) {
+            vec3 plate = groundVoronoi(gp * 1.3 + warp * 1.2);
+            // High threshold on purpose: deep seams are fine, MANY seams
+            // are not -- only the strongest patches of the zone field crack
+            // at all, so most faces stay whole.
+            float crackZone = smoothstep(0.62, 0.86, groundFbm(gp * 1.3 + warp * 1.6));
+            float crack = (1.0 - smoothstep(0.02, 0.14, plate.y - plate.x)) * crackZone;
+            float ridge = 1.0 - abs(2.0 * groundFbm(gp * 5.0) - 1.0);
+            float bare = smoothstep(1.9, 3.6, y);
+            vec3 rockBase = vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05) * mix(0.52, 1.0, bare);
+            rockC = rockBase * (0.88 + 0.22 * plate.z) * (0.86 + 0.22 * ridge)
+                * (0.90 + 0.20 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6)));
+            // Cracks: shadowed, and floored with dirt rather than black.
+            rockC = mix(rockC, rockBase * 0.50, crack * 0.45);
+            rockC = mix(rockC, uSandColor * vec3(0.50, 0.44, 0.38), crack * 0.30);
+            // Life on the stone -- moss/lichen carrying the FOREST's tone
+            // up over the transition zone, dirt staining with it, both gone
+            // by the time the rock is bare.
+            float stain = smoothstep(0.50, 0.80, groundFbm(gp * 2.0 + warp * 2.5));
+            float mossPatch = smoothstep(0.40, 0.75, groundFbm(gp * 3.5 + warp * 1.8));
+            rockC = mix(rockC, uForestColor * vec3(1.30, 1.40, 1.00), mossPatch * 0.60 * (1.0 - bare));
+            rockC = mix(rockC, uSandColor * vec3(0.55, 0.50, 0.44) * (0.85 + 0.30 * plate.z),
+                        stain * 0.35 * (1.0 - bare));
+            rockC += vec3(0.45, 0.47, 0.52) * smoothstep(0.90, 0.98, groundNoise(gp * 52.0))
+                * fade52 * (1.0 - crack) * bare;
+            rockH = plate.z * 0.5 + ridge * 0.40 - crack * 0.7 + mossPatch * (1.0 - bare) * 0.3;
+        }
 
-        vec3 snowC = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * groundNoise(gp * 12.0));
-
-        // --- Sand -> grass: not a fade but a FRONT. The turf closes in
-        // patches (clump noise pushing against the transition height), a
-        // fringe of dry straw runs ahead of every patch edge, and lone
-        // tufts stand out on the open sand -- the way grassland actually
-        // gives out into beach, instead of one airbrushed gradient.
-        // The window opens at 0.70 -- sand's own base height -- so even
-        // sand tiles a step from the grass line carry some of the front,
-        // not just the narrow smoothed ramps between tiles.
-        float trans = smoothstep(0.70, 0.98, y + wob * 0.10);
-        float clump = groundFbm(gp * 4.5 + warp * 3.5);
-        float front = trans * 0.75 + clump * 0.45;
-        float grassMask = smoothstep(0.52, 0.72, front);
-        float straw = smoothstep(0.28, 0.56, front) * (1.0 - grassMask);
-        vec3 tuft = groundVoronoi(gp * 8.0 + warp * 2.0);
-        float tufts = (1.0 - smoothstep(0.12, 0.24, tuft.x)) * step(0.45, tuft.z)
-            * smoothstep(0.02, 0.25, trans) * (1.0 - grassMask);
-        vec3 dryC = mix(uSandColor * vec3(0.95, 0.88, 0.62),
-                        uGrassColor * vec3(1.60, 1.45, 0.70), 0.45)
-            * (0.85 + 0.30 * clump);
+        // Snow's one noise serves both its colour and its relief, so it is
+        // drawn once here rather than twice down the chain.
+        vec3 snowC = vec3(0.0);
+        float snowN = 0.0;
+        if (wSnow > 0.0) {
+            snowN = groundNoise(gp * 12.0);
+            snowC = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * snowN);
+        }
 
         // Climb the ladder.
-        vec3 band = mix(sandC, grassC, grassMask);
-        band = mix(band, dryC, max(straw * 0.85, tufts * 0.9));
+        vec3 band = lowC;
         band = mix(band, forestC, toForest);
         band = mix(band, rockC, toRock);
         band = mix(band, snowC, toSnow);
@@ -333,15 +410,8 @@ const GROUND_FRAGMENT = /* glsl */ `
         // from, so light and shadow fall exactly where the color says they
         // should -- cracks recessed, pebbles and facets raised. Rock gets
         // by far the strongest relief; snow softens everything under it.
-        float sandH = patches * 0.20 + grain * 0.06 + rippleS * 0.45;
-        float grassH = meadow * 0.30 + blades * 0.10;
-        float forestH = moss * 0.35;
-        float rockH = plate.z * 0.5 + ridge * 0.40 - crack * 0.7 + mossPatch * (1.0 - bare) * 0.3;
-        // Tufts and the straw fringe stand a little proud of the sand.
-        float sandSideH = sandH * 0.6 + tufts * 0.55 + straw * 0.15;
-        gBumpH = mix(mix(mix(sandSideH, grassH, grassMask), forestH, toForest),
-                     rockH * 1.1, toRock);
-        gBumpH = mix(gBumpH, 0.06 * groundNoise(gp * 12.0), toSnow);
+        gBumpH = mix(mix(lowH, forestH, toForest), rockH * 1.1, toRock);
+        gBumpH = mix(gBumpH, 0.06 * snowN, toSnow);
         gBumpH *= uShowTextures;
 
         // Texture toggle. The flat version keeps the height LADDER -- sand
