@@ -100,6 +100,195 @@ function roughen(geometry: any, seed: number, amount: number, facet: boolean = f
     return geometry;
 }
 
+// ---------------------------------------------------------------------
+// Baked leaf-dot fields
+//
+// The crown's dot field used to be evaluated per fragment: three plane
+// projections, nine cells each, six hashes a cell -- 162 sin() calls for
+// every foliage pixel, on a fringe shell that covers 1.35x the crown and
+// then discards most of what it computed.
+//
+// Measured with GPU timer queries (EXT_disjoint_timer_query_webgl2) on a
+// tree-heavy view: hiding the decorations took the frame from ~22.4 ms of
+// GPU time to ~13.5 ms, while removing only 83 of 423 draw calls and 52k
+// of 58k triangles. No machine spends 9 ms on 52k triangles -- it was
+// never the geometry, it was this field.
+//
+// Baked once into a texture, the same lookup is three fetches on hardware
+// that is idle during all that ALU. TWO fields, because the callers differ
+// in the one parameter a rescale cannot fake: `keep` decides which cells
+// grow a dot at all, and that is baked in.
+//
+// The field TILES: cell coordinates wrap modulo LEAF_CELLS before they are
+// hashed, so the texture repeats seamlessly. At the frequencies in use a
+// cluster spans ~7 cells, under one period, so no single tuft ever shows
+// the repeat -- it can only make two tufts resemble each other, which the
+// per-cluster rotation already breaks up.
+//
+// These are JS ports of the GLSL below, not bit-identical to it: sin() in
+// float64 and sin() in float32 diverge wildly once multiplied by 43758,
+// and it does not matter, because nothing samples the old path any more.
+// What DOES matter is that both fields come from this one function, so
+// inner and outer leaves still share a lattice and line up.
+const LEAF_TEX_SIZE = 256;
+const LEAF_CELLS = 8;
+const LEAF_DIST_INNER = 1.5;
+const LEAF_DIST_FRINGE = 0.7;
+
+function bakeHash(x: number, y: number): number {
+    const s = Math.sin(x * 157.1 + y * 269.5) * 43758.5453123;
+    return s - Math.floor(s);
+}
+
+function bakeNoise(x: number, y: number): number {
+    const ix = Math.floor(x);
+    const iy = Math.floor(y);
+    const fx = x - ix;
+    const fy = y - iy;
+    const ux = fx * fx * (3 - 2 * fx);
+    const uy = fy * fy * (3 - 2 * fy);
+    const a = bakeHash(ix, iy);
+    const b = bakeHash(ix + 1, iy);
+    const c = bakeHash(ix, iy + 1);
+    const d = bakeHash(ix + 1, iy + 1);
+    const lo = a + (b - a) * ux;
+    const hi = c + (d - c) * ux;
+    return lo + (hi - lo) * uy;
+}
+
+// GLSL smoothstep, reversed edges included: the dot mask calls it with
+// rOuter > rInner, which the spec handles as a descending ramp.
+function bakeSmoothstep(e0: number, e1: number, x: number): number {
+    let t = (x - e0) / (e1 - e0);
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    return t * t * (3 - 2 * t);
+}
+
+// One exactly-uniform value per cell of the wrapped lattice.
+//
+// The shader hashed unbounded cell coordinates, so its values were a draw
+// from uniform(0,1) with effectively infinite samples. A tiling bake has
+// LEAF_CELLS^2 = 64 cells, and a 64-sample draw is visibly lumpy in both
+// directions this value is used: `keep` gates on it, so a few cells too
+// many above the threshold and the fringe comes out sparser than the field
+// it replaces, and the same value indexes the cool->warm leaf palette, so a
+// low-biased draw comes out darker as well. Measured against the old build
+// over the same patch of canvas, the first attempt lost 27% of its foliage
+// pixels and 12 points of mean green.
+//
+// Ranking the cells and handing out (rank + 0.5) / n keeps WHICH cell gets
+// which value random, while making the distribution exact by construction.
+function stratifiedCells(salt: number): Float32Array {
+    const n = LEAF_CELLS * LEAF_CELLS;
+    const key = new Float64Array(n);
+    const order: number[] = [];
+    for (let i = 0; i < n; i++) {
+        key[i] = bakeHash(i * 1.7 + salt, i * 0.31 + salt * 2.3);
+        order.push(i);
+    }
+    order.sort((a, b) => key[a] - key[b]);
+    const values = new Float32Array(n);
+    for (let rank = 0; rank < n; rank++) values[order[rank]] = (rank + 0.5) / n;
+    return values;
+}
+
+// Which cell grows a dot, and how bright/warm its leaves are.
+const cellPick = /*@__PURE__*/ stratifiedCells(0);
+// Where inside its cell that dot sits, on the axis the hash used to supply.
+const cellOffsetY = /*@__PURE__*/ stratifiedCells(37.4);
+
+// A DISTANCE FIELD, not the finished mask -- and that distinction is the
+// whole reason this works at 256 texels.
+//
+// Baking the mask directly was tried first and came out visibly thinner
+// and duller than the shader it replaced: measured over one fixed patch of
+// canvas, 36% fewer foliage pixels, mean green 113 -> 92, and the bright
+// dot cores gone (p90 205 -> 145). Doubling the texel density recovered
+// only a quarter of that, which is the signature of a sampling problem
+// rather than a wrong field -- and the culprit is the rim lobe, which runs
+// at THIRTEEN cycles per cell. Resolving that from a texture would take
+// ~100 texels per cell, a 1024-wide bake per field, for detail no crown is
+// ever more than a few pixels wide.
+//
+// So the split follows the frequencies. What is expensive and SMOOTH gets
+// baked: the 3x3 search for the nearest kept dot, which is where all 54
+// hashes a plane went. What is cheap and SHARP stays in the shader: one
+// noise for the lobe, four hashes, evaluated once per plane instead of
+// nine times. And a distance field is the one thing that survives being
+// stored coarsely and interpolated -- it is why SDF glyphs stay crisp at
+// any size, and it is doing the same job here.
+//
+// R = distance to the nearest kept dot centre, over distScale. G = that
+// dot's cell value, which picks its shade of green.
+function makeLeafField(keep: number, distScale: number): any {
+    const data = new Uint8Array(LEAF_TEX_SIZE * LEAF_TEX_SIZE * 4);
+    for (let py = 0; py < LEAF_TEX_SIZE; py++) {
+        for (let px = 0; px < LEAF_TEX_SIZE; px++) {
+            const u = ((px + 0.5) / LEAF_TEX_SIZE) * LEAF_CELLS;
+            const v = ((py + 0.5) / LEAF_TEX_SIZE) * LEAF_CELLS;
+            const cx = Math.floor(u);
+            const cy = Math.floor(v);
+            const fx = u - cx;
+            const fy = v - cy;
+            let nearest = Infinity;
+            let id = 0;
+            for (let gx = -1; gx <= 1; gx++) {
+                for (let gy = -1; gy <= 1; gy++) {
+                    // Wrapped BEFORE the lookup -- this is the whole seam fix.
+                    const wx = (((cx + gx) % LEAF_CELLS) + LEAF_CELLS) % LEAF_CELLS;
+                    const wy = (((cy + gy) % LEAF_CELLS) + LEAF_CELLS) % LEAF_CELLS;
+                    const cell = wy * LEAF_CELLS + wx;
+                    const h = cellPick[cell];
+                    // This cell grows nothing, so it has no distance to give.
+                    if (h < keep) continue;
+                    const dx = fx - (gx + h);
+                    const dy = fy - (gy + cellOffsetY[cell]);
+                    const d = Math.sqrt(dx * dx + dy * dy);
+                    if (d < nearest) { nearest = d; id = h; }
+                }
+            }
+            const o = (py * LEAF_TEX_SIZE + px) * 4;
+            // Saturates past distScale, which is set beyond the widest dot
+            // plus its lobe -- everything out there masks to zero anyway.
+            data[o] = Math.round(Math.min(1, nearest / distScale) * 255);
+            data[o + 1] = Math.round(id * 255);
+            data[o + 3] = 255;
+        }
+    }
+    const texture = new THREE.DataTexture(data, LEAF_TEX_SIZE, LEAF_TEX_SIZE, THREE.RGBAFormat);
+    // Repeat, because the shader indexes it with unbounded cell coordinates.
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    // No mipmaps. Tried, and rejected: the G channel picks each dot's
+    // colour, and the average of two dots' values is a green belonging to
+    // neither, so a few levels down every tuft converged on one flat
+    // shade. Left unmipped the field aliases exactly as much as the
+    // per-fragment version did -- a faithful swap. The win here is cost.
+    texture.minFilter = THREE.LinearFilter;
+    texture.magFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.needsUpdate = true;
+    return texture;
+}
+
+// Built on first use rather than at module load: the file is imported by
+// code paths that never draw a tree, and a worker importing it must not
+// pay for two 256x256 bakes it will never sample.
+let leafFields: { inner: any; fringe: any } | null = null;
+
+function getLeafFields(): { inner: any; fringe: any } {
+    if (!leafFields) {
+        leafFields = {
+            // keep, then the distance the field saturates at: just past
+            // each caller's widest dot (rOuter 1.10 and 0.40) plus the
+            // lobe's reach, so nothing inside the mask's ramp is clipped.
+            inner: makeLeafField(0.0, LEAF_DIST_INNER),
+            fringe: makeLeafField(0.45, LEAF_DIST_FRINGE),
+        };
+    }
+    return leafFields;
+}
+
 // World-position noise injected into every decoration material: foliage,
 // bark, and rock surfaces get organic light/dark patterning instead of
 // flat single-color faces. One shared compiled program for all
@@ -108,6 +297,13 @@ function roughen(geometry: any, seed: number, amount: number, facet: boolean = f
 const DECOR_NOISE_GLSL = /* glsl */ `
     varying vec3 vDecorWorldPos;
     varying vec3 vDecorLocalPos;
+
+    // The baked dot fields, and the cell-to-texture scale that indexes
+    // them. Kept in step with LEAF_CELLS on the JS side by construction --
+    // the define is written from it.
+    uniform sampler2D uLeafInner;
+    uniform sampler2D uLeafFringe;
+    #define DECOR_LEAF_INV_CELLS ${(1 / LEAF_CELLS).toFixed(6)}
 
     float decorHash(vec2 p) {
         return fract(sin(dot(p, vec2(157.1, 269.5))) * 43758.5453123);
@@ -147,55 +343,42 @@ const DECOR_NOISE_GLSL = /* glsl */ `
         return 1.0 - smoothstep(0.8, 1.6, fw);
     }
 
-    // One plane's field of LEAF DOTS for the fringe shell: round patches,
-    // each grown from its own grid cell (3x3 neighborhood so a dot can
-    // straddle cell borders), most cells growing one and some staying
-    // empty. Returns (mask, cell hash) -- the hash lets every dot pick
-    // its own shade of green.
-    // rOuter/rInner set the dot size (fade edge to solid core, in cell
-    // units), keep gates which cells grow a dot at all.
-    vec2 decorLeafDots(vec2 uv, float rOuter, float rInner, float keep) {
-        vec2 cell = floor(uv);
-        vec2 f = fract(uv);
-        float best = 0.0;
-        float id = 0.0;
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                vec2 g = vec2(float(x), float(y));
-                float h = decorHash(cell + g);
-                vec2 c = g + vec2(h, decorHash(cell + g + 11.0));
-                // Scalloped, not circular: noise keyed per dot perturbs
-                // the rim distance, so the edge lobes like a tuft of
-                // leaves instead of tracing a clean disc.
-                float lobe = decorNoise(f * 13.0 + h * 41.0) - 0.5;
-                float m = smoothstep(rOuter, rInner, length(f - c) + lobe * 0.20) * step(keep, h);
-                if (m > best) { best = m; id = h; }
-            }
-        }
-        return vec2(best, id);
+    // One plane's leaf dots, from the baked distance field.
+    //
+    // The texture gives the distance to the nearest dot and which dot it
+    // is; the mask is finished here, because the rim lobe is thirteen
+    // cycles per cell and no texture this size can hold it. Scalloped, not
+    // circular: the noise perturbs the rim distance, so the edge lobes
+    // like a tuft of leaves instead of tracing a clean disc.
+    //
+    // ONE noise per plane, where the old code drew nine -- the lobe is
+    // keyed on the WINNING dot, and the winner is now known before the
+    // lobe is needed rather than being what the loop was searching for.
+    vec2 decorLeafDots(sampler2D field, vec2 uv, float rOuter, float rInner, float distScale) {
+        vec2 t = texture2D(field, uv * DECOR_LEAF_INV_CELLS).rg;
+        float lobe = decorNoise(fract(uv) * 13.0 + t.y * 41.0) - 0.5;
+        return vec2(smoothstep(rOuter, rInner, t.x * distScale + lobe * 0.20), t.y);
     }
 
     // The full crown-dot field: three plane projections, each weighted by
     // how face-on it sees the surface (radial normal -- the crown pieces
     // are origin-centered), best dot wins. An oblique projection smears
     // its dots into brush strokes; the weighting keeps them round on
-    // every side. Shared by the fringe shell AND the solid crown -- same
-    // frequencies, offsets and cell hashes, so inner and outer leaves
-    // line up -- with the density dialed per caller: the fringe wants
-    // sparse dots against nothing, the solid crown wants leaves covering
-    // MOST of it with dark gaps between.
+    // every side.
+    //
     // shift decorrelates the pattern between callers (the fringe shell
     // samples a shifted copy of the field, so its dots do NOT sit exactly
     // over the crown's own) while the plane weighting still comes from
-    // the TRUE position.
-    vec2 decorCrownDots(vec3 lp, vec3 shift, float freq, float rOuter, float rInner, float keep) {
+    // the TRUE position. Returns (mask, dot value) -- the second is what
+    // lets every dot pick its own shade of green.
+    vec2 decorCrownDots(sampler2D field, vec3 lp, vec3 shift, float freq, float rOuter, float rInner, float distScale) {
         vec3 pn = normalize(lp + vec3(0.0008));
-        vec3 sp = lp + shift;
-        vec2 dxy = decorLeafDots(sp.xy * freq, rOuter, rInner, keep);
+        vec3 sp = (lp + shift) * freq;
+        vec2 dxy = decorLeafDots(field, sp.xy, rOuter, rInner, distScale);
         dxy.x *= smoothstep(0.25, 0.60, abs(pn.z));
-        vec2 dzy = decorLeafDots(sp.zy * freq + 31.0, rOuter, rInner, keep);
+        vec2 dzy = decorLeafDots(field, sp.zy + 31.0, rOuter, rInner, distScale);
         dzy.x *= smoothstep(0.25, 0.60, abs(pn.x));
-        vec2 dxz = decorLeafDots(sp.xz * freq + 17.0, rOuter, rInner, keep);
+        vec2 dxz = decorLeafDots(field, sp.xz + 17.0, rOuter, rInner, distScale);
         dxz.x *= smoothstep(0.25, 0.60, abs(pn.y));
         vec2 best = dxy;
         if (dzy.x > best.x) best = dzy;
@@ -285,7 +468,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // its NEAREST dot -- the whole crown surface is leaves, tiled
             // edge to edge in different greens. (Clipping was tried here
             // and rolled back in favor of full coverage.)
-            vec2 crown = decorCrownDots(vDecorLocalPos, vec3(0.0), 17.0, 1.10, 0.25, 0.0);
+            vec2 crown = decorCrownDots(uLeafInner, vDecorLocalPos, vec3(0.0), 17.0, 1.10, 0.25, ${LEAF_DIST_INNER.toFixed(2)});
             // Same two-axis palette as the fringe: HUE walks cool
             // blue-green -> mid -> warm sunlit yellow, and a separate
             // brightness jitter keeps two dots of similar hue apart.
@@ -335,7 +518,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // Sparse and small against the sky, sampling a SHIFTED copy
             // of the field so the fringe leaves sit between the crown's
             // own rather than exactly on top of them.
-            vec2 dot1 = decorCrownDots(vDecorLocalPos, vec3(4.3, 8.9, 2.7), 9.0, 0.40, 0.20, 0.45);
+            vec2 dot1 = decorCrownDots(uLeafFringe, vDecorLocalPos, vec3(4.3, 8.9, 2.7), 9.0, 0.40, 0.20, ${LEAF_DIST_FRINGE.toFixed(2)});
             // Soft rims with REAL alpha now that the material is
             // transparent: each fringe leaf fades smoothly from solid
             // core to nothing -- the blurry edge the dither could only
@@ -395,6 +578,11 @@ function applyOrganicDetail(material: any): void {
     material.userData.burnUniform = { value: 0 };
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uBurn = material.userData.burnUniform;
+        // Two textures shared by every decoration material on the map --
+        // baked once, referenced here, never per tile.
+        const fields = getLeafFields();
+        shader.uniforms.uLeafInner = { value: fields.inner };
+        shader.uniforms.uLeafFringe = { value: fields.fringe };
         shader.vertexShader = shader.vertexShader
             .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying float vDecorKind;\n attribute vec3 aDecorLocal;\n attribute float aDecorKind;')
             .replace(
