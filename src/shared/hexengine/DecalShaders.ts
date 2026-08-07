@@ -117,8 +117,18 @@ const ROAD_FRAGMENT = /* glsl */ `
 // Grit scatters the specular instead of letting the whole strip catch one
 // sheen -- a uniform roughness is what reads as plastic.
 const ROAD_ROUGHNESS = /* glsl */ `
-    roughnessFactor *= 0.80 + 0.34 * mix(0.5, groundNoise(vDecalWorld * 42.0), groundDetailFade(vDecalWorld * 42.0));
-    roughnessFactor = clamp(roughnessFactor, 0.0, 1.0);
+    {
+        roughnessFactor *= 0.85 + 0.30 * mix(0.5, groundNoise(vDecalWorld * 42.0), groundDetailFade(vDecalWorld * 42.0));
+        // Traffic polishes the RUTS smoother than the crown between
+        // them -- the two worn lines catch the sun first, which is what
+        // makes a used road read as used.
+        vec2 rp = vDecalLocal / uHexRadius;
+        vec2 rd = decalHeading(uDirection);
+        float rAcross = abs(dot(rp, vec2(-rd.y, rd.x)));
+        float rRut = exp(-pow((rAcross - 0.115) / 0.05, 2.0));
+        roughnessFactor -= rRut * 0.22;
+        roughnessFactor = clamp(roughnessFactor, 0.08, 1.0);
+    }
 `;
 
 // `direction` is the rotation toward the neighbour this half runs to, in

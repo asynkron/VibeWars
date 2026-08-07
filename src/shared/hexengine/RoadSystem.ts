@@ -103,10 +103,12 @@ class RoadSystem {
                         materialType: 'MeshStandardMaterial',  // Use standard material for lighting
                         receiveShadow: true,  // Enable shadow receiving
                         castShadow: true,  // Enable shadow casting
-                        metalness: 0.0,
-                        // Grit, not moulded plastic -- and the shader
-                        // varies it per fragment on top of this.
-                        roughness: 0.95,
+                        // A hint of sheen: packed, traffic-worn metalling
+                        // reflects a little -- full matte read as dead
+                        // against the textured terrain. The shader varies
+                        // roughness per fragment and polishes the ruts.
+                        metalness: 0.05,
+                        roughness: 0.62,
                         // Smooth, not flat: the decal carries the TILE's
                         // smoothed vertex normals (createHexTopGeometry),
                         // so it shades continuously with the ground under
