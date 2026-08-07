@@ -428,9 +428,11 @@ const WATER_FRAGMENT = /* glsl */ `
         float shore = shoreBand(vTileLocal / uHexRadius, vShoreA, vShoreB, 0.40);
 
         // Two drifting ripple layers shimmering across the whole surface.
+        // Kept SOFT: at higher contrast the shimmer reads as whitecaps and
+        // the whole sea looks like weather rather than water.
         float ripple1 = groundNoise(wp * 3.0 + vec2(uTime * 0.35, uTime * 0.22));
         float ripple2 = groundNoise(wp * 6.5 - vec2(uTime * 0.28, uTime * 0.41));
-        diffuseColor.rgb *= 0.86 + 0.14 * ripple1 + 0.08 * ripple2;
+        diffuseColor.rgb *= 0.92 + 0.08 * ripple1 + 0.04 * ripple2;
 
         // Lapping: the foam breathes in and out with the same shoreLap the
         // ground shader runs on the sand just across the waterline, so this
@@ -517,10 +519,12 @@ const WATER_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
         // Broad swell plus a MUCH weaker chop: the swell tilts whole
         // patches so the sun's reflection wanders, the chop only breaks
         // the highlight into sparse glints. A strong chop here turns the
-        // entire sea into uniform glitter static.
-        float waveH = groundFbm(wnp * 2.4 + vec2(uTime * 0.24, uTime * 0.17))
-            + 0.14 * groundNoise(wnp * 9.0 - vec2(uTime * 0.38, uTime * 0.29));
-        normal = groundPerturbNormal(vGroundWorldPos, normal, waveH * uShowTextures, 0.16);
+        // entire sea into uniform glitter static -- and even a moderate
+        // one reads as a STORM from map height, so both terms stay small:
+        // calm inland water, a few glints riding a slow swell.
+        float waveH = groundFbm(wnp * 2.0 + vec2(uTime * 0.18, uTime * 0.13))
+            + 0.06 * groundNoise(wnp * 8.0 - vec2(uTime * 0.30, uTime * 0.23));
+        normal = groundPerturbNormal(vGroundWorldPos, normal, waveH * uShowTextures, 0.04);
     }
 `;
 

@@ -107,7 +107,11 @@ class RoadSystem {
                         // Grit, not moulded plastic -- and the shader
                         // varies it per fragment on top of this.
                         roughness: 0.95,
-                        flatShading: true,
+                        // Smooth, not flat: the decal carries the TILE's
+                        // smoothed vertex normals (createHexTopGeometry),
+                        // so it shades continuously with the ground under
+                        // it instead of breaking into six lit wedges.
+                        flatShading: false,
                         dithering: false,
                     }
                 );

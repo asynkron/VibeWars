@@ -556,14 +556,20 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // Generate roads after map is created but before units
     createRoads(gameState);
 
+    // SMOOTH BEFORE PLANTING. Smoothing pulls each tile's rim vertices
+    // toward its neighbors, sinking the surface most exactly where a
+    // scattered tree or rock is most likely to stand -- decorations placed
+    // on the pre-smoothed flat top ended up hovering over the sagged
+    // ground. Decorating afterwards lets every piece sample the REAL,
+    // final surface (GridSystem.surfaceHeightAt) and sit on it.
+    GridSystem.smoothTerrain();
+
     // Then, and only then, plant anything. Decoration used to happen while
     // each hex was built, which is before the roads exist -- so trees grew
     // in the middle of them. Roads cannot be routed before the grid exists
     // either, since the router walks the hex objects, so the order has to
-    // be grid, roads, growth. See GridSystem.decorateTerrain.
+    // be grid, roads, smoothing, growth. See GridSystem.decorateTerrain.
     GridSystem.decorateTerrain();
-
-    GridSystem.smoothTerrain();
 
 
     // Also part of preloadAssets; both loaders are idempotent, and this is

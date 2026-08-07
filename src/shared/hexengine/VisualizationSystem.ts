@@ -1617,37 +1617,26 @@ class VisualizationSystem {
         geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
         geometry.setIndex(indices);
 
-        // Create flat normals for each triangle
+        // Normals: COPY the tile's own smoothed vertex normals (center 13,
+        // rim 6-11) so the decal catches the light exactly like the ground
+        // it lies on. The old per-triangle computation wrote each face's
+        // normal over the SHARED vertices of an indexed fan -- last
+        // triangle won, most normals ended up near straight-up, and a road
+        // shaded like a flat sticker however the terrain under it sloped.
         const normals = new Float32Array(vertices.length);
-        for (let i = 0; i < indices.length; i += 3) {
-            const v1 = new THREE.Vector3(
-                vertices[indices[i] * 3],
-                vertices[indices[i] * 3 + 1],
-                vertices[indices[i] * 3 + 2]
-            );
-            const v2 = new THREE.Vector3(
-                vertices[indices[i + 1] * 3],
-                vertices[indices[i + 1] * 3 + 1],
-                vertices[indices[i + 1] * 3 + 2]
-            );
-            const v3 = new THREE.Vector3(
-                vertices[indices[i + 2] * 3],
-                vertices[indices[i + 2] * 3 + 1],
-                vertices[indices[i + 2] * 3 + 2]
-            );
-
-            const normal = new THREE.Vector3()
-                .crossVectors(
-                    new THREE.Vector3().subVectors(v2, v1),
-                    new THREE.Vector3().subVectors(v3, v1)
-                )
-                .normalize();
-
-            // Apply the same normal to all three vertices of the triangle
-            for (let j = 0; j < 3; j++) {
-                normals[indices[i + j] * 3] = normal.x;
-                normals[indices[i + j] * 3 + 1] = normal.y;
-                normals[indices[i + j] * 3 + 2] = normal.z;
+        const hexNormals = hexGeometry.attributes.normal;
+        if (hexNormals && hexNormals.count >= 14) {
+            normals[0] = hexNormals.getX(13);
+            normals[1] = hexNormals.getY(13);
+            normals[2] = hexNormals.getZ(13);
+            for (let i = 0; i < 6; i++) {
+                normals[(i + 1) * 3] = hexNormals.getX(6 + i);
+                normals[(i + 1) * 3 + 1] = hexNormals.getY(6 + i);
+                normals[(i + 1) * 3 + 2] = hexNormals.getZ(6 + i);
+            }
+        } else {
+            for (let i = 0; i < vertices.length; i += 3) {
+                normals[i + 1] = 1;
             }
         }
         geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));

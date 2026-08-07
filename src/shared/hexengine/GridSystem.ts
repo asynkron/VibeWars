@@ -316,6 +316,30 @@ class GridSystem {
     // only removes a previous decorator when it is the building's OWN, so
     // a tree that was already there is not removed, only orphaned -- it
     // stays a child of the hex, standing inside the depot.
+    // Height of the tile's SMOOTHED top surface at a tile-local offset.
+    // The top face is a fan: center vertex (13) out to the six rim
+    // vertices (6-11), whose heights smoothing has pulled toward the
+    // neighbors. Find which slice the point is in and interpolate over
+    // that triangle -- this is the exact surface the renderer draws, so
+    // whatever is placed with it stands on the ground rather than on the
+    // flat pre-smoothing top.
+    static surfaceHeightAt(hexMesh: any, dx: number, dz: number): number {
+        const pos = hexMesh?.geometry?.attributes?.position;
+        if (!pos || pos.count < 14) return 0;
+        let a = Math.atan2(dz, dx);
+        if (a < 0) a += Math.PI * 2;
+        const i = Math.floor(a / (Math.PI / 3)) % 6;
+        const j = (i + 1) % 6;
+        const ax = pos.getX(6 + i), az = pos.getZ(6 + i), ay = pos.getY(6 + i);
+        const bx = pos.getX(6 + j), bz = pos.getZ(6 + j), by = pos.getY(6 + j);
+        const cy = pos.getY(13);
+        const denom = ax * bz - az * bx;
+        if (Math.abs(denom) < 1e-9) return cy;
+        const wa = (dx * bz - dz * bx) / denom;
+        const wb = (ax * dz - az * dx) / denom;
+        return cy * (1 - wa - wb) + ay * wa + by * wb;
+    }
+
     static decorateTerrain() {
         if (!this.getOption('enableDecorations')) return;
         const state = getGameStateOrNull();
@@ -329,7 +353,17 @@ class GridSystem {
             if (occupied.has(`${q},${r}`)) continue;
             if (state?.map?.getTile(q, r)?.hasRoad) continue;
 
-            const decorMesh = createProceduralDecoration(type.toUpperCase(), q, r, height);
+            // Per-piece ground sampling, as an offset from the decorator
+            // group's own y (the tile's logical height). The small sink
+            // guarantees contact when the interpolated surface lands a
+            // hair below a piece's base.
+            const hexMesh = hexGroup.children.find(
+                (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+            );
+            const groundAt = (dx: number, dz: number) =>
+                this.surfaceHeightAt(hexMesh, dx, dz) - height - 0.02;
+
+            const decorMesh = createProceduralDecoration(type.toUpperCase(), q, r, height, groundAt);
             if (decorMesh) {
                 decorMesh.position.set(x, height, z);
                 hexGroup.userData.decorator = decorMesh;

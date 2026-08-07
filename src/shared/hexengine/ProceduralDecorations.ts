@@ -533,10 +533,17 @@ function pick(kind: string, make: (rng: () => number) => any, rng: () => number)
     return variants[Math.floor(rng() * variants.length)].clone();
 }
 
+// Ground sampler for the tile currently being decorated, set by
+// createProceduralDecoration for the duration of one call. Returns the
+// smoothed surface height at a tile-local offset, relative to the tile's
+// logical height -- so a piece scattered onto sagged ground sinks with
+// it instead of hovering at the flat pre-smoothing level.
+let currentGroundAt: ((x: number, z: number) => number) | null = null;
+
 // Drop a sub-assembly into the tile group at a scattered position.
 function place(group: any, rng: () => number, piece: any, maxRadius: number, spin: boolean = true): void {
     const { x, z } = scatter(rng, maxRadius);
-    piece.position.set(x, 0, z);
+    piece.position.set(x, currentGroundAt ? currentGroundAt(x, z) : 0, z);
     if (spin) piece.rotation.y = rng() * Math.PI * 2;
     group.add(piece);
 }
@@ -711,9 +718,17 @@ function burnAwareDepthMaterial(source: any): any {
 // Build the decoration group for a tile, or null for none. Deterministic
 // per (q, r): reloads produce the identical map dressing. `tileHeight`
 // zones the mountains: vegetated foot, bare rocky heights.
-export function createProceduralDecoration(terrainType: string, q: number, r: number, tileHeight: number = 0): any | null {
+export function createProceduralDecoration(
+    terrainType: string,
+    q: number,
+    r: number,
+    tileHeight: number = 0,
+    groundAt: ((x: number, z: number) => number) | null = null
+): any | null {
     const rng = tileRng(q, r);
     const group = new THREE.Group();
+    // Consumed by place(); refreshed on every call, so no clearing needed.
+    currentGroundAt = groundAt;
 
     switch (terrainType) {
         case 'FOREST': {

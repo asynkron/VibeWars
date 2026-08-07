@@ -11,7 +11,7 @@
 // Using the position rather than the UVs also means the decal follows the
 // jitter in the real rim instead of an idealised hexagon.
 
-import { NOISE_GLSL_BASE } from './TerrainShader';
+import { NOISE_GLSL_BASE, PERTURB_GLSL } from './TerrainShader';
 import { VIEW_UNIFORMS } from './ViewOptions';
 import { MAP_CONFIG } from '../../constants';
 
@@ -23,12 +23,17 @@ import { MAP_CONFIG } from '../../constants';
 // Detail comes from the WORLD position on purpose: sampled in tile-local
 // space, the gravel and the ragged edge would restart at every tile border
 // and at the seam where two halves meet.
-const DECAL_VERTEX_DECL = ' varying vec2 vDecalLocal;\n varying vec2 vDecalWorld;';
+const DECAL_VERTEX_DECL =
+    ' varying vec2 vDecalLocal;\n varying vec2 vDecalWorld;\n varying vec3 vDecalWorldPos;';
 const DECAL_VERTEX_BODY =
-    ' vDecalLocal = position.xz;\n vDecalWorld = (modelMatrix * vec4(position, 1.0)).xz;';
+    ' vDecalLocal = position.xz;\n vDecalWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n' +
+    ' vDecalWorld = vDecalWorldPos.xz;';
 const DECAL_FRAGMENT_DECL =
-    ' varying vec2 vDecalLocal;\n varying vec2 vDecalWorld;\n uniform float uHexRadius;\n' +
-    ' uniform float uDirection;\n uniform float uShowTextures;';
+    ' varying vec2 vDecalLocal;\n varying vec2 vDecalWorld;\n varying vec3 vDecalWorldPos;\n' +
+    ' uniform float uHexRadius;\n uniform float uDirection;\n uniform float uShowTextures;\n' +
+    // Written by the road's color pass, read by its bump pass -- same
+    // wiring as the terrain's gBumpH.
+    ' float dcBumpH;';
 
 // The direction a decal runs, as a unit vector in the ground plane.
 // Rotation 0 faces +z (see UnitSystem.getRotation), so heading θ is
@@ -88,6 +93,13 @@ const ROAD_FRAGMENT = /* glsl */ `
         float shoulder = smoothstep(0.9, 0.3, road);
         surface = mix(surface, vec3(0.50, 0.41, 0.30) * (0.8 + 0.4 * grit), shoulder * 0.75);
 
+        // Relief for the bump pass: BROAD, gentle undulation -- the light
+        // drifting along the road the way it does over the ground beside
+        // it -- with only a whisper of grit. The cracks stay a COLOR
+        // detail: engraving them into the relief turned the whole road
+        // into cracked concrete.
+        dcBumpH = (groundFbm(wp * 1.1) * 0.7 + grit * 0.10 - rut * 0.15) * uShowTextures;
+
         diffuseColor.rgb = surface;
         // Alpha, not a hard rim: the edge dissolves into the terrain over a
         // wide noisy threshold, so the road thins out into the dirt instead
@@ -126,10 +138,14 @@ export function applyRoadSurface(material: any, direction: number): void {
         shader.fragmentShader = shader.fragmentShader
             .replace(
                 '#include <common>',
-                '#include <common>\n' + DECAL_FRAGMENT_DECL + '\n' + NOISE_GLSL_BASE + HEADING_GLSL
+                '#include <common>\n' + DECAL_FRAGMENT_DECL + '\n' + NOISE_GLSL_BASE + PERTURB_GLSL + HEADING_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + ROAD_FRAGMENT)
-            .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + ROAD_ROUGHNESS);
+            .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + ROAD_ROUGHNESS)
+            .replace(
+                '#include <normal_fragment_begin>',
+                '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecalWorldPos, normal, dcBumpH, 0.07);'
+            );
     };
     material.customProgramCacheKey = () => 'road-surface';
 }
