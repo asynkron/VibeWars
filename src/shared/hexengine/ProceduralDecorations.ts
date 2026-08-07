@@ -152,7 +152,9 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     // straddle cell borders), most cells growing one and some staying
     // empty. Returns (mask, cell hash) -- the hash lets every dot pick
     // its own shade of green.
-    vec2 decorLeafDots(vec2 uv) {
+    // rOuter/rInner set the dot size (fade edge to solid core, in cell
+    // units), keep gates which cells grow a dot at all.
+    vec2 decorLeafDots(vec2 uv, float rOuter, float rInner, float keep) {
         vec2 cell = floor(uv);
         vec2 f = fract(uv);
         float best = 0.0;
@@ -162,11 +164,43 @@ const DECOR_NOISE_GLSL = /* glsl */ `
                 vec2 g = vec2(float(x), float(y));
                 float h = decorHash(cell + g);
                 vec2 c = g + vec2(h, decorHash(cell + g + 11.0));
-                float m = smoothstep(0.40, 0.20, length(f - c)) * step(0.45, h);
+                // Scalloped, not circular: noise keyed per dot perturbs
+                // the rim distance, so the edge lobes like a tuft of
+                // leaves instead of tracing a clean disc.
+                float lobe = decorNoise(f * 13.0 + h * 41.0) - 0.5;
+                float m = smoothstep(rOuter, rInner, length(f - c) + lobe * 0.20) * step(keep, h);
                 if (m > best) { best = m; id = h; }
             }
         }
         return vec2(best, id);
+    }
+
+    // The full crown-dot field: three plane projections, each weighted by
+    // how face-on it sees the surface (radial normal -- the crown pieces
+    // are origin-centered), best dot wins. An oblique projection smears
+    // its dots into brush strokes; the weighting keeps them round on
+    // every side. Shared by the fringe shell AND the solid crown -- same
+    // frequencies, offsets and cell hashes, so inner and outer leaves
+    // line up -- with the density dialed per caller: the fringe wants
+    // sparse dots against nothing, the solid crown wants leaves covering
+    // MOST of it with dark gaps between.
+    // shift decorrelates the pattern between callers (the fringe shell
+    // samples a shifted copy of the field, so its dots do NOT sit exactly
+    // over the crown's own) while the plane weighting still comes from
+    // the TRUE position.
+    vec2 decorCrownDots(vec3 lp, vec3 shift, float freq, float rOuter, float rInner, float keep) {
+        vec3 pn = normalize(lp + vec3(0.0008));
+        vec3 sp = lp + shift;
+        vec2 dxy = decorLeafDots(sp.xy * freq, rOuter, rInner, keep);
+        dxy.x *= smoothstep(0.25, 0.60, abs(pn.z));
+        vec2 dzy = decorLeafDots(sp.zy * freq + 31.0, rOuter, rInner, keep);
+        dzy.x *= smoothstep(0.25, 0.60, abs(pn.x));
+        vec2 dxz = decorLeafDots(sp.xz * freq + 17.0, rOuter, rInner, keep);
+        dxz.x *= smoothstep(0.25, 0.60, abs(pn.y));
+        vec2 best = dxy;
+        if (dzy.x > best.x) best = dzy;
+        if (dxz.x > best.x) best = dxz;
+        return best;
     }
 `;
 
@@ -180,6 +214,13 @@ const DECOR_FRAGMENT = /* glsl */ `
         float fine = mix(0.5, decorNoise(dp * 3.7 + 11.0), decorDetailFade(dp * 3.7));
         diffuseColor.rgb *= 0.84 + 0.20 * coarse + 0.08 * fine;
         dBumpH = 0.0;
+
+        // Crowns are 10% see-through -- REAL alpha, not screen-door
+        // dither (tried, read as pixel noise). The material is transparent
+        // and the shader sets alpha per kind: trunks and rocks stay 1.0,
+        // foliage drops to 0.9. At 90% opacity the merged mesh's internal
+        // sort errors are invisible.
+        if (vDecorKind > 1.5) diffuseColor.a *= 0.90;
 
         if (vDecorKind < -0.5) {
             // ROCK: craggy faces with shadowed crevices and a dirt skirt
@@ -225,33 +266,59 @@ const DECOR_FRAGMENT = /* glsl */ `
             float needleField = decorFbm(np * 2.2 + nwarp * 2.4);
             diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.52, 0.62, 0.55),
                                    diffuseColor.rgb * vec3(1.42, 1.34, 0.88), needleField);
-            diffuseColor.rgb *= fringe * clump;
+            // Conifers run DARK -- spruce and pine hold deep green even
+            // in full sun.
+            diffuseColor.rgb *= fringe * clump * 0.80;
             // Each branch tier is a gentle ridge; kept mild so the light
             // reads texture without embossing the whole tree.
             dBumpH = (1.0 - abs(2.0 * band - 1.0)) * 0.22 + needleField * 0.30;
         } else if (vDecorKind < 2.5) {
-            // DECIDUOUS leaves: patchy variation WITHIN one crown -- some
-            // clusters shift toward sunlit yellow-green, others sit in
-            // deeper shade, plus fine leaf speckle.
-            // The grass band's recipe on a canopy: domain-warped fbm
-            // sliding between a shadowed and a sunlit tint of this tree's
-            // own base color -- the same natural mottling the meadow has,
-            // wrapped around the crown instead of lying on the ground.
-            vec2 lp = vDecorLocalPos.xz * 3.2 + vec2(vDecorLocalPos.y * 2.4, -vDecorLocalPos.y * 1.8);
-            vec2 lwarp = vec2(decorFbm(lp * 0.8), decorFbm(lp * 0.8 + vec2(5.2, 1.3))) - 0.5;
-            float leafField = decorFbm(lp * 2.0 + lwarp * 2.6);
-            diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.55, 0.64, 0.52),
-                                   diffuseColor.rgb * vec3(1.45, 1.32, 0.82), leafField);
-            float speckle = mix(0.5, decorNoise(vDecorWorldPos.xz * 30.0 + vDecorWorldPos.y * 14.0),
-                decorDetailFade(vDecorWorldPos.xz * 30.0));
-            diffuseColor.rgb *= 0.92 + 0.14 * speckle;
+            // DECIDUOUS leaves: the SAME leaf-dot field the fringe shell
+            // uses, as a color pattern -- the solid crown cannot discard,
+            // so the gaps between dots become the dark shadowed interior
+            // of the canopy, and every dot paints its own shade of green
+            // on top. Inner and outer leaves come from one field, so the
+            // fringe reads as the crown's own foliage continuing outward.
+            // A FULL MOSAIC of leaf dots, no clipping and no gaps: with
+            // every cell active (keep 0) and a radius wide enough that
+            // the dot fields overlap, each fragment takes the shade of
+            // its NEAREST dot -- the whole crown surface is leaves, tiled
+            // edge to edge in different greens. (Clipping was tried here
+            // and rolled back in favor of full coverage.)
+            vec2 crown = decorCrownDots(vDecorLocalPos, vec3(0.0), 17.0, 1.10, 0.25, 0.0);
+            // Same two-axis palette as the fringe: HUE walks cool
+            // blue-green -> mid -> warm sunlit yellow, and a separate
+            // brightness jitter keeps two dots of similar hue apart.
+            vec3 coolC = diffuseColor.rgb * vec3(0.55, 0.68, 0.62);
+            vec3 midC  = diffuseColor.rgb * vec3(0.85, 0.95, 0.70);
+            vec3 warmC = diffuseColor.rgb * vec3(1.45, 1.35, 0.80);
+            vec3 dotC = crown.y < 0.5
+                ? mix(coolC, midC, crown.y * 2.0)
+                : mix(midC, warmC, crown.y * 2.0 - 1.0);
+            dotC *= 0.82 + 0.36 * decorHash(vec2(crown.y * 91.7, 13.1));
+            // CLUSTER, not blob: a bright core shading darker toward the
+            // lobed rim gives each dot the volume of a leaf tuft, and a
+            // fine band-limited leaflet texture breaks the interior into
+            // individual leaves.
+            dotC *= 0.78 + 0.34 * smoothstep(0.05, 0.85, crown.x);
+            float leafTexA = mix(0.5, decorNoise(vDecorLocalPos.xz * 55.0 + vDecorLocalPos.y * 40.0),
+                decorDetailFade(vDecorLocalPos.xz * 55.0));
+            // The inner crown sits DARKER than the fringe: the outer
+            // leaves catch the open light, the mass behind them lives in
+            // its own shade -- which is also what pushes the fringe
+            // forward and gives the canopy depth.
+            diffuseColor.rgb = dotC * (0.88 + 0.24 * leafTexA) * 0.74;
+            // ...and per-dot ALPHA: some leaf clusters sit denser than
+            // others, so the canopy breathes instead of being one evenly
+            // frosted pane.
+            diffuseColor.a *= 0.85 + 0.15 * decorHash(vec2(crown.y * 47.3, 5.9));
             // Crown self-shadowing: the underside of a canopy is where
             // the light does not reach. This cheap vertical AO does more
             // for "tree, not gumdrop" than any amount of surface noise.
             diffuseColor.rgb *= mix(0.70, 1.05, smoothstep(-0.30, 0.28, vDecorLocalPos.y));
-            // Leaf-cluster relief, kept mild -- the color field above does
-            // the talking now.
-            dBumpH = leafField * 0.40 + speckle * 0.18;
+            // The dots ARE the relief: raised leaf clusters over recessed
+            // shadow gaps.
+            dBumpH = crown.x * 0.5;
         } else {
             // FOLIAGE FRINGE (kind 3): the oversized crown shell. Keep
             // only a scattered fraction of its fragments -- a dithered
@@ -265,30 +332,38 @@ const DECOR_FRAGMENT = /* glsl */ `
             // a 3D crown stretches its dots into streaks along the
             // projection axis; taking the max over xy/zy/xz keeps them
             // round on every side of the crown.
-            // Each plane only contributes where it sees the crown surface
-            // FACE-ON (weighted by the radial normal -- the crown pieces
-            // are origin-centered blobs). An oblique projection smears its
-            // dots into long brush strokes along the surface, and without
-            // the weighting those smears win the max and streak the crown.
-            vec3 pn = normalize(vDecorLocalPos + vec3(0.0008));
-            vec2 dxy = decorLeafDots(vDecorLocalPos.xy * 9.0);
-            dxy.x *= smoothstep(0.25, 0.60, abs(pn.z));
-            vec2 dzy = decorLeafDots(vDecorLocalPos.zy * 9.0 + 31.0);
-            dzy.x *= smoothstep(0.25, 0.60, abs(pn.x));
-            vec2 dxz = decorLeafDots(vDecorLocalPos.xz * 9.0 + 17.0);
-            dxz.x *= smoothstep(0.25, 0.60, abs(pn.y));
-            vec2 dot1 = dxy;
-            if (dzy.x > dot1.x) dot1 = dzy;
-            if (dxz.x > dot1.x) dot1 = dxz;
-            // Soft rims via stochastic coverage (per-pixel dither), solid
-            // cores -- still one opaque mesh, no sorting.
-            if (dot1.x < decorHash(gl_FragCoord.xy * 0.71)) discard;
-            // EVERY DOT ITS OWN GREEN, from its cell hash -- the mix of
-            // shades is what reads as individual outer leaves rather than
-            // one perforated skin. No bloom: a glint was tried here and
-            // read as gloss on a waxed apple.
-            diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.62, 0.72, 0.55),
-                                   diffuseColor.rgb * vec3(1.35, 1.28, 0.85), dot1.y);
+            // Sparse and small against the sky, sampling a SHIFTED copy
+            // of the field so the fringe leaves sit between the crown's
+            // own rather than exactly on top of them.
+            vec2 dot1 = decorCrownDots(vDecorLocalPos, vec3(4.3, 8.9, 2.7), 9.0, 0.40, 0.20, 0.45);
+            // Soft rims with REAL alpha now that the material is
+            // transparent: each fringe leaf fades smoothly from solid
+            // core to nothing -- the blurry edge the dither could only
+            // approximate.
+            if (dot1.x < 0.04) discard;
+            // Rim fade times a PER-DOT opacity: every outer leaf has its
+            // own density, from nearly solid to a thin translucent one.
+            diffuseColor.a *= smoothstep(0.04, 0.45, dot1.x)
+                * (0.55 + 0.45 * decorHash(vec2(dot1.y * 57.3, 7.7)));
+            // EVERY DOT ITS OWN GREEN -- same palette the inner crown
+            // walks (cool -> mid -> warm plus brightness jitter), so the
+            // fringe leaves belong to the same tree. No bloom: a glint
+            // was tried here and read as gloss on a waxed apple.
+            vec3 fCool = diffuseColor.rgb * vec3(0.55, 0.68, 0.62);
+            vec3 fMid  = diffuseColor.rgb * vec3(0.85, 0.95, 0.70);
+            vec3 fWarm = diffuseColor.rgb * vec3(1.45, 1.35, 0.80);
+            diffuseColor.rgb = dot1.y < 0.5
+                ? mix(fCool, fMid, dot1.y * 2.0)
+                : mix(fMid, fWarm, dot1.y * 2.0 - 1.0);
+            diffuseColor.rgb *= 0.82 + 0.36 * decorHash(vec2(dot1.y * 91.7, 13.1));
+            // Same cluster treatment as the crown: bright tuft core, and
+            // leaflet texture inside. Darkened overall -- the fringe still
+            // sits a step lighter than the inner crown (0.84 vs 0.74),
+            // keeping the depth, without reading as spring-bright.
+            diffuseColor.rgb *= 0.78 + 0.34 * smoothstep(0.05, 0.85, dot1.x);
+            float leafTexB = mix(0.5, decorNoise(vDecorLocalPos.xz * 55.0 + vDecorLocalPos.y * 40.0),
+                decorDetailFade(vDecorLocalPos.xz * 55.0));
+            diffuseColor.rgb *= (0.88 + 0.24 * leafTexB) * 0.84;
         }
     }
 `;
@@ -350,6 +425,12 @@ function mat(color: number, kind: number = 0) {
         metalness: 0.05,
         roughness: 0.85,
         flatShading: false,
+        // Double-sided since the crown gaps CLIP: through a hole you see
+        // the canopy interior (backfaces), not out the other side.
+        side: THREE.DoubleSide,
+        // Transparent so the crowns can carry real varying alpha; every
+        // non-foliage fragment writes alpha 1.0 and stays visually opaque.
+        transparent: true,
     });
     applyOrganicDetail(material);
     return material;
@@ -415,24 +496,151 @@ function makeConifer(rng: () => number): any {
     return tree;
 }
 
-// Deciduous: trunk + 1-3 clumped leaf blobs.
+// The golden angle (137.5 degrees). Rolling each successive branch by this
+// much around the bole is what real stems do, and it is why a tree never
+// shows two limbs stacked in the same plane -- the one arrangement that
+// would make a procedural fork read as a mechanical Y.
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const LIMB_UP = new THREE.Vector3(0, 1, 0);
+
+// Sweep one limb: a chain of tapered, open-ended cylinders laid tip to
+// tail, each one aimed slightly differently from the last, so the limb
+// CURVES instead of standing as a straight stick. Every piece is its own
+// mesh -- which costs nothing, because mergeDecorations folds the whole
+// tile into a single draw anyway, and keeping them separate preserves the
+// per-mesh local frame the bark shader reads (atan around the piece's own
+// axis, not around the tree's).
+//
+// Returns the tip and the heading it arrived with, so a caller can fork
+// again from where this limb ended.
+function growLimb(
+    parent: any,
+    rng: () => number,
+    from: any,
+    dir: any,
+    length: number,
+    rBase: number,
+    rTip: number,
+    pieces: number,
+    radial: number,
+    droop: number,
+    wander: number,
+    color: number
+): { tip: any; heading: any } {
+    const cursor = from.clone();
+    const heading = dir.clone().normalize();
+    const segLen = length / pieces;
+    for (let i = 0; i < pieces; i++) {
+        // Non-linear taper (the exponent below 1): a limb holds its girth
+        // through the first half and thins fast near the tip, which is
+        // what wood does. A straight lerp gives a cone, and a cone is the
+        // silhouette this whole rewrite exists to get rid of.
+        const ra = rBase + (rTip - rBase) * Math.pow(i / pieces, 0.7);
+        const rb = rBase + (rTip - rBase) * Math.pow((i + 1) / pieces, 0.7);
+        // 1.08 overlap: consecutive pieces meet at an angle, and butted
+        // exactly end to end that bend opens a wedge-shaped gap.
+        const piece = addMesh(
+            parent,
+            new THREE.CylinderGeometry(rb, ra, segLen * 1.08, radial, 1, true),
+            color,
+            cursor.x + heading.x * segLen * 0.5,
+            cursor.y + heading.y * segLen * 0.5,
+            cursor.z + heading.z * segLen * 0.5
+        );
+        piece.quaternion.setFromUnitVectors(LIMB_UP, heading);
+        cursor.addScaledVector(heading, segLen);
+        // Sag and wander applied BETWEEN pieces, so the limb bends at its
+        // joints rather than kinking inside one.
+        heading.y -= droop;
+        heading.x += (rng() - 0.5) * wander;
+        heading.z += (rng() - 0.5) * wander;
+        heading.normalize();
+    }
+    return { tip: cursor, heading };
+}
+
+// A leaf cluster: the crown blob the old tree had, shrunk and hung on a
+// branch tip. Same kind-2 leaf-dot shading and the same fringe shell, so
+// nothing about the canopy material changes -- only where the mass sits.
+function addCluster(parent: any, rng: () => number, at: any, radius: number, color: number, seed: number): void {
+    const blob = addMesh(
+        parent,
+        roughen(new THREE.IcosahedronGeometry(radius, 1), seed, radius * 0.40),
+        vary(color, rng, 0.2),
+        at.x, at.y, at.z,
+        2
+    );
+    // Squashed, because a canopy spreads wider than it is tall. Set before
+    // the fringe, which copies the scale.
+    blob.scale.set(1, 0.74 + rng() * 0.22, 1);
+    addFringe(parent, blob);
+}
+
+// Deciduous: a trunk-and-branch skeleton carrying its foliage in separate
+// clusters.
+//
+// The old version was a cylinder with one to three balls balanced on top,
+// and at hex scale that reads as a lollipop -- because a broadleaf tree's
+// entire silhouette signal is the FORK. A bole that splits, splits again,
+// and holds its leaves in distinct masses with sky between them. One blob
+// on a stick has none of that however much the shader roughens its
+// surface, which is why the surface work never fixed it.
+//
+// So: a bare bole for the lower half, 3-4 primaries leaving it on a
+// golden-angle spiral, each forking into two secondaries that are pulled
+// back toward vertical (phototropism -- branches climb for light, they do
+// not keep flying outward), and a small crown at every tip. The GAPS
+// between those crowns are the point: they are what lets the branches
+// show through, and branches showing through is what says "tree".
 function makeDeciduous(rng: () => number): any {
     const tree = new THREE.Group();
-    const trunkH = 0.42 + rng() * 0.25;
-    const seed = Math.floor(trunkH * 4096);
-    addMesh(tree, new THREE.CylinderGeometry(0.06, 0.08, trunkH, 5), vary(0x6b4a2c, rng, 0.15), 0, trunkH / 2, 0);
+    const height = 0.95 + rng() * 0.45;
+    const seed = Math.floor(height * 4096);
+    const barkColor = vary(0x6b4a2c, rng, 0.15);
     // Deep forest green to yellowish light green, per TREE -- the low end
     // dips into the conifer range on purpose.
     const leafColor = lerpHex(0x395a2b, 0x5f7d36, seedT(seed * 97));
-    const blobs = 1 + Math.floor(rng() * 3);
-    for (let i = 0; i < blobs; i++) {
-        const radius = 0.24 + rng() * 0.16;
-        const dx = (rng() - 0.5) * 0.3;
-        const dz = (rng() - 0.5) * 0.3;
-        const y = trunkH + radius * (0.75 + rng() * 0.3);
-        const blob = addMesh(tree, roughen(new THREE.IcosahedronGeometry(radius, 1), seed + i, radius * 0.40), vary(leafColor, rng, 0.2), dx, y, dz, 2);
-        addFringe(tree, blob);
+
+    // The bole: kept bare, so the crown sits ON something visible.
+    const boleH = height * (0.44 + rng() * 0.12);
+    const rTrunk = 0.05 + rng() * 0.022;
+    const lean = new THREE.Vector3((rng() - 0.5) * 0.10, 1, (rng() - 0.5) * 0.10);
+    const bole = growLimb(tree, rng, new THREE.Vector3(0, 0, 0), lean, boleH, rTrunk * 1.35, rTrunk * 0.62, 3, 6, 0, 0.06, barkColor);
+
+    const primaries = 3 + Math.floor(rng() * 2);
+    const roll = rng() * Math.PI * 2;
+    let cluster = 0;
+    for (let i = 0; i < primaries; i++) {
+        const a = roll + i * GOLDEN_ANGLE;
+        const tilt = 0.62 + rng() * 0.34;
+        const dir = new THREE.Vector3(Math.sin(tilt) * Math.cos(a), Math.cos(tilt), Math.sin(tilt) * Math.sin(a));
+        // Primaries leave the bole staggered over its top third rather
+        // than all from one point, which is the difference between a tree
+        // and an umbrella frame.
+        const start = bole.tip.clone();
+        start.y -= boleH * 0.28 * rng();
+        const rPrim = rTrunk * (0.50 + rng() * 0.14);
+        const limb = growLimb(tree, rng, start, dir, height * (0.30 + rng() * 0.14), rPrim, rPrim * 0.45, 2, 5, 0.07, 0.30, barkColor);
+
+        // Fork axis: a vector perpendicular to the limb, rolled around it
+        // so each pair of secondaries splits in its own plane.
+        const side = new THREE.Vector3().crossVectors(limb.heading, LIMB_UP);
+        if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
+        side.normalize().applyAxisAngle(limb.heading, rng() * Math.PI);
+        for (let j = 0; j < 2; j++) {
+            const sdir = limb.heading.clone().applyAxisAngle(side, (j === 0 ? 1 : -1) * (0.42 + rng() * 0.34));
+            // Up-pull: without it the secondaries carry on outward and
+            // the crown flattens into a spread cone.
+            sdir.lerp(LIMB_UP, 0.22 + rng() * 0.14).normalize();
+            const twig = growLimb(tree, rng, limb.tip, sdir, height * (0.17 + rng() * 0.10), rPrim * 0.45, rPrim * 0.22, 2, 4, 0.05, 0.34, barkColor);
+            addCluster(tree, rng, twig.tip, 0.15 + rng() * 0.055, leafColor, seed + cluster++);
+        }
     }
+    // One more mass over the fork itself, filling the hole the outward
+    // primaries leave in the middle of the canopy.
+    const crownTop = bole.tip.clone();
+    crownTop.y += height * 0.16;
+    addCluster(tree, rng, crownTop, 0.17 + rng() * 0.05, leafColor, seed + cluster);
     return tree;
 }
 
@@ -767,6 +975,12 @@ function mergeDecorations(group: any): any | null {
         metalness: 0.05,
         roughness: 0.85,
         flatShading: false,
+        // Double-sided since the crown gaps CLIP: through a hole you see
+        // the canopy interior (backfaces), not out the other side.
+        side: THREE.DoubleSide,
+        // Transparent so the crowns can carry real varying alpha; every
+        // non-foliage fragment writes alpha 1.0 and stays visually opaque.
+        transparent: true,
         vertexColors: true,
     });
     applyOrganicDetail(material);
