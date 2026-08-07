@@ -163,7 +163,7 @@ const TRACK_FRAGMENT = /* glsl */ `
 
         // Dark turned earth. Raising the alpha alone only washes the grass
         // out; the mark has to be darker than the ground to read as a rut.
-        diffuseColor.rgb = mix(vec3(0.18, 0.09, 0.03), vec3(0.34, 0.19, 0.08), groundNoise(wp * 20.0));
+        diffuseColor.rgb = mix(vec3(0.09, 0.05, 0.02), vec3(0.20, 0.11, 0.05), groundNoise(wp * 20.0));
         // diffuseColor.a already carries the material's opacity, which
         // FootprintSystem winds down each turn -- so the print fades.
         diffuseColor.a *= rut;

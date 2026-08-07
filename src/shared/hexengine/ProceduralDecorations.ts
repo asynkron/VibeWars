@@ -15,6 +15,7 @@
 // the factory decorator replacing it on building tiles.
 
 import { hash } from './utils';
+import { PERTURB_GLSL } from './TerrainShader';
 
 // Deterministic per-tile PRNG (mulberry32 over a q/r hash).
 function tileRng(q: number, r: number): () => number {
@@ -34,6 +35,69 @@ function vary(color: number, rng: () => number, amount: number): number {
     c.g = Math.min(1, c.g * f);
     c.b = Math.min(1, c.b * f);
     return c.getHex();
+}
+
+// Per-channel lerp between two hex colors -- the foliage palettes are
+// RANGES, not single greens. Each tree picks its spot on the range from a
+// hash of values the rng stream already drew, so a stand of trees drifts
+// from dark spruce-green through olive to sunlit yellow-green instead of
+// splitting into "the light kind and the dark kind".
+function lerpHex(a: number, b: number, t: number): number {
+    const ch = (shift: number) => {
+        const from = (a >> shift) & 255;
+        const to = (b >> shift) & 255;
+        return Math.round(from + (to - from) * t) << shift;
+    };
+    return ch(16) | ch(8) | ch(0);
+}
+
+// 0..1 from an integer seed, for the per-tree palette picks above.
+function seedT(seed: number): number {
+    return (hash(seed) & 1023) / 1023;
+}
+
+// Irregularize a primitive: displace every vertex by a hash of its
+// QUANTIZED POSITION (plus a per-mesh seed). Position-keyed on purpose,
+// twice over: duplicated vertices (polyhedron soups, cone seams) share a
+// position and therefore move identically, so flat-shaded meshes stay
+// watertight -- and NO rng is drawn, so tileVegetation's replay of the
+// decoration stream is untouched. This is most of what un-gumdrops the
+// crowns: the silhouette breaks before any shading gets involved.
+function roughen(geometry: any, seed: number, amount: number, facet: boolean = false): any {
+    const pos = geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const z = pos.getZ(i);
+        const key = ((Math.round(x * 1024) * 73856093) ^ (Math.round(y * 1024) * 19349663)
+            ^ (Math.round(z * 1024) * 83492791) ^ Math.imul(seed + 1, 0x9e3779b9)) | 0;
+        const h1 = (hash(key) & 1023) / 1023 - 0.5;
+        const h2 = (hash(key ^ 0x68bc21eb) & 1023) / 1023 - 0.5;
+        const h3 = (hash(key ^ 0x02e5be93) & 1023) / 1023 - 0.5;
+        pos.setXYZ(i, x + h1 * amount, y + h2 * amount, z + h3 * amount);
+    }
+    pos.needsUpdate = true;
+    // REAL normals, now that the decoration material is smooth-shaded.
+    // Foliage blobs are vertex soup (non-indexed polyhedra), where
+    // computeVertexNormals can only give per-face facets -- exactly the
+    // cut-gem look we are leaving. Radial normals make a blob shade as one
+    // round canopy however lumpy the jitter left it. Indexed geometry
+    // (cones) averages properly, and rocks OPT INTO facets: a boulder
+    // should read as split stone, not a pillow.
+    if (facet || geometry.index) {
+        geometry.computeVertexNormals();
+    } else {
+        const nor = geometry.attributes.normal;
+        for (let i = 0; i < pos.count; i++) {
+            const x = pos.getX(i);
+            const y = pos.getY(i);
+            const z = pos.getZ(i);
+            const len = Math.sqrt(x * x + y * y + z * z) || 1;
+            nor.setXYZ(i, x / len, y / len, z / len);
+        }
+        nor.needsUpdate = true;
+    }
+    return geometry;
 }
 
 // World-position noise injected into every decoration material: foliage,
@@ -59,6 +123,21 @@ const DECOR_NOISE_GLSL = /* glsl */ `
             u.y
         );
     }
+
+    // Multi-octave, same construction as the terrain's groundFbm -- the
+    // grass and forest-floor bands owe their natural mottling to fbm
+    // mixed between two palette tints, and the foliage gets the identical
+    // recipe rather than a poor single-octave cousin of it.
+    float decorFbm(vec2 p) {
+        float value = 0.0;
+        float amplitude = 0.5;
+        for (int i = 0; i < 3; i++) {
+            value += amplitude * decorNoise(p);
+            p = p * 2.03 + vec2(13.7, 7.9);
+            amplitude *= 0.5;
+        }
+        return value;
+    }
 `;
 
 const DECOR_FRAGMENT = /* glsl */ `
@@ -70,8 +149,28 @@ const DECOR_FRAGMENT = /* glsl */ `
         float coarse = decorNoise(dp);
         float fine = decorNoise(dp * 3.7 + 11.0);
         diffuseColor.rgb *= 0.84 + 0.20 * coarse + 0.08 * fine;
+        dBumpH = 0.0;
 
-        if (vDecorKind > 0.5 && vDecorKind < 1.5) {
+        if (vDecorKind < -0.5) {
+            // ROCK: craggy faces with shadowed crevices and a dirt skirt
+            // where the stone meets the ground -- the same weathered-not-
+            // clean rule the mountain band follows.
+            float crag = decorNoise(vDecorLocalPos.xz * 6.0 + vDecorLocalPos.y * 5.0);
+            float crevice = smoothstep(0.10, 0.0, abs(decorNoise(dp * 1.4 + 3.0) - 0.5));
+            diffuseColor.rgb *= 0.80 + 0.34 * crag;
+            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.45, crevice * 0.6);
+            float basecoat = smoothstep(0.10, -0.05, vDecorLocalPos.y);
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.35, 0.26), basecoat * 0.35);
+            dBumpH = crag * 0.8 - crevice * 0.6;
+        } else if (vDecorKind < 0.5) {
+            // BARK and dead wood: vertical striations -- strong variation
+            // AROUND the trunk, weak along it, so the grain runs the way
+            // wood splits.
+            float bAngle = atan(vDecorLocalPos.z, vDecorLocalPos.x + 0.0008);
+            float stria = decorNoise(vec2(bAngle * 5.0, vDecorLocalPos.y * 1.4));
+            diffuseColor.rgb *= 0.78 + 0.30 * stria;
+            dBumpH = stria * 0.5;
+        } else if (vDecorKind < 1.5) {
             // CONIFER foliage: layered branch fringes that HANG DOWNWARD.
             // In the cone's local frame, iso-lines of (y + droop * radius)
             // slope down and outward -- banding on that coordinate reads
@@ -83,20 +182,45 @@ const DECOR_FRAGMENT = /* glsl */ `
             float angle = atan(vDecorLocalPos.z, vDecorLocalPos.x + 0.0008);
             float branchCoord = vDecorLocalPos.y * 9.0 + radial * 16.0 + decorNoise(vec2(angle * 1.4, 3.7)) * 1.6;
             float band = fract(branchCoord);
-            float fringe = 0.68 + 0.32 * smoothstep(0.05, 0.45, band);
+            float fringe = 0.80 + 0.20 * smoothstep(0.05, 0.45, band);
             // Angular clumping: branches, not a smooth skirt.
-            float clump = 0.86 + 0.14 * decorNoise(vec2(angle * 3.0, vDecorLocalPos.y * 5.0));
+            float clump = 0.90 + 0.10 * decorNoise(vec2(angle * 3.0, vDecorLocalPos.y * 5.0));
+            // The grass band's recipe on a cone: domain-warped fbm mixing
+            // between a shadowed blue-green and a sunlit yellow-green tint
+            // of this tree's own base color. The warp wraps around the
+            // crown (angle) and down it (y), so the patches lie ON the
+            // foliage instead of projecting through it.
+            vec2 np = vec2(angle * 1.6, vDecorLocalPos.y * 3.4);
+            vec2 nwarp = vec2(decorFbm(np * 0.9), decorFbm(np * 0.9 + vec2(4.2, 1.7))) - 0.5;
+            float needleField = decorFbm(np * 2.2 + nwarp * 2.4);
+            diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.52, 0.62, 0.55),
+                                   diffuseColor.rgb * vec3(1.42, 1.34, 0.88), needleField);
             diffuseColor.rgb *= fringe * clump;
-        } else if (vDecorKind > 1.5) {
+            // Each branch tier is a gentle ridge; kept mild so the light
+            // reads texture without embossing the whole tree.
+            dBumpH = (1.0 - abs(2.0 * band - 1.0)) * 0.22 + needleField * 0.30;
+        } else {
             // DECIDUOUS leaves: patchy variation WITHIN one crown -- some
             // clusters shift toward sunlit yellow-green, others sit in
             // deeper shade, plus fine leaf speckle.
-            float splotch = decorNoise(vDecorLocalPos.xz * 5.0 + vDecorLocalPos.y * 4.0);
-            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(1.22, 1.08, 0.62), splotch * 0.45);
-            float shade = decorNoise(vDecorLocalPos.zy * 4.2 + 7.0);
-            diffuseColor.rgb *= 0.86 + 0.10 * shade;
+            // The grass band's recipe on a canopy: domain-warped fbm
+            // sliding between a shadowed and a sunlit tint of this tree's
+            // own base color -- the same natural mottling the meadow has,
+            // wrapped around the crown instead of lying on the ground.
+            vec2 lp = vDecorLocalPos.xz * 3.2 + vec2(vDecorLocalPos.y * 2.4, -vDecorLocalPos.y * 1.8);
+            vec2 lwarp = vec2(decorFbm(lp * 0.8), decorFbm(lp * 0.8 + vec2(5.2, 1.3))) - 0.5;
+            float leafField = decorFbm(lp * 2.0 + lwarp * 2.6);
+            diffuseColor.rgb = mix(diffuseColor.rgb * vec3(0.55, 0.64, 0.52),
+                                   diffuseColor.rgb * vec3(1.45, 1.32, 0.82), leafField);
             float speckle = decorNoise(vDecorWorldPos.xz * 30.0 + vDecorWorldPos.y * 14.0);
             diffuseColor.rgb *= 0.92 + 0.14 * speckle;
+            // Crown self-shadowing: the underside of a canopy is where
+            // the light does not reach. This cheap vertical AO does more
+            // for "tree, not gumdrop" than any amount of surface noise.
+            diffuseColor.rgb *= mix(0.70, 1.05, smoothstep(-0.30, 0.28, vDecorLocalPos.y));
+            // Leaf-cluster relief, kept mild -- the color field above does
+            // the talking now.
+            dBumpH = leafField * 0.40 + speckle * 0.18;
         }
     }
 `;
@@ -140,8 +264,14 @@ function applyOrganicDetail(material: any): void {
                 '#include <begin_vertex>\n vDecorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorKind = aDecorKind;'
             );
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n uniform float uBurn;\n' + DECOR_NOISE_GLSL)
-            .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT + DECOR_BURN_GLSL);
+            // dBumpH is written by the color pass and read by the bump
+            // pass -- a GLSL global, same wiring as the terrain's gBumpH.
+            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n uniform float uBurn;\n float dBumpH;\n' + DECOR_NOISE_GLSL + PERTURB_GLSL)
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT + DECOR_BURN_GLSL)
+            .replace(
+                '#include <normal_fragment_begin>',
+                '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
+            );
     };
     material.customProgramCacheKey = () => 'decor-organic';
 }
@@ -151,7 +281,7 @@ function mat(color: number, kind: number = 0) {
         color,
         metalness: 0.05,
         roughness: 0.85,
-        flatShading: true,
+        flatShading: false,
     });
     applyOrganicDetail(material);
     return material;
@@ -172,6 +302,10 @@ function addMesh(parent: any, geometry: any, color: number, x: number, y: number
 function makeConifer(rng: () => number): any {
     const tree = new THREE.Group();
     const height = 0.95 + rng() * 0.7;
+    // Per-TREE jitter seed, derived from a value the stream already drew --
+    // no new rng draws (tileVegetation replays this stream), but two
+    // conifers no longer share the exact same lumps.
+    const seed = Math.floor(height * 4096);
     const trunkH = height * 0.22;
     addMesh(tree, new THREE.CylinderGeometry(0.05, 0.07, trunkH, 5), vary(0x5a4028, rng, 0.15), 0, trunkH / 2, 0);
     const layers = 2 + Math.floor(rng() * 2);
@@ -180,7 +314,16 @@ function makeConifer(rng: () => number): any {
         const radius = (0.34 - 0.14 * t) * (0.8 + rng() * 0.4);
         const coneH = height * (0.45 - 0.08 * t);
         const y = trunkH + height * 0.55 * t + coneH / 2 - 0.02;
-        addMesh(tree, new THREE.ConeGeometry(radius, coneH, 6), vary(0x1d4a2a, rng, 0.18), 0, y, 0, 1);
+        // Height segments matter more than radial ones: a default cone has
+        // ONE strip from tip to rim, so jitter had nothing to bend and the
+        // silhouette stayed a party hat. Rings down the flank let the
+        // roughen sag and bulge like drooping branch tiers.
+        const ox = ((hash(seed * 31 + i) & 255) / 255 - 0.5) * 0.09;
+        const oz = ((hash(seed * 57 + i) & 255) / 255 - 0.5) * 0.09;
+        // Dark spruce to sunlit olive, per TREE -- overlapping the
+        // deciduous range so the forest is one population, not two teams.
+        const needleColor = lerpHex(0x1d4a2a, 0x4a6b30, seedT(seed * 97));
+        addMesh(tree, roughen(new THREE.ConeGeometry(radius, coneH, 8, 3), seed + i, radius * 0.38), vary(needleColor, rng, 0.18), ox, y, oz, 1);
     }
     return tree;
 }
@@ -189,14 +332,18 @@ function makeConifer(rng: () => number): any {
 function makeDeciduous(rng: () => number): any {
     const tree = new THREE.Group();
     const trunkH = 0.42 + rng() * 0.25;
+    const seed = Math.floor(trunkH * 4096);
     addMesh(tree, new THREE.CylinderGeometry(0.06, 0.08, trunkH, 5), vary(0x6b4a2c, rng, 0.15), 0, trunkH / 2, 0);
+    // Deep forest green to yellowish light green, per TREE -- the low end
+    // dips into the conifer range on purpose.
+    const leafColor = lerpHex(0x395a2b, 0x5f7d36, seedT(seed * 97));
     const blobs = 1 + Math.floor(rng() * 3);
     for (let i = 0; i < blobs; i++) {
         const radius = 0.24 + rng() * 0.16;
         const dx = (rng() - 0.5) * 0.3;
         const dz = (rng() - 0.5) * 0.3;
         const y = trunkH + radius * (0.75 + rng() * 0.3);
-        addMesh(tree, new THREE.IcosahedronGeometry(radius, 0), vary(0x3f7d3a, rng, 0.2), dx, y, dz, 2);
+        addMesh(tree, roughen(new THREE.IcosahedronGeometry(radius, 1), seed + i, radius * 0.40), vary(leafColor, rng, 0.2), dx, y, dz, 2);
     }
     return tree;
 }
@@ -207,10 +354,11 @@ function makeBush(rng: () => number): any {
     const blobs = 1 + Math.floor(rng() * 3);
     for (let i = 0; i < blobs; i++) {
         const radius = 0.13 + rng() * 0.10;
+        const bushSeed = Math.floor(radius * 8192);
         addMesh(
             bush,
-            new THREE.IcosahedronGeometry(radius, 0),
-            vary(0x30632f, rng, 0.22),
+            roughen(new THREE.IcosahedronGeometry(radius, 1), bushSeed + i, radius * 0.38),
+            vary(lerpHex(0x33512a, 0x567336, seedT(bushSeed * 97)), rng, 0.22),
             (rng() - 0.5) * 0.2,
             radius * 0.7,
             (rng() - 0.5) * 0.2,
@@ -252,7 +400,7 @@ function makeLog(rng: () => number): any {
         // Moss patch riding on the log.
         addMesh(
             group,
-            new THREE.IcosahedronGeometry(radius * 0.9, 0),
+            roughen(new THREE.IcosahedronGeometry(radius * 0.9, 1), 0, radius * 0.30),
             vary(0x3e6b2f, rng, 0.2),
             (rng() - 0.5) * length * 0.5,
             radius * 1.6,
@@ -289,13 +437,16 @@ function makeRocks(rng: () => number, base: number): any {
     const count = 1 + Math.floor(rng() * 3);
     for (let i = 0; i < count; i++) {
         const radius = 0.12 + rng() * 0.13;
+        // kind -1: the shader gives rock its own craggy treatment, and the
+        // burn check (vDecorKind > 0.5 discards foliage) leaves it standing.
         const rock = addMesh(
             rocks,
-            new THREE.DodecahedronGeometry(radius, 0),
+            roughen(new THREE.DodecahedronGeometry(radius, 1), i, radius * 0.35),
             vary(base, rng, 0.18),
             (rng() - 0.5) * 0.3,
             radius * 0.5,
-            (rng() - 0.5) * 0.3
+            (rng() - 0.5) * 0.3,
+            -1
         );
         rock.scale.y = 0.6 + rng() * 0.3;
         rock.rotation.y = rng() * Math.PI;
@@ -519,7 +670,7 @@ function mergeDecorations(group: any): any | null {
         color: 0xffffff,
         metalness: 0.05,
         roughness: 0.85,
-        flatShading: true,
+        flatShading: false,
         vertexColors: true,
     });
     applyOrganicDetail(material);

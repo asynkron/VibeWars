@@ -83,11 +83,15 @@ const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
         return vec3(sqrt(f1), sqrt(f2), id);
     }
 
-    // Screen-space bump (Blinn's perturb-normal-without-tangents, same
-    // scheme as three.js's bumpmap chunk, but fed a procedural height
-    // instead of a texture). Positions and normal move through WORLD space
-    // so the same height field bends top faces and cliff sides alike;
-    // the result comes back in view space, where the lighting lives.
+`;
+
+// Screen-space bump (Blinn's perturb-normal-without-tangents, same scheme
+// as three.js's bumpmap chunk, but fed a procedural height instead of a
+// texture). Positions and normal move through WORLD space so the same
+// height field bends top faces and cliff sides alike; the result comes
+// back in view space, where the lighting lives. Exported so the
+// decorations (trees, rocks) relieve their surfaces with the same tool.
+export const PERTURB_GLSL = /* glsl */ `
     vec3 groundPerturbNormal(vec3 worldPos, vec3 viewNormal, float bumpH, float scale) {
         vec3 sigX = dFdx(worldPos);
         vec3 sigY = dFdy(worldPos);
@@ -524,7 +528,7 @@ export function applyWaterSurface(material: any): void {
             .replace('#include <common>', '#include <common>\n' + SHORE_VERTEX_DECL)
             .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SHORE_VERTEX_BODY);
         shader.fragmentShader = shader.fragmentShader
-            .replace('#include <common>', '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' + NOISE_GLSL_CORE + SHORE_GLSL)
+            .replace('#include <common>', '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' + NOISE_GLSL_CORE + PERTURB_GLSL + SHORE_GLSL)
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + WATER_FRAGMENT)
             .replace(
                 '#include <normal_fragment_begin>',
@@ -577,7 +581,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
                 ' float gBumpH;\n' +
-                NOISE_GLSL_CORE + SHORE_GLSL
+                NOISE_GLSL_CORE + PERTURB_GLSL + SHORE_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT)
             .replace(

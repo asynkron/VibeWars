@@ -1012,10 +1012,18 @@ window.addEventListener('vibewars:gameover', ((event: CustomEvent) => {
 // finishes evaluating -- an assignment made after that point never runs
 // and the page just stays black. Checking readyState first closes the
 // race: boot now if load already happened, otherwise wait for it.
-if (document.readyState === 'complete') {
-    bootFromUrlOrShowMenu();
-} else {
-    window.addEventListener('load', bootFromUrlOrShowMenu, { once: true });
+//
+// Except under vitest, where jsdom's readyState is 'complete' the moment
+// this module is imported -- booting there crashes every test that
+// touches the import graph. The old window.onload never fired in jsdom,
+// which is the behavior the tests were built on; keep it for them.
+const UNDER_TEST = !!(globalThis as any).process?.env?.VITEST;
+if (!UNDER_TEST) {
+    if (document.readyState === 'complete') {
+        bootFromUrlOrShowMenu();
+    } else {
+        window.addEventListener('load', bootFromUrlOrShowMenu, { once: true });
+    }
 }
 
 // Dev-only debug handle: the codebase deliberately keeps modules off

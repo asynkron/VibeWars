@@ -55,8 +55,11 @@ class FootprintSystem {
                 materialType: 'MeshStandardMaterial',  // Use standard material for lighting
                 receiveShadow: true,  // Enable shadow receiving
                 castShadow: false,  // Enable shadow casting
-                metalness: 0.1,
-                roughness: 0.3,
+                // Churned earth: fully matte. At 0.3 roughness the white
+                // base material threw a specular sheen far brighter than
+                // the dirt it is supposed to be.
+                metalness: 0.0,
+                roughness: 0.95,
                 flatShading: true,
                 dithering: false,
             }
