@@ -70,6 +70,7 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
     const buildings = provider.buildings ?? [];
     const groups = new Map<string, BuildingSpawn[]>();
     for (const piece of buildings) {
+        if (!piece.groupId || !piece.type.startsWith('forgeDepot')) continue;
         groups.set(piece.groupId!, [...(groups.get(piece.groupId!) ?? []), piece]);
     }
 
@@ -100,6 +101,24 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
             expect(pieces, groupId).toHaveLength(4);
             expect(pieces.map((p) => p.type).sort())
                 .toEqual(['forgeDepotE', 'forgeDepotN', 'forgeDepotS', 'forgeDepotW']);
+        }
+    });
+
+    it('gives each side exactly one owned seven-tile HQ', () => {
+        const headquarters = buildings.filter((building) => building.type === 'hq');
+        expect(headquarters).toHaveLength(14);
+        for (const ownerIndex of [0, 1]) {
+            const pieces = headquarters.filter((building) => building.ownerIndex === ownerIndex);
+            expect(pieces).toHaveLength(7);
+            expect(new Set(pieces.map((piece) => piece.groupId))).toEqual(new Set([`hq@player${ownerIndex}`]));
+            expect(pieces.filter((piece) => !piece.drawnByAnchor)).toHaveLength(1);
+            expect(pieces.filter((piece) => piece.drawnByAnchor)).toHaveLength(6);
+            for (const piece of pieces) expect(piece.hiddenUnitType).toBeNull();
+
+            const anchor = pieces.find((piece) => !piece.drawnByAnchor)!;
+            for (const piece of pieces.filter((candidate) => candidate !== anchor)) {
+                expect(hexDistance(anchor.q, anchor.r, piece.q, piece.r)).toBe(1);
+            }
         }
     });
 
@@ -154,6 +173,17 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
         for (const [groupId, pieces] of groups) {
             const heights = pieces.map((p) => tiles[p.q][p.r].height);
             for (const height of heights) expect(height, groupId).toBe(heights[0]);
+        }
+    });
+
+    it('stands each seven-tile HQ on one level platform', () => {
+        for (const ownerIndex of [0, 1]) {
+            const pieces = buildings.filter(
+                (building) => building.type === 'hq' && building.ownerIndex === ownerIndex
+            );
+            const heights = pieces.map((piece) => tiles[piece.q][piece.r].height);
+            expect(heights).toHaveLength(7);
+            for (const height of heights) expect(height).toBe(heights[0]);
         }
     });
 
@@ -214,6 +244,21 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
             for (const door of doors) {
                 expect(canReach.has(`${door.q},${door.r}`), `no route to the door at ${door.q},${door.r}`)
                     .toBe(true);
+            }
+        }
+
+        // HQs are destruction objectives rather than capture targets, but
+        // they still have to belong to the same playable mainland as both
+        // armies. Otherwise a side could receive an unreachable objective.
+        const headquarters = buildings.filter((building) => building.type === 'hq');
+        for (const side of [spawns.player, spawns.cpu]) {
+            const walker = side[0];
+            const canReach = reachable(tiles, cols, rows, walker.type, [walker.q, walker.r]);
+            for (const headquartersBuilding of headquarters) {
+                expect(
+                    canReach.has(`${headquartersBuilding.q},${headquartersBuilding.r}`),
+                    `${walker.type} cannot reach HQ at ${headquartersBuilding.q},${headquartersBuilding.r}`
+                ).toBe(true);
             }
         }
     });

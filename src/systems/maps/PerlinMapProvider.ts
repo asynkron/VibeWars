@@ -11,10 +11,10 @@
 // one side and two on the other, all bunched in one corner on whatever the
 // noise happened to put there -- including, sometimes, open water, from
 // which a ground unit never gets out -- and had no buildings at all. Now
-// both sides get the SAME roster on opposite edges, the way the authored
-// maps do it, and there are forge depots to fight over: two, three or seven
-// by size. Everything is placed on the MAINLAND, so nothing starts on an
-// island and no depot is uncapturable.
+// both sides get the SAME roster and one owned HQ on opposite edges, the
+// way the authored maps do it, and there are forge depots to fight over:
+// two, three or seven by size. Everything is placed on the MAINLAND, so
+// nothing starts on an island and no depot is uncapturable.
 //
 // A NOTE ON "RANDOM". perlinNoise has a fixed permutation table, so for a
 // long time the terrain TYPE layout was the same on every load -- three
@@ -126,6 +126,11 @@ function nearestWhere(
     return null;
 }
 
+// Grand Hall's footprint: the centre anchor plus all six neighbours.
+function hqCells(q: number, r: number): Array<[number, number]> {
+    return [[q, r], ...neighbourOffsets(q).map(([dq, dr]) => [q + dq, r + dr] as [number, number])];
+}
+
 // Where the bases want to be, before the terrain gets a say: the middle of
 // the map, in HALF-TURN-SYMMETRIC PAIRS, plus the centre itself when the
 // count is odd.
@@ -164,6 +169,39 @@ function placeEverything(
 
     const free = (q: number, r: number) => open.has(`${q},${r}`) && !taken.has(`${q},${r}`);
 
+    // Every random battle has one HQ per side. Place them first, one row in
+    // from each side's edge and centred, so unit placement and the neutral
+    // depot search both reserve their cells. Before generate() there is no
+    // terrain yet; the provider still exposes harmless placeholder positions
+    // for menus that inspect its buildings early.
+    const buildings: BuildingSpawn[] = [];
+    const hqTargets: Array<{ ownerIndex: number; q: number; r: number }> = [
+        { ownerIndex: 0, q: Math.floor(cols / 2), r: Math.max(0, rows - 2) },
+        { ownerIndex: 1, q: Math.floor(cols / 2), r: Math.min(rows - 1, 1) },
+    ];
+    const hqFits = (q: number, r: number) => hqCells(q, r).every(([cq, cr]) =>
+        cq >= 0 && cq < cols && cr >= 0 && cr < rows && free(cq, cr));
+    for (const target of hqTargets) {
+        const position = open.size
+            ? nearestWhere(cols, rows, target.q, target.r, hqFits)
+            : [target.q, target.r] as [number, number];
+        if (!position) {
+            throw new Error(`Random map ${cols}x${rows} has no free mainland hex for player ${target.ownerIndex}'s HQ`);
+        }
+        const [anchorQ, anchorR] = position;
+        const groupId = `hq@player${target.ownerIndex}`;
+        for (const [index, [q, r]] of hqCells(anchorQ, anchorR).entries()) {
+            taken.add(`${q},${r}`);
+            buildings.push({
+                type: 'hq', q, r,
+                ownerIndex: target.ownerIndex,
+                hiddenUnitType: null,
+                groupId,
+                drawnByAnchor: index !== 0,
+            });
+        }
+    }
+
     // The player takes the southern edge and the CPU the northern, the
     // convention every other map follows.
     const line = (edgeRow: number): StartingUnit[] => roster.map((type, index) => {
@@ -187,7 +225,6 @@ function placeEverything(
             cq >= 0 && cq < cols && cr >= 0 && cr < rows && free(cq, cr));
     const depotFits = (q: number, r: number) => DEPOT_TURNS.some((t) => fitsTurned(q, r, t));
 
-    const buildings: BuildingSpawn[] = [];
     if (open.size) {
         for (const [targetQ, targetR] of baseTargets(cols, rows, baseCount)) {
             const anchor = nearestWhere(cols, rows, targetQ, targetR, depotFits);
@@ -243,7 +280,7 @@ function placeEverything(
 // for it -- so on random terrain, where neighbouring tiles routinely differ,
 // four pieces on four heights meet in steps through the middle of the
 // building. Levelled to the HIGHEST of the four, so no piece is left buried.
-function levelDepotPads(tiles: TileLike[][], buildings: BuildingSpawn[]): void {
+function levelBuildingPads(tiles: TileLike[][], buildings: BuildingSpawn[]): void {
     const byGroup = new Map<string, BuildingSpawn[]>();
     for (const piece of buildings) {
         if (!piece.groupId) continue;
@@ -322,7 +359,7 @@ function createRandomMap(
                 }
             }
             placed = placeEverything(tiles, size, size, roster, baseCount);
-            levelDepotPads(tiles, placed.buildings);
+            levelBuildingPads(tiles, placed.buildings);
             return tiles;
         },
     };

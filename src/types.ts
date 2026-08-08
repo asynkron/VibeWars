@@ -217,6 +217,9 @@ export interface Building {
   // is the northern one turned half a turn, so its pieces must turn with
   // it or their joining edges would face the wrong way.
   rotationDeg?: number;
+  // A multi-tile model is drawn once by its anchor. The remaining footprint
+  // pieces still occupy tiles and participate in destruction rules.
+  drawnByAnchor?: boolean;
   visual?: Object3DLike | null;
 }
 
@@ -235,6 +238,7 @@ export interface BuildingSpawn {
   // See Building.isEntrance: exactly one piece of a group carries the door.
   isEntrance?: boolean;
   rotationDeg?: number;
+  drawnByAnchor?: boolean;
 }
 
 // A GameMap tile, see MapSystem's Tile class.

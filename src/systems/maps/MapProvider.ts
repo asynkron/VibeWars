@@ -32,7 +32,7 @@ export interface MapProvider {
         player: StartingUnit[];
         cpu: StartingUnit[];
     };
-    // Buildings authored onto the map (factories with hidden units).
+    // Buildings authored onto the map (factories, depots, optional HQs).
     // Omitted/empty for maps without buildings.
     readonly buildings?: BuildingSpawn[];
     // Produce the full tile grid, indexed [q][r].

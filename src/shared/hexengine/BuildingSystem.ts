@@ -41,11 +41,6 @@ const NEUTRAL_TINT = 0x888888;
 // own radius -- 1/7.2 -- not to the factory's 0.12, which deliberately
 // leaves a standalone building at 86% of its tile.
 const DEPOT_SCALE = 1 / 7.2;
-// Grand Hall is 36.04 units wide in authoring space. Match the factory's
-// roughly 1.75-unit footprint so an HQ occupies the hex that owns its rules,
-// rather than visually blocking neighbouring tiles that remain walkable.
-const HQ_SCALE = 1.75 / 36.04;
-
 // drawnByAnchor marks a piece of a composite whose structure is drawn by
 // ANOTHER piece: the model covers the whole group, so only one member may
 // render it. Scaling the others to zero does not work -- every type here
@@ -62,7 +57,10 @@ const HQ_SCALE = 1.75 / 36.04;
 // ModelSystem.cloneWithTeamTint.
 const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number; zOffset?: number; keepOrigin?: boolean; drawnByAnchor?: boolean; rawMaterials?: boolean; teamTint?: string[] }> = {
     factory: { model: 'assets/buildings/factory-building.glb', scale: 0.12, yOffset: 0 },
-    hq: { model: 'assets/buildings/grand-hall.glb', scale: HQ_SCALE, yOffset: 0, rawMaterials: true, teamTint: ['teamCamo'] },
+    // Grand Hall is authored over a seven-hex flower, at the same 7.2-unit
+    // source radius as the depot tiles. Its six outer footprint entries set
+    // drawnByAnchor; only the centre draws this full model.
+    hq: { model: 'assets/buildings/grand-hall.glb', scale: DEPOT_SCALE, yOffset: 0, rawMaterials: true, teamTint: ['teamCamo'] },
     // TEMPORARY -- apex-hall stands in for the four-piece forge depot so the
     // team tint can be judged against a TEXTURED building. It is one model
     // covering a seven-tile flower, not four tile pieces, so the whole
@@ -118,7 +116,7 @@ class BuildingSystem {
         const spec = BUILDING_TYPES[building.type];
         // Its structure belongs to another piece of the group -- drawing it
         // here would stack a second copy of the same building on this hex.
-        if (spec.drawnByAnchor) return;
+        if (spec.drawnByAnchor || building.drawnByAnchor) return;
         const base = ModelSystem.getModel(spec.model);
         if (!hex || !base) return;
 
@@ -175,6 +173,7 @@ class BuildingSystem {
                 groupId: spawn.groupId,
                 isEntrance: spawn.isEntrance,
                 rotationDeg: spawn.rotationDeg,
+                drawnByAnchor: spawn.drawnByAnchor,
                 destroyed: false,
                 visual: null,
             };
@@ -271,11 +270,27 @@ class BuildingSystem {
     static onTileSunk(q: number, r: number): void {
         const building = this.getBuildingAt(q, r);
         if (!building) return;
-        building.destroyed = true;
-        building.visual = null;
+        const gameState = getGameState();
+        // Grand Hall is one HQ spread across seven footprint entries. Losing
+        // any occupied tile destroys the whole structure, including the model
+        // drawn on its centre anchor.
+        const pieces = building.type === 'hq' && building.groupId
+            ? gameState.buildings.filter((piece: Building) => piece.groupId === building.groupId)
+            : [building];
+        for (const piece of pieces) {
+            if (piece.visual) {
+                const hex = HexCoord.findHex(piece.q, piece.r);
+                if (hex?.userData.decorator === piece.visual) {
+                    hex.remove(piece.visual);
+                    hex.userData.decorator = null;
+                }
+            }
+            piece.destroyed = true;
+            piece.visual = null;
+        }
         // HQ loss is terminal at the moment the terrain destroys it. Ordinary
         // buildings and HQ-less maps make this a cheap no-op.
-        getGameState().checkHeadquartersDefeat();
+        gameState.checkHeadquartersDefeat();
     }
 }
 

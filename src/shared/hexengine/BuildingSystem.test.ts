@@ -153,4 +153,16 @@ describe('BuildingSystem.tryCapture on a composite building', () => {
         expect(hq.destroyed).toBe(true);
         expect(defeatChecks).toBe(1);
     });
+
+    it('destroys all footprint pieces when one tile of a grouped HQ sinks', () => {
+        const headquarters: Building[] = Array.from({ length: 7 }, (_, index) => ({
+            type: 'hq', q: index, r: 6, ownerIndex: 0,
+            hiddenUnitType: null, destroyed: false,
+            groupId: 'hq@player0', drawnByAnchor: index !== 0,
+        }));
+        installState(headquarters);
+        BuildingSystem.onTileSunk(4, 6);
+        expect(headquarters.every((piece) => piece.destroyed)).toBe(true);
+        expect(defeatChecks).toBe(1);
+    });
 });

@@ -119,8 +119,12 @@ export function scoreState(
         if (nearest !== Infinity) score -= weights.aggression * nearest;
     }
 
-    for (const [, building] of state.liveBuildings()) {
+    const scoredHeadquarters = new Set<string>();
+    for (const [buildingIndex, building] of state.liveBuildings()) {
         if (building.isHeadquarters) {
+            const key = building.groupId ?? `hq#${buildingIndex}`;
+            if (scoredHeadquarters.has(key)) continue;
+            scoredHeadquarters.add(key);
             if (building.ownerIndex === playerIndex) score += weights.headquartersWorth ?? 0;
             else if (building.ownerIndex !== null) score -= weights.headquartersWorth ?? 0;
             continue;
