@@ -204,13 +204,6 @@ const SHORE_GLSL = /* glsl */ `
 const GRID_COLOR = 'vec3(0.04, 0.05, 0.07)';
 const GRID_STRENGTH = '0.8';
 
-// How far over the bloom threshold the breaking surf goes, at the crest of
-// a cap. render.ts thresholds at 1.70 -- above lit sand, so nothing blooms
-// by accident -- which means the surf has to be pushed a long way past
-// white to get a halo at all. That is why this number is large: it is not
-// a brightness, it is a distance above a deliberately high bar.
-export const FOAM_BLOOM = 13.0;
-
 const GROUND_FRAGMENT = /* glsl */ `
     {
         vec2 gp = vGroundWorldPos.xz;
@@ -508,25 +501,6 @@ const GROUND_FRAGMENT = /* glsl */ `
             surf *= smoothstep(0.30, 0.70, caps + 0.30) * mix(0.5, 1.0, smoothstep(0.0, 0.45, lap));
             band = mix(band, vec3(0.95, 0.98, 1.0), clamp(surf, 0.0, 0.80));
 
-            // ---- and it BLOOMS ----
-            // Mixing white into band can never bloom on its own: band
-            // becomes diffuseColor, which is what the lighting multiplies,
-            // so a white fragment leaves the shader at whatever the sun
-            // gives it -- always at or under 1. The bloom pass thresholds
-            // just above 1 in a half-float buffer, and the only channel
-            // that reaches over is emissive. It is how the depot's energy
-            // panels glow, and totalEmissiveRadiance is already in scope
-            // here because it is declared before <color_fragment>.
-            //
-            // The exponent shapes it. It was squared at first, which kept
-            // the halo to the very crest and read as a thin bright line
-            // tracing the coast -- the drawn-outline look this whole effect
-            // has spent its life avoiding. 1.35 lets the rest of the band
-            // over the line too, so the glow is as broad as the foam is.
-            // The band is still cut by shoreCaps before it gets here, so it
-            // scatters rather than tracing the tile edge, and the 1.70
-            // threshold gates out whatever is left of the trailing wash.
-            totalEmissiveRadiance += vec3(0.92, 0.97, 1.0) * pow(surf, 1.35) * uFoamBloom;
         }
 
         // Grid last, so it draws over the beach wash rather than under it.
@@ -696,7 +670,6 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uWaterColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('WATER')) };
         shader.uniforms.uSnowStart = { value: 3.2 };
         shader.uniforms.uSnowFull = { value: 4.6 };
-        shader.uniforms.uFoamBloom = { value: FOAM_BLOOM };
         shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         // Shared by reference across every ground material -- see ViewOptions.
@@ -713,7 +686,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
                 ' uniform vec3 uRockColor;\n uniform vec3 uWaterColor;\n' +
-                ' uniform float uSnowStart;\n uniform float uSnowFull;\n uniform float uFoamBloom;\n' +
+                ' uniform float uSnowStart;\n uniform float uSnowFull;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
                 ' float gBumpH;\n' +

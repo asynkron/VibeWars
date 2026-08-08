@@ -45,7 +45,9 @@ const DEFAULTS: ViewOptions = {
     // Off: the map is small enough to read directly, and the minimap costs
     // a second render pass every frame to show it again.
     minimap: false,
-    bloom: true,
+    // Off until bloom is selective. A luminance-only full-screen pass also
+    // catches ordinary sunlit terrain in the modern HDR pipeline.
+    bloom: false,
     stats: false,
     grass: true,
 };

@@ -2,7 +2,6 @@
 import { GlowSystem } from './GlowSystem';
 import { RotorSystem } from './RotorSystem';
 import { applyDirtyPlateToModel } from './UnitShader';
-
 class ModelSystem {
     static models: Record<string, any> = {};  // Cache for loaded 3D models
 
@@ -237,17 +236,11 @@ class ModelSystem {
         return clone;
     }
 
-    // This renderer intentionally still uses its legacy linear output: the
-    // procedural terrain and unit palette were authored against it. GLTFLoader
-    // correctly tags base-colour textures as sRGB, but without an sRGB output
-    // transform that makes those textures get decoded once and never encoded
-    // again, so imported GLBs appear dramatically too dark. Changing the
-    // renderer fixes the GLB and washes out the established scene.
-    //
-    // Keep that compatibility decision local to raw authored buildings. Only
-    // colour-bearing maps are changed; metallic/roughness and normal data must
-    // remain linear. Materials and textures are cloned per source object so
-    // cached models and other instances are not mutated.
+    // The procedural scene intentionally retains its old unmanaged linear
+    // output. GLTFLoader tags base-colour textures as sRGB, which would decode
+    // them without a matching display encode and make imported buildings much
+    // too dark. Keep this compatibility local to raw authored models; data
+    // maps such as normal and metallic/roughness must remain untouched.
     private static useLegacySceneColorEncoding(model: any): void {
         const materials = new Map<any, any>();
         const textures = new Map<any, any>();
@@ -256,7 +249,7 @@ class ModelSystem {
             const existing = textures.get(texture);
             if (existing) return existing;
             const converted = texture.clone();
-            converted.encoding = THREE.LinearEncoding;
+            converted.colorSpace = THREE.NoColorSpace;
             converted.needsUpdate = true;
             textures.set(texture, converted);
             return converted;
@@ -343,7 +336,7 @@ class ModelSystem {
         painted.wrapT = map.wrapT;
         painted.repeat.copy(map.repeat);
         painted.offset.copy(map.offset);
-        painted.encoding = map.encoding;
+        painted.colorSpace = map.colorSpace;
         // The source came out of a GLB, which is already the right way up;
         // CanvasTexture flips by default and would turn the camo over.
         painted.flipY = false;
@@ -386,11 +379,9 @@ class ModelSystem {
                 : tint(child.material);
         });
         // The lit strips still have to gutter. claim() takes every material
-        // with a non-black emissive, so it runs BEFORE the roof is given one
-        // -- otherwise the camo joins the flicker and the whole roof pulses
-        // like a warning light.
+        // with a non-black emissive; the painted roof itself remains ordinary
+        // PBR paint.
         GlowSystem.claim(clone);
-
         ModelSystem.useLegacySceneColorEncoding(clone);
         return clone;
     }

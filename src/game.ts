@@ -1,5 +1,10 @@
 // game.js
 
+// Must be the first runtime dependency: the engine still consumes Three.js
+// through its historical global namespace while the package itself is now an
+// npm ES module. See threeGlobal.ts.
+import './threeGlobal';
+
 // Side-effect only: sets window.HEX_ENGINE from window.HEX_ENGINE_OPTIONS
 // (see index.html's inline script). GridSystem.getOption()/HexCoord read it
 // at runtime, so it must run before initGame(), but nothing imports its
@@ -1081,13 +1086,15 @@ function createRoads(gameState: GameState) {
 }
 
 function configureAmbientLight() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+    // Current Three's physically-correct light units are π lower than the
+    // legacy r128 equation this scene was authored against.
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5 * Math.PI);
     return ambientLight;
 }
 
 function configureDirectionalLight() {
     // Add directional light for shadows
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2); // Slightly increased intensity
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2 * Math.PI);
     directionalLight.position.set(mapWidth / 2, mapHeight * 0.6, -mapHeight / 2); // Raised height to 60% of map height
     directionalLight.castShadow = true;
 

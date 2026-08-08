@@ -21,7 +21,7 @@ const TOGGLES: ToggleSpec[] = [
     { key: 'grid', label: 'Grid', title: 'Hex grid lines over the terrain' },
     { key: 'textures', label: 'Textures', title: 'Procedural ground detail, roads and tracks' },
     { key: 'minimap', label: 'Minimap', title: 'The overview map below' },
-    { key: 'bloom', label: 'Bloom', title: 'Glow around the depots and the surf -- the most expensive pass in the frame' },
+    { key: 'bloom', label: 'Bloom', title: 'Experimental glow around emissive effects -- expensive and off by default' },
     { key: 'grass', label: 'Grass', title: 'Real grass blades on turf tiles, drawn when the camera is close' },
     { key: 'stats', label: 'Stats', title: 'Frame time, draw calls and triangles' },
 ];

@@ -28,6 +28,12 @@ THREE.Cache.enabled = true;
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setClearColor(0x000000, 0); // Set clear color to transparent black
+// Preserve the scene's established r128 colour contract on the modern
+// renderer. ACES + boosted exposure split the image in two: textured terrain
+// sank toward night while overlays, roads and units clipped toward white.
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.toneMappingExposure = 1;
 const group = new THREE.Group();
 const miniMapScene = new THREE.Scene();
 let cameraHeight = MAP_CONFIG.CAMERA.INITIAL_HEIGHT;
@@ -54,14 +60,15 @@ const mapHeight = MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3);  // ~8
 // Post-processing chain for the bloom. Built lazily in initRenderer.
 let composer: any = null;
 let bloomPass: any = null;
+let outputPass: any = null;
 
 // What blooms is decided by BRIGHTNESS ABOVE THE THRESHOLD, not by which
 // object it is. In an 8-bit buffer that could not work at all -- everything
 // bright clamps to 1.0 before the pass ever sees it -- so the composer
 // renders into a HALF-FLOAT target, and only what a shader deliberately
-// pushes over the line gets a halo: the depot's energy panels (emissive up
-// to ~3.0, driven by GlowSystem) and the breaking shore surf (FOAM_BLOOM in
-// TerrainShader, 13.0 at the crest of a cap).
+// pushes over the line gets a halo: currently the models' energy panels,
+// emissive up to ~3.0 and driven by GlowSystem. White water foam is diffuse
+// paint, not a light source, and deliberately stays below this path.
 //
 // THE THRESHOLD WAS 1.02, WHICH WAS NOT HIGH ENOUGH TO MEAN THAT. Lit
 // ground clears 1 on its own: ambient 0.5 plus directional 1.2 is 1.7 of
@@ -77,13 +84,12 @@ let bloomPass: any = null;
 // rendered as sand before, 82 of 192 after. Same fault, five times the
 // surface, and it went from a few bright patches to a white field.
 //
-// 1.70 sits above lit sand and far below both emissive sources, so the rule
-// this comment always claimed is now the rule the code follows. Raising the
-// threshold beats dimming the sand: the sand is not too bright, it just is
-// not a light.
+// 2.20 sits above sunlit terrain and below the explicit emissive sources, so the rule
+// this comment claims is the rule the code follows. Raising the threshold
+// beats dimming the sand: the sand is not too bright, it just is not a light.
 const BLOOM_STRENGTH = 0.9;
 const BLOOM_RADIUS = 0.5;
-const BLOOM_THRESHOLD = 1.70;
+const BLOOM_THRESHOLD = 2.20;
 
 function buildComposer() {
     const size = new THREE.Vector2(window.innerWidth, window.innerHeight);
@@ -100,6 +106,12 @@ function buildComposer() {
 
     bloomPass = new THREE.UnrealBloomPass(size, BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD);
     composer.addPass(bloomPass);
+    // Modern Three keeps tone mapping and the display colour-space transform
+    // in an explicit final pass when post-processing is active. Without it,
+    // enabling bloom bypasses the renderer's sRGB output path and produces a
+    // radically different image from the direct RenderPass.
+    outputPass = new THREE.OutputPass();
+    composer.addPass(outputPass);
     setBloomEnabled(viewOptions.bloom);
 }
 
@@ -122,6 +134,11 @@ function buildComposer() {
 // crests of the shore surf.
 function setBloomEnabled(on: boolean): void {
     if (bloomPass) bloomPass.enabled = on;
+    // With no effect to composite, render straight to the renderer's
+    // antialiased canvas. Leaving OutputPass enabled forces the scene through
+    // a non-multisampled intermediate target even when bloom is off, which
+    // softens every otherwise crisp edge.
+    if (outputPass) outputPass.enabled = on;
 }
 
 // The composer owns its own render targets, so resizing the renderer alone

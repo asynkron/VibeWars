@@ -2,8 +2,8 @@
 // is complete). What's left here are genuinely permanent ambient globals,
 // not migration-in-progress bridges:
 
-// three.js + loaders, loaded via CDN <script> tags in index.html (not an
-// npm dependency, so there's no module to import from).
+// Transitional global surface assembled from the npm Three.js package in
+// threeGlobal.ts. Engine modules can move to direct imports incrementally.
 declare const THREE: any;
 
 // getMinimapWorldPosition is referenced by game.ts's minimap drag/click

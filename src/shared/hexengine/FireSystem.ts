@@ -11,7 +11,7 @@
 // costs a measured 3.5-second frame, and its whole pool is four. A dozen
 // simultaneous fires would exhaust it or recompile every material on the
 // map. The glow instead comes from emissive pushed past render.ts's
-// BLOOM_THRESHOLD (1.70), so the existing UnrealBloomPass haloes it -- the
+// BLOOM_THRESHOLD (2.20), so the existing UnrealBloomPass haloes it -- the
 // same trick GlowSystem uses for the depot's energy panels.
 //
 // ONE LONG-LIVED PARTICLE SYSTEM PER FIRE, not a new one per turn. Every
@@ -55,9 +55,9 @@ const FLAME_RISE = 0.85;
 const SMOKE_RISE = 2.4;
 
 // Emissive multiplier on the flame layer. Above render.ts's
-// BLOOM_THRESHOLD of 1.70, which is what makes the UnrealBloomPass halo it
+// BLOOM_THRESHOLD of 2.20, which is what makes the UnrealBloomPass halo it
 // into something that reads as heat rather than as an orange decal.
-// 1.8, not 2.6. Additive blending SUMS overlapping sprites, so a value
+// 2.3, not 2.6. Additive blending SUMS overlapping sprites, so a value
 // chosen to bloom one particle clips every channel where twenty overlap and
 // the column goes white.
 //
@@ -65,9 +65,9 @@ const SMOKE_RISE = 2.4;
 // white by shrinking the sprites and thinning the count as well, which
 // turned a fire into orange glitter -- the volume was never the problem.
 // Big sprites, many of them, each contributing less: that is a fire.
-// Just over render.ts's BLOOM_THRESHOLD of 1.70 is all it takes, because
+// Just over render.ts's BLOOM_THRESHOLD of 2.20 is all it takes, because
 // the heat is supposed to come from the bloom pass.
-const FLAME_EMISSIVE = 1.8;
+const FLAME_EMISSIVE = 2.3;
 
 const FLAME_HOT = 0xffa528;   // saturated amber at the base -- a paler
                               // hot colour washes straight to white once

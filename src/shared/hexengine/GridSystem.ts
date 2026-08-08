@@ -179,7 +179,7 @@ class GridSystem {
                     loadedTexture.wrapS = THREE.RepeatWrapping;
                     loadedTexture.wrapT = THREE.RepeatWrapping;
                     loadedTexture.repeat.set(1, 1);
-                    loadedTexture.encoding = THREE.sRGBEncoding;
+                    loadedTexture.colorSpace = THREE.SRGBColorSpace;
                     loadedTexture.minFilter = THREE.LinearMipMapLinearFilter;
                     loadedTexture.magFilter = THREE.LinearFilter;
                     if (renderer) {
