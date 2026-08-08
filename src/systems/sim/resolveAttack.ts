@@ -137,11 +137,14 @@ export function resolveAttack(
         return { attackerIndex, defenderIndex, hits, impacts };
     }
 
-    // Single-target effects. 'cannon' MUST be listed here: anything not
-    // matched below deals no damage at all, so a new effect name silently
-    // makes the unit harmless to the search.
+    // Single-target effects. 'cannon' and 'flak' MUST be listed here:
+    // anything not matched below deals no damage at all, so a new effect
+    // name silently makes the unit harmless to the search. Flak is a burst
+    // of many rounds on screen and one damage number here, exactly like the
+    // cannon -- the volley below is the effect that splits its total, and
+    // this is not that.
     if (attackEffect === 'projectile' || attackEffect === 'laser'
-        || attackEffect === 'cannon') {
+        || attackEffect === 'cannon' || attackEffect === 'flak') {
         const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);
         hits.push({ unitIndex: defenderIndex, damage: Math.floor(damage * classModifier) });
     } else if (attackEffect === 'rocketBarrage') {

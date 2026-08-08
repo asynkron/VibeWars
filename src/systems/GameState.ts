@@ -145,8 +145,17 @@ class GameState {
                     (b) => !b.destroyed && b.q === unit.q && b.r === unit.r && b.ownerIndex === unit.playerIndex
                 );
                 if (building && unit.hp < unit.maxHp) {
+                    const before = unit.hp;
                     unit.hp = Math.min(unit.maxHp, unit.hp + GameState.FACTORY_REPAIR_HP);
                     UnitSystem.updateUnitVisuals(unit);
+                    // SAY SO. This was silent: two hp went on at the top of
+                    // the turn with nothing on screen to mark it, and on a
+                    // ten-hp bar that is one pip. The only way to know the
+                    // factory was working was to trust that it was. Same
+                    // floating number the Pike's repair crew puts up, from
+                    // the same place -- see UnitSystem.repair.
+                    VisualizationSystem.showDamageNumber(
+                        unit.visualUnit.position.clone(), unit.hp - before);
                 }
             }
         });

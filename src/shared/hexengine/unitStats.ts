@@ -278,7 +278,10 @@ export const UNIT_TYPES = {
             model: "assets/units/halberd-aa-tank.glb",
             scale: 0.2,
             rotation: 0,
-            attackEffect: 'projectile',
+            // An AA gun, not a missile launcher. `projectile` threw the same
+            // arcing rocket every other unit throws, which is the one thing
+            // an anti-air mount does not do.
+            attackEffect: 'flak',
             footprintTexture: 'assets/textures/tracks2.png',
             terrainCosts: {
                 WATER: null,
@@ -291,7 +294,9 @@ export const UNIT_TYPES = {
             teamColorMaterial: 'teamCamo',
             sounds: {
                 movement: 'engine_heavy',
-                attack: 'rlauncher3'
+                // The burst plays its own rounds -- see showFlakEffect --
+                // so this is the single fallback bark, not a rocket whoosh.
+                attack: 'cannon'
             }
         },
         "Lynx": {
@@ -339,12 +344,20 @@ export const UNIT_TYPES = {
             attack: 5,
             model: "assets/units/nightjar-attack-helo.glb",
             // 1.5x the original 0.11. Both aircraft read as too small beside
-            // the ground units -- they sit a whole hex-height above the
+            // the ground units -- they sit several hex-heights above the
             // terrain (flightAltitude below), so perspective shrinks them
             // further than their scale suggests.
             scale: 0.165,
             rotation: 0,
-            flightAltitude: 1.2,  // hovers above terrain/units
+            // ABOVE THE CANOPY, and the canopy is the number that sets it.
+            // The tallest tree the generator can produce is 4.12 -- the top
+            // rung of makeConifer's height ladder, 3.58, times the 1.15
+            // ceiling on the per-placement scale in createProceduralDecoration
+            // -- and on the shipped map the crowns reach 3.32. At the 1.2
+            // this sat at, back when the tallest conifer was 1.65, a
+            // helicopter hovered inside the branches of anything it flew
+            // over. Raise the trees again and this has to follow.
+            flightAltitude: 4.3,
             // Rocket flurry like the artillery barrage VISUALLY, but every
             // rocket goes at the target hex: several small hits on one
             // unit, no splash, no craters.
@@ -382,7 +395,10 @@ export const UNIT_TYPES = {
             // Shrike cruises higher still, so it needs it more.
             scale: 0.18,
             rotation: 0,
-            flightAltitude: 2.5,  // cruises higher than the helicopter
+            // Clear of the Nightjar as well as the trees -- the two must
+            // not read as flying at the same level, or an air stack over one
+            // hex is unreadable. See the derivation on the Nightjar.
+            flightAltitude: 5.8,
             attackEffect: 'projectile',
             footprintTexture: null,  // Flies -- leaves no tracks
             terrainCosts: {

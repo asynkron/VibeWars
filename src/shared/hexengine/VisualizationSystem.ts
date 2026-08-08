@@ -1093,12 +1093,25 @@ class VisualizationSystem {
     // it (legacy fallback) each rocket scatters randomly like before. This
     // effect no longer applies craters; that's game logic, executed by
     // UnitSystem.attack from the same resolved impacts.
+    // WHERE THE ROCKETS LEAVE FROM IS THE CALLER'S BUSINESS, because this
+    // function cannot know it. It used to put every launch a flat metre over
+    // the terrain of the firing hex -- fine for artillery, which is parked on
+    // the ground, and wrong for the attack helicopter, whose rockets left
+    // from under its own belly and climbed to it. A unit that flies has to
+    // hand in the position it is actually flying at; see UnitSystem.attack.
+    //
+    // The arc is the caller's too, for the same reason. A howitzer lobs. A
+    // helicopter fires straight at what it can see, and an arc on a
+    // direct-fire weapon reads as the rocket losing its way.
     static showRocketBarrageEffect(startHex: any, targetHex: any, options: any = {}) {
         const {
             impacts = null,
             delayBetweenShots = 100, // milliseconds
             projectileScale = 0.4, // Smaller than regular projectile
-            maxInFlight = 3 // Maximum number of rockets in flight at once
+            maxInFlight = 3, // Maximum number of rockets in flight at once
+            arcHeight = 2, // 0 for direct fire
+            launchPos = null, // world position to fire from; terrain if absent
+            impactPos = null // world position to hit; terrain if absent
         } = options;
         const projectileCount = impacts ? impacts.length : (options.projectileCount ?? 6);
 
@@ -1144,12 +1157,15 @@ class VisualizationSystem {
             // Calculate start and end positions
             const startCoord = new HexCoord(startHex.userData.q, startHex.userData.r);
             const endCoord = new HexCoord(randomTarget.userData.q, randomTarget.userData.r);
-            const startPos = startCoord.getWorldPosition();
-            const endPos = endCoord.getWorldPosition();
+            const startPos = launchPos ? launchPos.clone() : startCoord.getWorldPosition();
+            const endPos = impactPos ? impactPos.clone() : endCoord.getWorldPosition();
 
-            // Adjust Y positions based on terrain height
-            startPos.y = TerrainSystem.getHeight(startHex) + 1;
-            endPos.y = TerrainSystem.getHeight(randomTarget) + 1;
+            // Only fall back to the terrain when the caller did not say. A
+            // barrage scatters across several hexes, so its impacts have to
+            // follow the ground; a volley all lands on one unit and the
+            // caller passes that unit's position instead.
+            if (!launchPos) startPos.y = TerrainSystem.getHeight(startHex) + 1;
+            if (!impactPos) endPos.y = TerrainSystem.getHeight(randomTarget) + 1;
 
             // Add projectile to scene at start position
             projectile.position.copy(startPos);
@@ -1157,7 +1173,6 @@ class VisualizationSystem {
 
             // Animation parameters
             const duration = 500; // milliseconds
-            const arcHeight = 2; // maximum height of the arc
             let startTime: any = null;
 
             // Animate the projectile
@@ -1364,6 +1379,205 @@ class VisualizationSystem {
     // to the target, and an impact flash. Deliberately NOT showAttackEffect,
     // which loads a missile model and lobs it along a parabola with a jet
     // whoosh -- that is a rocket, and armour does not fire rockets.
+    // Anti-air fire: a burst from an autocannon, bursting in the air.
+    //
+    // NOT A ROCKET, which is what the Halberd used to throw. A missile is
+    // one object that flies to one point; flak is a stream of rounds and a
+    // cloud of small detonations around the aircraft, and the difference is
+    // most of what makes an AA gun read as an AA gun.
+    //
+    // THE BURSTS GO OFF AT THE TARGET'S OWN ALTITUDE, which is why the
+    // caller passes impactPos rather than letting this derive a point from
+    // the terrain. A helicopter hovers 4.3 above its hex -- see
+    // unitStats -- and flak that detonates on the ground under it is just
+    // a firework.
+    //
+    // TWO LIGHTS FOR THE WHOLE BURST, not one per round: LightPool holds
+    // four, and a fourteen-round burst claiming one each would starve every
+    // other effect on the board. One sits at the muzzle, one jumps to the
+    // newest detonation.
+    static showFlakEffect(startHex: any, targetHex: any, options: any = {}) {
+        const {
+            rounds = 14,
+            interval = 60,       // ms between rounds -- the dakka rate
+            flightDuration = 120, // ms muzzle to target: flat and fast
+            burstDuration = 240,  // ms for one airburst to bloom and fade
+            // MOST OF IT MISSES, and that is the point of the weapon.
+            // Everything used to burst within 0.42 of the hull, which is a
+            // gun that cannot miss firing fourteen point-blank hits -- the
+            // damage number says one attack, and the screen said sixty.
+            // About a fifth burst on the aircraft; the rest are strung out
+            // around it.
+            closeFraction = 0.22,
+            closeSpread = 0.4,   // how tight the ones that find it are
+            missLateral = 1.1,   // sideways and vertical wander of the rest
+            missRange = 2.6,     // short and long -- fuze error, the big one
+            missMin = 1.0,       // and never nearer than this, see below
+            launchPos = null,
+            impactPos = null,
+        } = options;
+
+        const startPos = launchPos ? launchPos.clone()
+            : new HexCoord(startHex.userData.q, startHex.userData.r).getWorldPosition();
+        if (!launchPos) startPos.y = TerrainSystem.getHeight(startHex) + 0.9;
+        const aimPos = impactPos ? impactPos.clone()
+            : new HexCoord(targetHex.userData.q, targetHex.userData.r).getWorldPosition();
+        if (!impactPos) aimPos.y = TerrainSystem.getHeight(targetHex) + 0.7;
+
+        const heading = new THREE.Vector3().subVectors(aimPos, startPos).normalize();
+        const aim = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), heading);
+
+        const group = new THREE.Group();
+        scene.add(group);
+
+        // Muzzle flash, re-punched on every round rather than one per shot.
+        const flashGeometry = new THREE.ConeGeometry(0.16, 0.5, 8, 1, true);
+        const flashMaterial = new THREE.MeshBasicMaterial({
+            color: 0xffe0a0, transparent: true, opacity: 0, depthWrite: false,
+        });
+        const flash = new THREE.Mesh(flashGeometry, flashMaterial);
+        flash.position.copy(startPos).addScaledVector(heading, 0.3);
+        flash.setRotationFromQuaternion(aim);
+        group.add(flash);
+
+        // Shared by every round: they are identical streaks and none of
+        // them outlives its own flight.
+        const tracerGeometry = new THREE.CylinderGeometry(0.028, 0.012, 0.55, 5, 1);
+        const tracerMaterial = new THREE.MeshBasicMaterial({
+            color: 0xfff4c8, transparent: true, opacity: 1, depthWrite: false,
+        });
+
+        // Dim and short-reach on purpose: the muzzle sits a third of a unit
+        // off the ground, so anything brighter floodlights the grass around
+        // the gun and the burst itself disappears into the glare.
+        const muzzleLight = LightPool.claim(0xffc070, 4, 3.2);
+        if (muzzleLight) { muzzleLight.position.copy(flash.position); group.add(muzzleLight); }
+        const burstLight = LightPool.claim(0xffa848, 12, 7);
+        if (burstLight) { burstLight.intensity = 0; group.add(burstLight); }
+
+        // Sideways and along the line of fire, so the scatter can be shaped
+        // the way a real one is: much looser in range than in bearing.
+        const lateral = new THREE.Vector3(-heading.z, 0, heading.x).normalize();
+        const UP = new THREE.Vector3(0, 1, 0);
+        // Three uniforms summed: near enough to a bell curve to keep the
+        // bulk of the misses close and the odd one wide, which is what
+        // scatter looks like. A flat random spreads them evenly and reads
+        // as a grid.
+        const bell = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+
+        // Every round gets its own point, drawn up front so the animation
+        // loop does no allocation.
+        const shots = Array.from({ length: rounds }, (_, i) => {
+            const close = Math.random() < closeFraction;
+            const to = aimPos.clone();
+            if (close) {
+                to.add(new THREE.Vector3(bell() * closeSpread, bell() * closeSpread * 0.7, bell() * closeSpread));
+            } else {
+                const off = new THREE.Vector3()
+                    .addScaledVector(heading, bell() * missRange)
+                    .addScaledVector(lateral, bell() * missLateral)
+                    .addScaledVector(UP, bell() * missLateral * 0.8);
+                // PUSHED OFF THE HULL. A bell curve is centred on the thing
+                // it is scattering around, so drawing misses from one put
+                // nearly forty percent of them inside half a unit of the
+                // aircraft -- misses that land on the target are just hits
+                // with extra steps. The shape stays; the middle is vacated.
+                if (off.length() < missMin) off.setLength(missMin + Math.random() * 0.6);
+                to.add(off);
+            }
+            // Never in the dirt: a shell fused for an aircraft does not go
+            // off underfoot, and a burst inside the terrain is invisible
+            // anyway.
+            to.y = Math.max(to.y, startPos.y + 0.4);
+            const tracer = new THREE.Mesh(tracerGeometry, tracerMaterial);
+            tracer.setRotationFromQuaternion(
+                new THREE.Quaternion().setFromUnitVectors(
+                    new THREE.Vector3(0, 1, 0),
+                    new THREE.Vector3().subVectors(to, startPos).normalize()));
+            tracer.visible = false;
+            group.add(tracer);
+            return { at: i * interval, to, tracer, burst: false, burstAt: 0 };
+        });
+
+        const total = (rounds - 1) * interval + flightDuration + burstDuration;
+        let startTime: any = null;
+        let lastSounded = -1;
+
+        const step = (timestamp: number) => {
+            if (!startTime) startTime = timestamp;
+            const elapsed = timestamp - startTime;
+
+            let muzzle = 0;
+            let brightest = 0;
+
+            for (let i = 0; i < shots.length; i++) {
+                const shot = shots[i];
+                const since = elapsed - shot.at;
+                if (since < 0) continue;
+
+                // The bark, every other round -- one per shot at this rate
+                // is mud rather than rhythm.
+                if (i > lastSounded && i % 2 === 0) {
+                    lastSounded = i;
+                    AudioSystem.playSound('cannon', 0.22);
+                }
+
+                const flight = Math.min(since / flightDuration, 1);
+                if (flight < 1) {
+                    shot.tracer.visible = true;
+                    shot.tracer.position.copy(startPos).lerp(shot.to, flight);
+                    muzzle = Math.max(muzzle, 1 - since / (flightDuration * 0.5));
+                    continue;
+                }
+                shot.tracer.visible = false;
+
+                if (!shot.burst) {
+                    shot.burst = true;
+                    // THE GAME'S OWN EXPLOSION, cut down to a flak puff. Its
+                    // defaults are a hundred smoke sprites over a second and
+                    // a half -- a vehicle brewing up. Fourteen of those in
+                    // one burst is two thousand sprites alive at once, and
+                    // each one reads far too big for a shell going off
+                    // beside an aircraft.
+                    this.createExplosion(shot.to, {
+                        particleCount: 14,
+                        size: 0.5,
+                        duration: 600,
+                        particleBaseSize: 0.22,
+                        particleMaxSizeFactor: 1.3,
+                    });
+                    AudioSystem.playSound('explosion', 0.16);
+                }
+                const bloom = Math.min((since - flightDuration) / burstDuration, 1);
+                if (bloom < 1) {
+                    brightest = Math.max(brightest, 1 - bloom);
+                    if (burstLight) burstLight.position.copy(shot.to);
+                }
+            }
+
+            flashMaterial.opacity = Math.max(0, muzzle);
+            flash.scale.setScalar(1 + Math.max(0, muzzle) * 0.6);
+            if (muzzleLight) muzzleLight.intensity = 4 * Math.max(0, muzzle);
+            if (burstLight) burstLight.intensity = 12 * brightest;
+
+            if (elapsed < total) {
+                requestAnimationFrame(step);
+                return;
+            }
+
+            LightPool.release(muzzleLight);
+            LightPool.release(burstLight);
+            scene.remove(group);
+            flashGeometry.dispose();
+            flashMaterial.dispose();
+            tracerGeometry.dispose();
+            tracerMaterial.dispose();
+
+        };
+
+        requestAnimationFrame(step);
+    }
+
     static showCannonShotEffect(startHex: any, targetHex: any) {
         AudioSystem.playSound('cannon', 0.5);
 

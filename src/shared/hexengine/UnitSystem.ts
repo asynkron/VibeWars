@@ -861,17 +861,11 @@ class UnitSystem {
     }
 
     static applyDamage(unit: GameUnit, damage: number): void {
-        // Update HP in both the game state unit and the visual unit
         unit.hp -= damage;
-        unit.visualUnit.userData.hp = unit.hp;  // Sync the HP values
-
-        // Update the sprite to show new HP
-        if (unit.visualUnit.userData.sprite) {
-            const newSprite = this.createUnitSprite(unit.type, unit.hp, unit.maxHp, unit.playerIndex);
-            unit.visualUnit.userData.sprite.material.map.dispose();
-            unit.visualUnit.userData.sprite.material.map = newSprite.material.map;
-            unit.visualUnit.userData.sprite.material.needsUpdate = true;
-        }
+        // Redrawing the bar is not this function's business -- it is
+        // updateUnitVisuals', and having two copies of it is how the heal
+        // paths ended up with a version that looked in the wrong place.
+        this.updateUnitVisuals(unit);
     }
 
     static getAttackAngle(startHex: any, targetHex: any): number {
@@ -986,8 +980,33 @@ class UnitSystem {
             if (effect === 'rocketVolley' && vfxImpacts.length === 0) {
                 vfxImpacts = Array.from({ length: 4 }, () => ({ q: defender.q, r: defender.r, craterDelta: 0 }));
             }
-            VisualizationSystem.showRocketBarrageEffect(attackerHex, defenderHex, { impacts: vfxImpacts });
+            // A VOLLEY IS DIRECT FIRE FROM THE AIRCRAFT ITSELF. The barrage
+            // path below it belongs to artillery: parked on the ground,
+            // lobbing shells over a spread of hexes, so launching a metre
+            // above the terrain and arcing is right for that and only that.
+            // The Nightjar hovers flightAltitude above its hex -- 4.3 -- and
+            // firing from the terrain under it sent its rockets up out of the
+            // ground and climbing.
+            const volleyOptions = effect !== 'rocketVolley' ? {} : {
+                arcHeight: 0,
+                launchPos: attacker.visualUnit?.getWorldPosition(new THREE.Vector3()),
+                impactPos: defender.visualUnit?.getWorldPosition(new THREE.Vector3()),
+            };
+            VisualizationSystem.showRocketBarrageEffect(attackerHex, defenderHex, {
+                impacts: vfxImpacts,
+                ...volleyOptions,
+            });
             // Wait for all rockets to finish
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            this.applyResolvedOutcome(outcome);
+        } else if (effect === 'flak') {
+            // Fired from the gun, bursting at whatever height the target is
+            // actually at -- see showFlakEffect. Same reason the helicopter's
+            // volley hands in positions: the effect cannot know them.
+            VisualizationSystem.showFlakEffect(attackerHex, defenderHex, {
+                launchPos: attacker.visualUnit?.getWorldPosition(new THREE.Vector3()),
+                impactPos: defender.visualUnit?.getWorldPosition(new THREE.Vector3()),
+            });
             await new Promise(resolve => setTimeout(resolve, 1000));
             this.applyResolvedOutcome(outcome);
         } else if (effect === 'laser') {
@@ -1113,21 +1132,34 @@ class UnitSystem {
         });
     }
 
+    // The one place that redraws a unit's health bar. Every path that
+    // changes hp goes through here.
+    //
+    // THE SPRITE IS NOT A CHILD OF THE UNIT. createUnit does
+    // `scene.add(unitSprite)` and keeps the handle on
+    // visualUnit.userData.sprite -- the bar has to stay upright and
+    // unscaled while the model under it is rotated and scaled per type, so
+    // it cannot ride in the unit's own transform.
+    //
+    // This used to search visualUnit.children for a THREE.Sprite. There is
+    // never one there, so it found nothing and returned having done
+    // nothing -- and every heal in the game moved the hp while the bar went
+    // on showing the old number. Factory repair looked broken because of
+    // it: the unit really was being patched up, two hp a turn, with no way
+    // to see it. Damage looked fine only because applyDamage reached for
+    // userData.sprite instead of coming through here.
     static updateUnitVisuals(unit: GameUnit): void {
-        const sprite = unit.visualUnit.children.find((child: any) => child instanceof THREE.Sprite);
-        if (sprite) {
-            sprite.material.map.dispose();
-            const newSprite = this.createUnitSprite(unit.type, unit.hp, unit.maxHp, unit.playerIndex);
-            sprite.material.map = newSprite.material.map;
-            // Swapping the map is not enough -- three.js re-uploads a
-            // texture only when it is told the material changed. Without
-            // this the health bar keeps drawing the old canvas, which is
-            // exactly what applyDamage does two lines further on and what
-            // this one was missing. Also mirror the hp onto userData, which
-            // is where the rest of the renderer reads it.
-            sprite.material.needsUpdate = true;
-            unit.visualUnit.userData.hp = unit.hp;
-        }
+        // Mirrored onto userData whether or not there is a bar to redraw --
+        // it is where the rest of the renderer reads hp from.
+        unit.visualUnit.userData.hp = unit.hp;
+        const sprite = unit.visualUnit.userData.sprite;
+        if (!sprite) return;
+        const newSprite = this.createUnitSprite(unit.type, unit.hp, unit.maxHp, unit.playerIndex);
+        sprite.material.map.dispose();
+        sprite.material.map = newSprite.material.map;
+        // Swapping the map is not enough -- three.js re-uploads a texture
+        // only when it is told the material changed.
+        sprite.material.needsUpdate = true;
     }
 
     static removeUnit(unit: GameUnit): void {
