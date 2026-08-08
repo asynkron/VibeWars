@@ -11,6 +11,7 @@ import {
     updateCameraZoom, setupMinimap, animate, getCameraHeight, setCameraHeight,
     resizeComposer,
 } from './render';
+import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
 import { GameState } from './systems/GameState';
 import { RoadSystem } from './shared/hexengine/RoadSystem';
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
@@ -22,8 +23,6 @@ import { BuildingSystem } from './shared/hexengine/BuildingSystem';
 import { DIFFICULTIES } from './systems/ai/AIController';
 import { AudioSystem } from './shared/hexengine/AudioSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
-import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
-import { GroundSystem } from './shared/hexengine/GroundSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
@@ -546,9 +545,8 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // Set up lighting
     initializeLighting();
 
-    // The world the board sits in: sky at infinity, ground underfoot.
+    // Initialize skybox
     SkyboxSystem.init();
-    GroundSystem.init();
 
     // Create map first and wait for it to be ready
     const { mapCenterX, mapCenterZ } = await GridSystem.createMap(gameState);
@@ -565,10 +563,6 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // ground. Decorating afterwards lets every piece sample the REAL,
     // final surface (GridSystem.surfaceHeightAt) and sit on it.
     GridSystem.smoothTerrain();
-
-    // After smoothing, so the apron can weld itself to the rim the board
-    // actually ends at rather than the heights it was authored with.
-    GridSystem.createBorderRing();
 
     // Then, and only then, plant anything. Decoration used to happen while
     // each hex was built, which is before the roads exist -- so trees grew

@@ -82,26 +82,14 @@ const BLOOM_STRENGTH = 0.9;
 const BLOOM_RADIUS = 0.5;
 const BLOOM_THRESHOLD = 1.70;
 
-// The renderer is built with antialias: true, and the composer was quietly
-// throwing it away. That flag multisamples the DEFAULT framebuffer, but a
-// composed frame never touches it -- the scene goes into the composer's own
-// render target, and a plain WebGLRenderTarget has one sample per pixel. So
-// every edge in the scene was aliased whenever bloom was on, and crisp the
-// moment it was switched off, which is a confusing thing to chase.
-//
-// WebGLMultisampleRenderTarget is the same target with N samples per pixel,
-// resolved when it is read. WebGL2 only, which this context is.
-const COMPOSER_SAMPLES = 4;
-
 function buildComposer() {
     const size = new THREE.Vector2(window.innerWidth, window.innerHeight);
-    const target = new THREE.WebGLMultisampleRenderTarget(size.x, size.y, {
+    const target = new THREE.WebGLRenderTarget(size.x, size.y, {
         minFilter: THREE.LinearFilter,
         magFilter: THREE.LinearFilter,
         format: THREE.RGBAFormat,
         type: THREE.HalfFloatType,
     });
-    target.samples = COMPOSER_SAMPLES;
 
     composer = new THREE.EffectComposer(renderer, target);
     composer.setSize(size.x, size.y);
