@@ -654,7 +654,7 @@ function addMesh(parent: any, geometry: any, color: number, x: number, y: number
 }
 
 // Conifer: brown trunk + 2-3 stacked dark-green cones.
-function makeConifer(rng: () => number, index: number = 0, total: number = 1): any {
+function makeConifer(rng: () => number, index: number = 0, total: number = 1, dead: boolean = false): any {
     const tree = new THREE.Group();
     // A LADDER ACROSS THE VARIANTS, not a random draw.
     //
@@ -682,6 +682,25 @@ function makeConifer(rng: () => number, index: number = 0, total: number = 1): a
     // conifers no longer share the exact same lumps.
     const seed = Math.floor(height * 4096);
     const trunkH = height * 0.22;
+    if (dead) {
+        // A snag: the bole carries on all the way up instead of stopping
+        // where the crown would have taken over, and the branch tiers are
+        // left as bare stubs. Same height ladder as the living tree, so a
+        // dead spruce still stands as tall as the one beside it.
+        const bare = addMesh(tree, new THREE.CylinderGeometry(0.022, 0.075, height, 5), vary(0x6b6055, rng, 0.15), 0, height / 2, 0);
+        bare.rotation.z = (rng() - 0.5) * 0.12;
+        const stubs = 3 + Math.floor(rng() * 4);
+        for (let i = 0; i < stubs; i++) {
+            const len = 0.10 + rng() * 0.16;
+            const y = height * (0.30 + 0.60 * (i / stubs)) + rng() * 0.06;
+            const stub = addMesh(tree, new THREE.CylinderGeometry(0.011, 0.024, len, 4), vary(0x5c5145, rng, 0.15), 0, y, 0);
+            // Downswept, the way a dead conifer's branches hang.
+            stub.rotation.z = 1.05 + rng() * 0.75;
+            stub.rotation.y = rng() * Math.PI * 2;
+            stub.translateY(len / 2);
+        }
+        return tree;
+    }
     addMesh(tree, new THREE.CylinderGeometry(0.05, 0.07, trunkH, 5), vary(0x5a4028, rng, 0.15), 0, trunkH / 2, 0);
     const layers = 2 + Math.floor(rng() * 2);
     for (let i = 0; i < layers; i++) {
@@ -815,7 +834,7 @@ function addCluster(parent: any, rng: () => number, at: any, radius: number, col
 // not keep flying outward), and a small crown at every tip. The GAPS
 // between those crowns are the point: they are what lets the branches
 // show through, and branches showing through is what says "tree".
-function makeDeciduous(rng: () => number): any {
+function makeDeciduous(rng: () => number, index: number = 0, total: number = 1, dead: boolean = false, autumn: boolean = false): any {
     const tree = new THREE.Group();
     const height = 1.15 + rng() * 0.75;
     // Trunk thickness and crown blobs are absolute sizes, unlike everything
@@ -824,10 +843,34 @@ function makeDeciduous(rng: () => number): any {
     // same small tufts. This carries them up with it.
     const girth = height / 1.2;
     const seed = Math.floor(height * 4096);
-    const barkColor = vary(0x6b4a2c, rng, 0.15);
+    // Weathered grey once the tree is dead -- live bark under a bare crown
+    // reads as a tree that has merely lost its leaves for the season.
+    const barkColor = dead ? vary(0x6e6257, rng, 0.15) : vary(0x6b4a2c, rng, 0.15);
     // Deep forest green to yellowish light green, per TREE -- the low end
     // dips into the conifer range on purpose.
-    const leafColor = lerpHex(0x395a2b, 0x5f7d36, seedT(seed * 97));
+    //
+    // A TURNED TREE WALKS THE VARIANTS, yellow through orange to red,
+    // rather than drawing a colour. Eight prototypes exist for this kind;
+    // rolling the shade inside the maker would give eight arbitrary points
+    // on the ramp and could easily land all of them in the same third of
+    // it. By index, the set is guaranteed to hold all three colours.
+    //
+    // The crown shader multiplies this base by a fixed hue walk -- cool,
+    // mid, warm -- so the dots vary around whatever it is handed. Given a
+    // warm base those factors stay inside the warm family, which is why
+    // this needs no shader change at all.
+    // PULLED MOST OF THE WAY BACK TO GREEN. The pure ramp read as painted
+    // rather than turned -- a crown of saturated yellow next to a spruce is
+    // a colour swatch, not a tree. Muting it to roughly half green leaves
+    // the hue readable while keeping the canopy in the same family as
+    // everything around it, and varying how far each tree comes back means
+    // one is barely on the turn while its neighbour is well into it.
+    const turn = total > 1 ? index / (total - 1) : rng();
+    const turned = turn < 0.5 ? lerpHex(0xd8b62c, 0xcf7526, turn * 2)
+                              : lerpHex(0xcf7526, 0xa3332a, turn * 2 - 1);
+    const leafColor = autumn
+        ? lerpHex(turned, 0x395a2b, 0.42 + rng() * 0.20)
+        : lerpHex(0x395a2b, 0x5f7d36, seedT(seed * 97));
 
     // The bole: kept bare, so the crown sits ON something visible.
     const boleH = height * (0.44 + rng() * 0.12);
@@ -861,14 +904,18 @@ function makeDeciduous(rng: () => number): any {
             // the crown flattens into a spread cone.
             sdir.lerp(LIMB_UP, 0.22 + rng() * 0.14).normalize();
             const twig = growLimb(tree, rng, limb.tip, sdir, height * (0.17 + rng() * 0.10), rPrim * 0.45, rPrim * 0.22, 2, 4, 0.05, 0.34, barkColor);
-            addCluster(tree, rng, twig.tip, (0.15 + rng() * 0.055) * girth, leafColor, seed + cluster++);
+            // THE ONLY DIFFERENCE FOR A DEAD TREE is that the crown never
+            // goes on. The bole, the primaries and the twigs are the same
+            // structure -- which is the point: a standing dead tree is the
+            // tree it was, minus its leaves, not a different prop.
+            if (!dead) addCluster(tree, rng, twig.tip, (0.15 + rng() * 0.055) * girth, leafColor, seed + cluster++);
         }
     }
     // One more mass over the fork itself, filling the hole the outward
     // primaries leave in the middle of the canopy.
     const crownTop = bole.tip.clone();
     crownTop.y += height * 0.16;
-    addCluster(tree, rng, crownTop, (0.17 + rng() * 0.05) * girth, leafColor, seed + cluster);
+    if (!dead) addCluster(tree, rng, crownTop, (0.17 + rng() * 0.05) * girth, leafColor, seed + cluster);
     return tree;
 }
 
@@ -1062,6 +1109,39 @@ function pick(kind: string, make: (rng: () => number, index: number, total: numb
         library.set(kind, variants);
     }
     return variants[Math.floor(rng() * variants.length)].clone();
+}
+
+// A living deciduous tree has turned this often: the same tree with an
+// autumn crown. Rolled at placement for the reason DEAD_TREE_CHANCE is --
+// fifteen percent of eight prototypes is one expected variant, and a
+// library is not a population.
+const AUTUMN_TREE_CHANCE = 0.15;
+
+// A tree is drawn dead this often: bole and branches, no crown.
+//
+// ROLLED HERE AT PLACEMENT, not inside the maker. pick() builds its eight
+// prototypes once for the life of the process, so a 5% test inside
+// makeConifer would be five percent OF EIGHT DRAWS -- four tenths of a
+// dead tree expected in the entire build, and most builds would contain
+// none at all. The dead forms are their own library kinds instead, and the
+// coin is flipped per tree placed.
+const DEAD_TREE_CHANCE = 0.05;
+
+// Draw a living tree, or occasionally the standing dead version of it.
+function pickTree(kind: 'conifer' | 'deciduous', rng: () => number): any {
+    const dead = rng() < DEAD_TREE_CHANCE;
+    if (kind === 'conifer') {
+        return dead
+            ? pick('conifer-dead', (r, i, n) => makeConifer(r, i, n, true), rng)
+            : pick('conifer', makeConifer, rng);
+    }
+    if (dead) return pick('deciduous-dead', (r, i, n) => makeDeciduous(r, i, n, true), rng);
+    // Only a living tree can have turned -- a dead one has no crown to
+    // colour, and rolling for it would quietly halve the dead rate.
+    if (rng() < AUTUMN_TREE_CHANCE) {
+        return pick('deciduous-autumn', (r, i, n) => makeDeciduous(r, i, n, false, true), rng);
+    }
+    return pick('deciduous', makeDeciduous, rng);
 }
 
 // Ground sampler for the tile currently being decorated, set by
@@ -1274,7 +1354,8 @@ export function createProceduralDecoration(
             for (let i = 0; i < trees; i++) {
                 // The occasional grove slot is a dead tree instead.
                 const roll = rng();
-                const tree = roll < 0.10 ? pick('deadTree', makeDeadTree, rng) : roll < 0.68 ? pick('conifer', makeConifer, rng) : pick('deciduous', makeDeciduous, rng);
+                const tree = roll < 0.10 ? pick('deadTree', makeDeadTree, rng)
+                    : roll < 0.68 ? pickTree('conifer', rng) : pickTree('deciduous', rng);
                 const s = 0.8 + rng() * 0.35;
                 tree.scale.set(s, s, s);
                 place(group, rng, tree, 0.55);
@@ -1295,7 +1376,7 @@ export function createProceduralDecoration(
                 }
             } else if (roll < 0.45) {
                 // A lone deciduous tree.
-                const tree = pick('deciduous', makeDeciduous, rng);
+                const tree = pickTree('deciduous', rng);
                 place(group, rng, tree, 0.4);
             } else if (roll < 0.52) {
                 // A lone dead tree or a fallen log on open ground.
@@ -1330,7 +1411,7 @@ export function createProceduralDecoration(
             }
             // Uncommon but possible: a lone small conifer on the mountain.
             if (rng() < 0.08) {
-                const pine = pick('conifer', makeConifer, rng);
+                const pine = pickTree('conifer', rng);
                 const s = 0.45 + rng() * 0.2;
                 pine.scale.set(s, s, s);
                 place(group, rng, pine, 0.35);
