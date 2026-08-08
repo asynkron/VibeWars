@@ -28,6 +28,11 @@ export interface ViewOptions {
     // Frame time and draw calls. A development readout, so it is off by
     // default and deliberately NOT a shader uniform -- see frameStats.ts.
     stats: boolean;
+    // Real grass blades close up. Geometry rather than a shader term, so
+    // this hides the meshes -- see GrassSystem. The ground shader's own
+    // `blades` noise carries the turf either way, which is what makes this
+    // safe to turn off.
+    grass: boolean;
 }
 
 const STORAGE_KEY = 'vibewars.viewOptions';
@@ -42,6 +47,7 @@ const DEFAULTS: ViewOptions = {
     minimap: false,
     bloom: true,
     stats: false,
+    grass: true,
 };
 
 function load(): ViewOptions {
@@ -57,6 +63,7 @@ function load(): ViewOptions {
             minimap: typeof stored.minimap === 'boolean' ? stored.minimap : DEFAULTS.minimap,
             bloom: typeof stored.bloom === 'boolean' ? stored.bloom : DEFAULTS.bloom,
             stats: typeof stored.stats === 'boolean' ? stored.stats : DEFAULTS.stats,
+            grass: typeof stored.grass === 'boolean' ? stored.grass : DEFAULTS.grass,
         };
     } catch {
         return { ...DEFAULTS };

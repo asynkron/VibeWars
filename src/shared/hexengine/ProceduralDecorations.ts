@@ -654,9 +654,29 @@ function addMesh(parent: any, geometry: any, color: number, x: number, y: number
 }
 
 // Conifer: brown trunk + 2-3 stacked dark-green cones.
-function makeConifer(rng: () => number): any {
+function makeConifer(rng: () => number, index: number = 0, total: number = 1): any {
     const tree = new THREE.Group();
-    const height = 0.95 + rng() * 0.7;
+    // A LADDER ACROSS THE VARIANTS, not a random draw.
+    //
+    // There are only eight conifers in the whole game -- pick() builds the
+    // library once and every tree on every map is a clone of one of them.
+    // Randomising the height here therefore samples the range eight times
+    // in total, not once per tree: the first attempt at this drew a skewed
+    // random height hoping for the occasional spire, and on the loaded map
+    // the tallest thing that existed was 2.41, because none of the eight
+    // fixed seeds happened to roll high. Chance cannot deliver a rare event
+    // out of eight draws that are fixed at build time.
+    //
+    // So the variants are laid along the range by index instead. pow(1.5)
+    // keeps the low end crowded -- most of the set is ordinary forest -- and
+    // the last two are genuine spires standing clear of the canopy. rng only
+    // jitters, it does not decide.
+    const rung = total > 1 ? index / (total - 1) : rng();
+    const height = 1.15 + Math.pow(rung, 1.5) * 2.35 + (rng() - 0.5) * 0.16;
+    // The crown widens with height, but far more slowly -- a tree twice as
+    // tall is nowhere near twice as wide, and scaling radius straight off
+    // height turned the tall ones into fir-shaped balloons.
+    const spread = Math.pow(height / 1.5, 0.45);
     // Per-TREE jitter seed, derived from a value the stream already drew --
     // no new rng draws (tileVegetation replays this stream), but two
     // conifers no longer share the exact same lumps.
@@ -666,7 +686,7 @@ function makeConifer(rng: () => number): any {
     const layers = 2 + Math.floor(rng() * 2);
     for (let i = 0; i < layers; i++) {
         const t = i / layers;
-        const radius = (0.34 - 0.14 * t) * (0.8 + rng() * 0.4);
+        const radius = (0.34 - 0.14 * t) * (0.8 + rng() * 0.4) * spread;
         const coneH = height * (0.45 - 0.08 * t);
         const y = trunkH + height * 0.55 * t + coneH / 2 - 0.02;
         // Height segments matter more than radial ones: a default cone has
@@ -797,7 +817,12 @@ function addCluster(parent: any, rng: () => number, at: any, radius: number, col
 // show through, and branches showing through is what says "tree".
 function makeDeciduous(rng: () => number): any {
     const tree = new THREE.Group();
-    const height = 0.95 + rng() * 0.45;
+    const height = 1.15 + rng() * 0.75;
+    // Trunk thickness and crown blobs are absolute sizes, unlike everything
+    // else here which is a fraction of `height` -- so raising the height
+    // alone would have grown a tall tree on the same thin stick with the
+    // same small tufts. This carries them up with it.
+    const girth = height / 1.2;
     const seed = Math.floor(height * 4096);
     const barkColor = vary(0x6b4a2c, rng, 0.15);
     // Deep forest green to yellowish light green, per TREE -- the low end
@@ -806,7 +831,7 @@ function makeDeciduous(rng: () => number): any {
 
     // The bole: kept bare, so the crown sits ON something visible.
     const boleH = height * (0.44 + rng() * 0.12);
-    const rTrunk = 0.05 + rng() * 0.022;
+    const rTrunk = (0.05 + rng() * 0.022) * girth;
     const lean = new THREE.Vector3((rng() - 0.5) * 0.10, 1, (rng() - 0.5) * 0.10);
     const bole = growLimb(tree, rng, new THREE.Vector3(0, 0, 0), lean, boleH, rTrunk * 1.35, rTrunk * 0.62, 3, 6, 0, 0.06, barkColor);
 
@@ -836,14 +861,14 @@ function makeDeciduous(rng: () => number): any {
             // the crown flattens into a spread cone.
             sdir.lerp(LIMB_UP, 0.22 + rng() * 0.14).normalize();
             const twig = growLimb(tree, rng, limb.tip, sdir, height * (0.17 + rng() * 0.10), rPrim * 0.45, rPrim * 0.22, 2, 4, 0.05, 0.34, barkColor);
-            addCluster(tree, rng, twig.tip, 0.15 + rng() * 0.055, leafColor, seed + cluster++);
+            addCluster(tree, rng, twig.tip, (0.15 + rng() * 0.055) * girth, leafColor, seed + cluster++);
         }
     }
     // One more mass over the fork itself, filling the hole the outward
     // primaries leave in the middle of the canopy.
     const crownTop = bole.tip.clone();
     crownTop.y += height * 0.16;
-    addCluster(tree, rng, crownTop, 0.17 + rng() * 0.05, leafColor, seed + cluster);
+    addCluster(tree, rng, crownTop, (0.17 + rng() * 0.05) * girth, leafColor, seed + cluster);
     return tree;
 }
 
@@ -1018,13 +1043,19 @@ function variantRng(kind: string, index: number): () => number {
 }
 
 // Draw a decoration of this kind: a clone of one of its variants.
-function pick(kind: string, make: (rng: () => number) => any, rng: () => number): any {
+// The variant's index and the size of the set are handed to the maker,
+// because with only VARIANTS_PER_KIND prototypes in existence a maker
+// cannot get a spread out of chance. Eight draws from a random height is
+// eight arbitrary heights -- ask for rare and tall and you may simply not
+// get one, for the life of the build. A maker that wants a range covered
+// has to lay its variants along it deliberately; see makeConifer.
+function pick(kind: string, make: (rng: () => number, index: number, total: number) => any, rng: () => number): any {
     let variants = library.get(kind);
     if (!variants) {
         variants = [];
         for (let i = 0; i < VARIANTS_PER_KIND; i++) {
             const seeded = variantRng(kind, i);
-            const proto = make(seeded);
+            const proto = make(seeded, i, VARIANTS_PER_KIND);
             tintIndividual(proto, seeded);
             variants.push(proto);
         }

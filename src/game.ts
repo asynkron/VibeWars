@@ -23,6 +23,7 @@ import { BuildingSystem } from './shared/hexengine/BuildingSystem';
 import { DIFFICULTIES } from './systems/ai/AIController';
 import { AudioSystem } from './shared/hexengine/AudioSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
+import { GrassSystem } from './shared/hexengine/GrassSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
@@ -563,6 +564,10 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // ground. Decorating afterwards lets every piece sample the REAL,
     // final surface (GridSystem.surfaceHeightAt) and sit on it.
     GridSystem.smoothTerrain();
+
+    // After smoothing: blades are planted on the tile surface as it ends up,
+    // not as it was authored.
+    GrassSystem.init(scene, GridSystem.hexGrid);
 
     // Then, and only then, plant anything. Decoration used to happen while
     // each hex was built, which is before the roads exist -- so trees grew
