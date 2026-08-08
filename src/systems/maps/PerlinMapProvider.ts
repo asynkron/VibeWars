@@ -30,6 +30,7 @@ import { TERRAIN_CONFIG } from '../../constants';
 import { MapProvider, StartingUnit, Tile } from './MapProvider';
 import type { BuildingSpawn, TileLike } from '../../types';
 import { DEPOT_TURNS, depotCells, depotRotationDeg } from './depotLayout';
+import { cubeRotate60, cubeToHex, hexToCube } from '../../shared/hexengine/hexMath';
 
 // One explicit roster per size -- the prefix scheme is gone, because the
 // counts are authored per size now: every size fields Pike (the only
@@ -127,8 +128,44 @@ function nearestWhere(
 }
 
 // Grand Hall's footprint: the centre anchor plus all six neighbours.
-function hqCells(q: number, r: number): Array<[number, number]> {
+export function hqCells(q: number, r: number): Array<[number, number]> {
     return [[q, r], ...neighbourOffsets(q).map(([dq, dr]) => [q + dq, r + dr] as [number, number])];
+}
+
+// The authored gate is on the south wing. Its usable approach is the next
+// hex beyond that wing -- two cube steps south from the centre at rest, then
+// turned with the model. This is deliberately outside the seven occupied
+// building cells: units drive UP TO the door, not through a wall tile.
+export function hqDoorApproach(q: number, r: number, turns: number): [number, number] {
+    const anchor = hexToCube(q, r);
+    let offset = { x: 0, y: -2, z: 2 };
+    const steps = ((turns % 6) + 6) % 6;
+    for (let index = 0; index < steps; index++) {
+        offset = cubeRotate60(offset.x, offset.y, offset.z);
+    }
+    const door = cubeToHex(anchor.x + offset.x, anchor.z + offset.z);
+    return [door.q, door.r];
+}
+
+// The south wing itself carries the gate. Unlike the approach above this is
+// one of the seven occupied footprint cells, and is the only one an owning
+// ground unit may enter.
+export function hqDoorCell(q: number, r: number, turns: number): [number, number] {
+    const anchor = hexToCube(q, r);
+    let offset = { x: 0, y: -1, z: 1 };
+    const steps = ((turns % 6) + 6) % 6;
+    for (let index = 0; index < steps; index++) {
+        offset = cubeRotate60(offset.x, offset.y, offset.z);
+    }
+    const door = cubeToHex(anchor.x + offset.x, anchor.z + offset.z);
+    return [door.q, door.r];
+}
+
+// Buildings turn in exact sixths so their authored hex edges still align
+// with the grid. Exported for the six-direction contract test.
+export function randomBuildingRotationDeg(random: () => number = Math.random): number {
+    const turns = Math.min(DEPOT_TURNS.length - 1, Math.floor(random() * DEPOT_TURNS.length));
+    return depotRotationDeg(turns);
 }
 
 // Where the bases want to be, before the terrain gets a say: the middle of
@@ -179,8 +216,14 @@ function placeEverything(
         { ownerIndex: 0, q: Math.floor(cols / 2), r: Math.max(0, rows - 2) },
         { ownerIndex: 1, q: Math.floor(cols / 2), r: Math.min(rows - 1, 1) },
     ];
-    const hqFits = (q: number, r: number) => hqCells(q, r).every(([cq, cr]) =>
-        cq >= 0 && cq < cols && cr >= 0 && cr < rows && free(cq, cr));
+    const hqFitsTurned = (q: number, r: number, turns: number) => {
+        const [doorQ, doorR] = hqDoorApproach(q, r, turns);
+        return hqCells(q, r).every(([cq, cr]) =>
+            cq >= 0 && cq < cols && cr >= 0 && cr < rows && free(cq, cr))
+            && doorQ >= 0 && doorQ < cols && doorR >= 0 && doorR < rows
+            && free(doorQ, doorR);
+    };
+    const hqFits = (q: number, r: number) => DEPOT_TURNS.some((turns) => hqFitsTurned(q, r, turns));
     for (const target of hqTargets) {
         const position = open.size
             ? nearestWhere(cols, rows, target.q, target.r, hqFits)
@@ -190,6 +233,17 @@ function placeEverything(
         }
         const [anchorQ, anchorR] = position;
         const groupId = `hq@player${target.ownerIndex}`;
+        const firstTurn = open.size ? randomBuildingRotationDeg() / 60 : 0;
+        let turns = firstTurn;
+        for (let index = 0; index < DEPOT_TURNS.length; index++) {
+            const candidate = (firstTurn + index) % DEPOT_TURNS.length;
+            if (!open.size || hqFitsTurned(anchorQ, anchorR, candidate)) {
+                turns = candidate;
+                break;
+            }
+        }
+        const rotationDeg = depotRotationDeg(turns);
+        const [entranceQ, entranceR] = hqDoorCell(anchorQ, anchorR, turns);
         for (const [index, [q, r]] of hqCells(anchorQ, anchorR).entries()) {
             taken.add(`${q},${r}`);
             buildings.push({
@@ -197,9 +251,16 @@ function placeEverything(
                 ownerIndex: target.ownerIndex,
                 hiddenUnitType: null,
                 groupId,
+                isEntrance: q === entranceQ && r === entranceR,
                 drawnByAnchor: index !== 0,
+                rotationDeg,
             });
         }
+        // Keep the drive-up clear for subsequent unit and depot placement.
+        // Terrain passability was part of hqFitsTurned, so this reserved hex
+        // is both connected to the mainland and free of water or mountain.
+        const [doorQ, doorR] = hqDoorApproach(anchorQ, anchorR, turns);
+        taken.add(`${doorQ},${doorR}`);
     }
 
     // The player takes the southern edge and the CPU the northern, the

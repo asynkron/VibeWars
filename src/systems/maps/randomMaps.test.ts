@@ -19,6 +19,7 @@ import { hexDistance } from '../../shared/hexengine/hexMath';
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
 import { unitTypesRecord } from '../../shared/hexengine/unitStats';
 import type { BuildingSpawn, TileLike } from '../../types';
+import { hqDoorApproach, hqDoorCell, randomBuildingRotationDeg } from './PerlinMapProvider';
 
 const EXPECTED = {
     // Authored per size: 1/2/3 Pike + 1/2/3 Drover on top of the rest.
@@ -32,6 +33,14 @@ const EXPECTED = {
 const neighbourOffsets = (q: number) => (q % 2 === 0
     ? [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 0], [-1, -1]]
     : [[0, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]]);
+
+describe('random HQ rotation', () => {
+    it('can select each of the six hex-grid directions', () => {
+        const directions = Array.from({ length: 6 }, (_, index) =>
+            randomBuildingRotationDeg(() => (index + 0.5) / 6));
+        expect(directions).toEqual([0, 60, 120, 180, 240, 300]);
+    });
+});
 
 function neighbours(q: number, r: number, cols: number, rows: number) {
     return neighbourOffsets(q)
@@ -113,11 +122,41 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
             expect(new Set(pieces.map((piece) => piece.groupId))).toEqual(new Set([`hq@player${ownerIndex}`]));
             expect(pieces.filter((piece) => !piece.drawnByAnchor)).toHaveLength(1);
             expect(pieces.filter((piece) => piece.drawnByAnchor)).toHaveLength(6);
+            expect(pieces.filter((piece) => piece.isEntrance)).toHaveLength(1);
             for (const piece of pieces) expect(piece.hiddenUnitType).toBeNull();
+            expect(new Set(pieces.map((piece) => piece.rotationDeg)).size).toBe(1);
+            expect([0, 60, 120, 180, 240, 300]).toContain(pieces[0].rotationDeg);
 
             const anchor = pieces.find((piece) => !piece.drawnByAnchor)!;
             for (const piece of pieces.filter((candidate) => candidate !== anchor)) {
                 expect(hexDistance(anchor.q, anchor.r, piece.q, piece.r)).toBe(1);
+            }
+        }
+    });
+
+    it('keeps every rotated HQ door on clear, reachable ground', () => {
+        const occupied = new Set(
+            [...spawns.player, ...spawns.cpu, ...buildings].map(({ q, r }) => `${q},${r}`)
+        );
+        for (const ownerIndex of [0, 1]) {
+            const pieces = buildings.filter(
+                (building) => building.type === 'hq' && building.ownerIndex === ownerIndex
+            );
+            const anchor = pieces.find((piece) => !piece.drawnByAnchor)!;
+            const turns = (anchor.rotationDeg ?? 0) / 60;
+            const [entranceQ, entranceR] = hqDoorCell(anchor.q, anchor.r, turns);
+            const [doorQ, doorR] = hqDoorApproach(anchor.q, anchor.r, turns);
+            const doorKey = `${doorQ},${doorR}`;
+
+            expect(TerrainSystem.isImpassable(tiles[doorQ][doorR].type), doorKey).toBe(false);
+            expect(occupied.has(doorKey), `HQ door blocked at ${doorKey}`).toBe(false);
+            expect(pieces.find((piece) => piece.isEntrance)).toMatchObject({ q: entranceQ, r: entranceR });
+            expect(hexDistance(entranceQ, entranceR, doorQ, doorR)).toBe(1);
+
+            for (const side of [spawns.player, spawns.cpu]) {
+                const walker = side[0];
+                const canReach = reachable(tiles, cols, rows, walker.type, [walker.q, walker.r]);
+                expect(canReach.has(doorKey), `${walker.type} cannot drive to HQ door at ${doorKey}`).toBe(true);
             }
         }
     });
@@ -225,7 +264,7 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
     it('lets every unit reach every enemy unit and every depot door', () => {
         // The whole point of placing on the mainland. A unit on an island is
         // out of the match, and a depot on one can never be captured.
-        const doors = buildings.filter((p) => p.isEntrance);
+        const doors = buildings.filter((p) => p.type.startsWith('forgeDepot') && p.isEntrance);
         expect(doors).toHaveLength(expected.depots);
         for (const mine of spawns.player) {
             const canReach = reachable(tiles, cols, rows, mine.type, [mine.q, mine.r]);

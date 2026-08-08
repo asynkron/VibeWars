@@ -362,7 +362,8 @@ export function recordSimMove(state: SimState, unitIndex: number, toQ: number, t
     // isEntrance is the door rule: a composite is taken only from the piece
     // that has one. Standing on its back or side wall is just standing on a
     // tile.
-    if (found && found[1].isEntrance && found[1].ownerIndex !== unit.playerIndex) {
+    if (found && !found[1].isHeadquarters
+        && found[1].isEntrance && found[1].ownerIndex !== unit.playerIndex) {
         state.record({ type: 'buildingCaptured', buildingIndex: found[0], playerIndex: unit.playerIndex });
     }
 }
@@ -567,7 +568,7 @@ export function applyGene(
             // dijkstra and the beam applies thousands of genes per turn --
             // and because where the greedy rule works it is already right.
             if (bestKey === null && gene.kind === 'moveTowards') {
-                const field = simCostFieldFrom(state, unit.type, target.q, target.r);
+                const field = simCostFieldFrom(state, unit.type, target.q, target.r, unit.playerIndex);
                 let bestField = field.get(startKey) ?? Infinity;
                 for (const key of reachable) {
                     if (key === startKey) continue;
@@ -666,7 +667,7 @@ export function applyGene(
             // capturing unit whose route to the door runs around the ridge
             // would otherwise stop at it forever.
             if (bestKey === null) {
-                const field = simCostFieldFrom(state, unit.type, building.q, building.r);
+                const field = simCostFieldFrom(state, unit.type, building.q, building.r, unit.playerIndex);
                 let bestField = field.get(startKey) ?? Infinity;
                 for (const key of reachable) {
                     if (key === startKey) continue;

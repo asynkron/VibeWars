@@ -27,6 +27,7 @@
 import { PriorityQueue } from '../../shared/hexengine/priorityQueue';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimTile } from './SimState';
+import { headquartersAllowsGroundEntry } from '../../shared/hexengine/headquarters';
 
 export interface SimDijkstraResult {
     distances: Map<number, number>;
@@ -120,6 +121,7 @@ function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number
     // indexes unitTypesRecord by this type unguarded, so an unknown type
     // cannot reach here alive.
     const costs = UnitSystem.unitTypesRecord[unit.type].terrainCosts;
+    const isAir = UnitSystem.unitTypesRecord[unit.type].unitClass === 'air';
 
     const closed = new Set<number>();
     const startKey = unit.r * cols + unit.q;
@@ -150,6 +152,8 @@ function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number
             // dijkstra's coord.isOccupied() filter. Note this sees the
             // simulated positions/deaths in this branch, not the live world.
             if (state.getUnitAt(nq, nr)) continue;
+            const building = state.getBuildingAt(nq, nr)?.[1];
+            if (building && !isAir && !headquartersAllowsGroundEntry(building, unit.playerIndex)) continue;
 
             const tile = state.getTile(nq, nr);
             if (!tile) continue;
@@ -236,11 +240,12 @@ export function simCostFieldFrom(
     state: SimState,
     unitType: string,
     fromQ: number,
-    fromR: number
+    fromR: number,
+    playerIndex?: number
 ): Map<number, number> {
     const cols = state.cols;
     const cacheable = !state.hasTerrainOverrides;
-    const cacheKey = `${unitType}|${fromR * cols + fromQ}`;
+    const cacheKey = `${unitType}|${playerIndex ?? -1}|${state.events.length}|${fromR * cols + fromQ}`;
     if (cacheable) {
         const hit = costFieldCache.get(state.tileIdentity)?.get(cacheKey);
         if (hit) return hit;
@@ -249,6 +254,7 @@ export function simCostFieldFrom(
     const field = new Map<number, number>();
     const closed = new Set<number>();
     const costs = UnitSystem.unitTypesRecord[unitType].terrainCosts;
+    const isAir = UnitSystem.unitTypesRecord[unitType].unitClass === 'air';
     const startKey = fromR * cols + fromQ;
     field.set(startKey, 0);
 
@@ -268,6 +274,10 @@ export function simCostFieldFrom(
             const nq = cq + NEIGHBOR_DQ[d];
             const nr = cr + drTable[d];
             if (nq < 0 || nq >= cols || nr < 0 || nr >= state.rows) continue;
+            const building = state.getBuildingAt(nq, nr)?.[1];
+            if (building && !isAir && (
+                playerIndex === undefined || !headquartersAllowsGroundEntry(building, playerIndex)
+            )) continue;
             const tile = state.getTile(nq, nr);
             if (!tile) continue;
             const step = tile.hasRoad ? 0.5 : costs[terrainKey(tile.type)];

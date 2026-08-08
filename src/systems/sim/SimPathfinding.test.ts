@@ -19,11 +19,12 @@ function makeUnit(patch: any = {}) {
 
 // Build a SimState over a 6x6 grid. tileAt(q, r) decides each tile; units
 // as given.
-function makeState(tileAt: (q: number, r: number) => any, units: any[]): SimState {
+function makeState(tileAt: (q: number, r: number) => any, units: any[], buildings: any[] = []): SimState {
     const cols = 6, rows = 6;
     return SimState.snapshot({
         map: { cols, rows, getTile: (q: number, r: number) => tileAt(q, r) },
         units,
+        buildings,
     });
 }
 
@@ -86,6 +87,30 @@ describe('simDijkstra', () => {
         // The other five neighbors are fine.
         const others = HexCoord.getNeighbors(2, 2).filter((n) => !(n.q === blocked.q && n.r === blocked.r));
         others.forEach((n) => expect(reachable.has(key(n.q, n.r))).toBe(true));
+    });
+
+    it('blocks HQ walls and admits only the owner through its door', () => {
+        const destination = HexCoord.getNeighbors(2, 2)[1];
+        const hq = (isEntrance: boolean) => ({
+            type: 'hq', q: destination.q, r: destination.r, ownerIndex: 1,
+            hiddenUnitType: null, groupId: 'hq@player1', isEntrance,
+        });
+
+        const ownerAtWall = makeState(() => grass(), [makeUnit({ move: 1 })], [hq(false)]);
+        expect(simDijkstra(ownerAtWall, 0, 1).reachable.has(key(destination.q, destination.r))).toBe(false);
+
+        const ownerAtDoor = makeState(() => grass(), [makeUnit({ move: 1 })], [hq(true)]);
+        expect(simDijkstra(ownerAtDoor, 0, 1).reachable.has(key(destination.q, destination.r))).toBe(true);
+
+        const enemyAtDoor = makeState(
+            () => grass(), [makeUnit({ move: 1, playerIndex: 0 })], [hq(true)]
+        );
+        expect(simDijkstra(enemyAtDoor, 0, 1).reachable.has(key(destination.q, destination.r))).toBe(false);
+
+        const airAtWall = makeState(
+            () => grass(), [makeUnit({ type: 'Nightjar', move: 1 })], [hq(false)]
+        );
+        expect(simDijkstra(airAtWall, 0, 1).reachable.has(key(destination.q, destination.r))).toBe(true);
     });
 
     it('terrain sunk to water mid-branch blocks that branch but not siblings', () => {

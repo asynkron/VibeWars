@@ -4,6 +4,9 @@ import { PriorityQueue } from './priorityQueue';
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 import { GridSystem } from './GridSystem';
+import { getGameStateOrNull } from '../../systems/gameStateStore';
+import { headquartersAllowsGroundEntry } from './headquarters';
+import { unitTypesRecord } from './unitStats';
 
 
 
@@ -83,6 +86,16 @@ class PathfindingSystem {
 
             validNeighbors.forEach(({ coord, hex }: { coord: HexCoord; hex: any }) => {
                 if (coord.isOccupied()) return;
+
+                // HQ footprint tiles are walls to ground units. Only the
+                // owning side may enter the marked gate; aircraft fly over
+                // the whole structure. Keep this identical to SimPathfinding.
+                if (unitTypesRecord[unit.type]?.unitClass !== 'air') {
+                    const building = getGameStateOrNull()?.buildings.find(
+                        (candidate) => candidate.q === coord.q && candidate.r === coord.r && !candidate.destroyed
+                    );
+                    if (building && !headquartersAllowsGroundEntry(building, unit.playerIndex)) return;
+                }
 
                 const neighborKey = coord.getKey();
                 // Skip neighbors that have already been processed.

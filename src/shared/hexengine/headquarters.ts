@@ -8,10 +8,23 @@ export interface HeadquartersBuilding {
     destroyed: boolean;
     type?: string;
     isHeadquarters?: boolean;
+    isEntrance?: boolean;
 }
 
 function isHeadquarters(building: HeadquartersBuilding): boolean {
     return building.type === 'hq' || building.isHeadquarters === true;
+}
+
+// A standing HQ is solid terrain to ground units except at its one authored
+// door, and even that door opens only for the owning side. Air units decide
+// separately to ignore this rule, because they pass over the structure.
+// Non-HQ buildings retain their existing capture-door behaviour.
+export function headquartersAllowsGroundEntry(
+    building: HeadquartersBuilding,
+    playerIndex: number
+): boolean {
+    if (!isHeadquarters(building) || building.destroyed) return true;
+    return building.isEntrance === true && building.ownerIndex === playerIndex;
 }
 
 export function headquartersLosers(
