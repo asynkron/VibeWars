@@ -117,11 +117,13 @@
             background: #63d1ff;
         }
 
-        /* Under the toolbar, left of the minimap so it never covers it. */
+        /* Top left, the one corner nothing else claims: the toolbar and the
+           minimap both hang off the right edge, and anchoring the readout
+           to that edge too meant a wide toolbar sat straight on top of it. */
         #frame-stats {
             position: absolute;
             top: 10px;
-            right: 320px;
+            left: 10px;
             padding: 6px 10px;
             border-radius: 6px;
             background: rgba(14, 18, 24, 0.72);
@@ -130,7 +132,7 @@
             font-size: 12px;
             line-height: 1.45;
             white-space: pre;
-            text-align: right;
+            text-align: left;
             pointer-events: none;
             user-select: none;
         }
