@@ -77,9 +77,11 @@
 
         /* Under the toolbar, left of the minimap so it never covers it. */
         #frame-stats {
+            /* Placed against the toolbar by frameStats.paint(); these are
+               only the fallback for a page with no toolbar. */
             position: absolute;
             top: 10px;
-            right: 320px;
+            right: 10px;
             padding: 6px 10px;
             border-radius: 6px;
             background: rgba(14, 18, 24, 0.72);

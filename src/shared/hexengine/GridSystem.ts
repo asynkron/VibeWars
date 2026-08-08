@@ -6,6 +6,7 @@ import { BuildingSystem } from './BuildingSystem';
 import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
+import { groundTexture, GROUND_TILE_WORLD } from './groundTexture';
 import { applyProceduralGround, applyWaterSurface } from './TerrainShader';
 import { createProceduralDecoration } from './ProceduralDecorations';
 import { markShadowsDirty } from './ShadowBudget';
@@ -451,6 +452,127 @@ class GridSystem {
         }
 
         return { mapCenterX, mapCenterZ, mapReady: true };
+    }
+
+    // A one-hex apron around the board, on every map.
+    //
+    // The playable grid ends in mid-air, and a hard edge reads as the edge
+    // of the world rather than the edge of a board. This ring is the ramp
+    // between the two: its outer rim sits at 0, flush with the ground
+    // plane, and its inner rim is WELDED to the board's own corners, so the
+    // ground climbs onto the map instead of stopping against a cliff.
+    //
+    // WELDED, not computed. The first attempt worked out a height per
+    // vertex and left a step half a tile tall, for two reasons worth
+    // keeping: it ran from createMap, which is BEFORE smoothTerrain, so it
+    // read authored heights rather than the smoothed rim the board actually
+    // ends at -- and it averaged each vertex with this tile's own 0, which
+    // halves every lift. smoothHexTile also jitters the rim in x and z, not
+    // only y, so even the right height would have left a horizontal gap.
+    //
+    // Snapping to the nearest real corner fixes all three at once: same
+    // position, same height, same jitter. It must therefore run AFTER
+    // smoothTerrain -- see the call in game.ts.
+    //
+    // No neighbour lookup, deliberately. getHexNeighbors branches on
+    // (q % 2 === 1), and the ring starts at q = -1 where JS gives -1, so it
+    // would take the even-column branch and return the wrong hexes. Nearest
+    // corner within a third of a hex needs no parity at all.
+    //
+    // IT IS THE GROUND, not a tile. Same image and world scale as
+    // GroundSystem's plane, with UVs written from WORLD position rather
+    // than the hex's radial mapping, so where the apron meets the plane the
+    // canopy simply continues. That is also why it does not use the
+    // height-banded terrain shader: that one picks its look from world
+    // height and paints sand at 0 however the tile is labelled.
+    //
+    // DECORATION ONLY. Never goes through addHex, so it stays out of
+    // hexGrid and out of smoothing, water animation and every traversal
+    // that treats a hex as playable ground. No bounding mesh either: those
+    // are what picking reads, and an apron tile that answered a click would
+    // offer moves onto a hex the simulation has never heard of.
+    static createBorderRing() {
+        const R = MAP_CONFIG.HEX_RADIUS;
+        const texture = groundTexture(renderer.capabilities.getMaxAnisotropy());
+        const material = new THREE.MeshStandardMaterial({
+            map: texture,
+            metalness: 0.0,
+            roughness: 0.95,
+        });
+
+        // Every corner the board actually ends at, in world space, read off
+        // the smoothed geometry rather than recomputed from the heightmap.
+        const corners: Array<{ x: number; y: number; z: number }> = [];
+        this.hexGrid.forEach((hexGroup: any) => {
+            const mesh = hexGroup.children.find(
+                (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+            );
+            if (!mesh) return;
+            const p = mesh.geometry.attributes.position;
+            for (let j = 6; j < 12; j++) {
+                corners.push({
+                    x: mesh.position.x + p.getX(j),
+                    y: p.getY(j),
+                    z: mesh.position.z + p.getZ(j),
+                });
+            }
+        });
+        // A third of a hex: close enough that only a corner the board and
+        // the apron genuinely share can match, far enough to survive the
+        // rim jitter.
+        const snapRadius = (R / 3) * (R / 3);
+
+        for (let q = -1; q <= MAP_CONFIG.COLS; q++) {
+            for (let r = -1; r <= MAP_CONFIG.ROWS; r++) {
+                if (q >= 0 && q < MAP_CONFIG.COLS && r >= 0 && r < MAP_CONFIG.ROWS) continue;
+                const x = R * 1.5 * q;
+                const z = R * Math.sqrt(3) * (r + (((q % 2) + 2) % 2) / 2);
+
+                const geometry = this.createHexGeometry(R, 0);
+                const position = geometry.attributes.position;
+
+                let rimTotal = 0;
+                for (let i = 0; i < 6; i++) {
+                    const v = i + 6;
+                    const wx = x + position.getX(v);
+                    const wz = z + position.getZ(v);
+                    let best: { x: number; y: number; z: number } | null = null;
+                    let bestDistance = Infinity;
+                    for (const corner of corners) {
+                        const dx = corner.x - wx, dz = corner.z - wz;
+                        const distance = dx * dx + dz * dz;
+                        if (distance < bestDistance) { bestDistance = distance; best = corner; }
+                    }
+                    if (best && bestDistance <= snapRadius) {
+                        position.setXYZ(v, best.x - x, best.y, best.z - z);
+                        rimTotal += best.y;
+                    }
+                }
+                // The centre follows the rim, so the surface is a ramp
+                // rather than a rim pulled up around a pinned middle.
+                position.setY(13, rimTotal / 6);
+
+                // World-space UVs: the canopy continues across the seam.
+                const uv = geometry.attributes.uv;
+                for (let i = 0; i < position.count; i++) {
+                    uv.setXY(
+                        i,
+                        (x + position.getX(i)) / GROUND_TILE_WORLD,
+                        (z + position.getZ(i)) / GROUND_TILE_WORLD
+                    );
+                }
+                position.needsUpdate = true;
+                uv.needsUpdate = true;
+                geometry.computeVertexNormals();
+
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.position.set(x, 0, z);
+                mesh.receiveShadow = true;
+                mesh.castShadow = false;
+                mesh.userData.isBorderTile = true;
+                group.add(mesh);
+            }
+        }
     }
 
     static getWorldCoordinates(q: number, r: number) {

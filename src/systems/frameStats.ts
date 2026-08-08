@@ -115,6 +115,20 @@ class FrameStats {
             this.element.id = 'frame-stats';
             document.body.appendChild(this.element);
         }
+        // PARKED AGAINST THE TOOLBAR, measured rather than guessed. Both
+        // pages used to place this at a hardcoded right: 320px, which was
+        // the toolbar's width on the day it was written -- adding the Bloom
+        // button made the toolbar wider and the two overlapped. Read where
+        // the toolbar actually starts instead, and the readout stays put
+        // however many toggles it grows. paint() runs at 4 Hz, so this also
+        // follows a window resize without listening for one.
+        const toolbar = document.getElementById('view-toolbar');
+        if (toolbar) {
+            const rect = toolbar.getBoundingClientRect();
+            this.element.style.right = `${Math.round(window.innerWidth - rect.left + 8)}px`;
+            this.element.style.top = `${Math.round(rect.top)}px`;
+        }
+
         const s = this.snapshot();
         this.element.textContent =
             `${s.medianMs.toFixed(1)} ms   ${s.fps} fps   p95 ${s.p95Ms.toFixed(1)} ms\n` +
