@@ -122,6 +122,7 @@ export function nearestCapturableBuildingIndex(state: SimState, unitIndex: numbe
     let best: number | null = null;
     let bestDist = Infinity;
     for (const [i, building] of state.liveBuildings()) {
+        if (building.isHeadquarters) continue;
         if (!building.isEntrance) continue;
         if (building.ownerIndex === unit.playerIndex) continue;
         const dist = HexCoord.getDistance(unit.q, unit.r, building.q, building.r);
@@ -634,7 +635,7 @@ export function applyGene(
             let buildingIndex = gene.buildingIndex ?? null;
             if (buildingIndex !== null) {
                 const b = state.getBuilding(buildingIndex);
-                if (!b || b.destroyed || b.ownerIndex === unit.playerIndex) buildingIndex = null;
+                if (!b || b.destroyed || b.isHeadquarters || b.ownerIndex === unit.playerIndex) buildingIndex = null;
             }
             if (buildingIndex === null) buildingIndex = nearestCapturableBuildingIndex(state, gene.unitIndex);
             if (buildingIndex === null) return false;

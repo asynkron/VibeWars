@@ -28,9 +28,11 @@ const loneFactory = (): Building => (
 // map/unit hooks yieldHiddenUnit calls. Visuals no-op on their own --
 // attachVisual returns early when there is no hex and no loaded model.
 let spawned: Array<{ type: string; q: number; r: number; playerIndex: number }>;
+let defeatChecks: number;
 
 function installState(buildings: Building[]) {
     spawned = [];
+    defeatChecks = 0;
     setGameState({
         buildings,
         units: [] as GameUnit[],
@@ -42,6 +44,7 @@ function installState(buildings: Building[]) {
         getCurrentPlayer: () => ({ controller: 'cpu' }),
         spawnUnit: (type: string, q: number, r: number, playerIndex: number) =>
             spawned.push({ type, q, r, playerIndex }),
+        checkHeadquartersDefeat: () => { defeatChecks++; return false; },
     } as any);
 }
 
@@ -128,5 +131,26 @@ describe('BuildingSystem.tryCapture on a composite building', () => {
         expect(buildings[4].ownerIndex).toBe(1);
         expect(buildings.slice(0, 4).map((b) => b.ownerIndex)).toEqual([null, null, null, null]);
         expect(spawned).toHaveLength(1);
+    });
+
+    it('never captures an enemy HQ', () => {
+        const hq: Building = {
+            type: 'hq', q: 2, r: 6, ownerIndex: 0,
+            hiddenUnitType: null, destroyed: false,
+        };
+        buildings.push(hq);
+        expect(BuildingSystem.tryCapture(pike(2, 6, 1))).toBe(false);
+        expect(hq.ownerIndex).toBe(0);
+    });
+
+    it('checks defeat immediately when an HQ tile sinks', () => {
+        const hq: Building = {
+            type: 'hq', q: 2, r: 6, ownerIndex: 0,
+            hiddenUnitType: null, destroyed: false,
+        };
+        installState([hq]);
+        BuildingSystem.onTileSunk(2, 6);
+        expect(hq.destroyed).toBe(true);
+        expect(defeatChecks).toBe(1);
     });
 });

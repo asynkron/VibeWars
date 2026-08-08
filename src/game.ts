@@ -1022,7 +1022,8 @@ window.addEventListener('vibewars:aiprogress', ((event: CustomEvent) => {
     panel.style.display = 'block';
 }) as EventListener);
 
-// Victory banner, raised by GameState when one side runs out of units.
+// Victory banner, raised by GameState for elimination or a hard objective
+// such as a vital unit / HQ loss.
 window.addEventListener('vibewars:gameover', ((event: CustomEvent) => {
     const banner = document.createElement('div');
     banner.id = 'game-over-banner';

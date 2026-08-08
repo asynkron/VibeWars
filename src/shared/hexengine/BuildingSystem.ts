@@ -41,6 +41,10 @@ const NEUTRAL_TINT = 0x888888;
 // own radius -- 1/7.2 -- not to the factory's 0.12, which deliberately
 // leaves a standalone building at 86% of its tile.
 const DEPOT_SCALE = 1 / 7.2;
+// Grand Hall is 36.04 units wide in authoring space. Match the factory's
+// roughly 1.75-unit footprint so an HQ occupies the hex that owns its rules,
+// rather than visually blocking neighbouring tiles that remain walkable.
+const HQ_SCALE = 1.75 / 36.04;
 
 // drawnByAnchor marks a piece of a composite whose structure is drawn by
 // ANOTHER piece: the model covers the whole group, so only one member may
@@ -58,6 +62,7 @@ const DEPOT_SCALE = 1 / 7.2;
 // ModelSystem.cloneWithTeamTint.
 const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number; zOffset?: number; keepOrigin?: boolean; drawnByAnchor?: boolean; rawMaterials?: boolean; teamTint?: string[] }> = {
     factory: { model: 'assets/buildings/factory-building.glb', scale: 0.12, yOffset: 0 },
+    hq: { model: 'assets/buildings/grand-hall.glb', scale: HQ_SCALE, yOffset: 0, rawMaterials: true, teamTint: ['teamCamo'] },
     // TEMPORARY -- apex-hall stands in for the four-piece forge depot so the
     // team tint can be judged against a TEXTURED building. It is one model
     // covering a seven-tile flower, not four tile pieces, so the whole
@@ -165,7 +170,7 @@ class BuildingSystem {
                 type: spawn.type,
                 q: spawn.q,
                 r: spawn.r,
-                ownerIndex: null,
+                ownerIndex: spawn.ownerIndex ?? null,
                 hiddenUnitType: spawn.hiddenUnitType,
                 groupId: spawn.groupId,
                 isEntrance: spawn.isEntrance,
@@ -190,6 +195,9 @@ class BuildingSystem {
         if (!UnitSystem.unitTypesRecord[unit.type]?.canCapture) return false;
         const building = this.getBuildingAt(unit.q, unit.r);
         if (!building || building.ownerIndex === unit.playerIndex) return false;
+        // An HQ belongs to the side it was authored for. It is a destruction
+        // objective, not a factory that infantry can flip to a new owner.
+        if (building.type === 'hq') return false;
         // The door rule: a composite is taken from the piece that has one.
         // Its back and side walls are scenery you can stand on.
         if (!this.isEntrance(building)) return false;
@@ -265,6 +273,9 @@ class BuildingSystem {
         if (!building) return;
         building.destroyed = true;
         building.visual = null;
+        // HQ loss is terminal at the moment the terrain destroys it. Ordinary
+        // buildings and HQ-less maps make this a cheap no-op.
+        getGameState().checkHeadquartersDefeat();
     }
 }
 

@@ -28,6 +28,7 @@ import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import type { MapProvider, StartingUnit } from '../maps/MapProvider';
 import { NO_COOLDOWNS } from '../../shared/hexengine/skills';
+import { headquartersLosers } from '../../shared/hexengine/headquarters';
 
 export interface HeadlessMatchOptions {
     seed?: number;
@@ -243,9 +244,17 @@ export function runHeadlessMatch(provider: MapProvider, options: HeadlessMatchOp
     for (const [, unit] of state.liveUnits()) {
         if (UnitSystem.isVital(unit.type)) vitalSpawned[unit.playerIndex] = true;
     }
-
     for (let turn = 0; turn < maxTurns; turn++) {
         const side = turn % 2;
+
+        // Optional per-side HQ rule, before every other victory condition.
+        // A side that never had one continues under the ordinary rules.
+        const buildings = Array.from({ length: state.buildingCount }, (_, index) => state.getBuilding(index)!);
+        const lostHeadquarters = headquartersLosers(buildings, 2);
+        if (lostHeadquarters.length > 0) {
+            const winner = lostHeadquarters.length === 2 ? -1 : 1 - lostHeadquarters[0];
+            return finish(winner, 'headquarters lost', turn);
+        }
 
         // The hard rule first: a lost vital unit ends the match whatever
         // else is still standing. The Pyramid dies, the Boll has won.

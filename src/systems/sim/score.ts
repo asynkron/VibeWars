@@ -63,6 +63,8 @@ export interface ScoreWeights {
     // search treats the rule as law rather than preference. Boards without
     // vital units never feel the term.
     vitalWorth?: number;
+    // Same hard-objective mirror for an HQ. Maps without HQs never see it.
+    headquartersWorth?: number;
     // Optional multiplier on a unit's whole material value, by type. A
     // missing entry is 1.0, which is what the flat model always did: every
     // unit worth unitBase + hp*hpWeight regardless of what it is good at.
@@ -81,6 +83,7 @@ export const DEFAULT_SCORE_WEIGHTS: ScoreWeights = {
     buildingBlockPenalty: 15,
     capturePull: 3,
     vitalWorth: 1500,
+    headquartersWorth: 1500,
 };
 
 export function scoreState(
@@ -117,6 +120,11 @@ export function scoreState(
     }
 
     for (const [, building] of state.liveBuildings()) {
+        if (building.isHeadquarters) {
+            if (building.ownerIndex === playerIndex) score += weights.headquartersWorth ?? 0;
+            else if (building.ownerIndex !== null) score -= weights.headquartersWorth ?? 0;
+            continue;
+        }
         if (building.ownerIndex === playerIndex) score += weights.buildingOwned;
         else if (building.ownerIndex !== null) score -= weights.buildingOwned;
         if (building.yieldedTo === playerIndex) score += weights.captureYield;
@@ -136,6 +144,7 @@ export function scoreState(
         if (!UnitSystem.unitTypesRecord[unit.type]?.canCapture) continue;
         let nearest = Infinity;
         for (const [, building] of state.liveBuildings()) {
+            if (building.isHeadquarters) continue;
             if (!building.isEntrance || building.ownerIndex === playerIndex) continue;
             nearest = Math.min(nearest, HexCoord.getDistance(unit.q, unit.r, building.q, building.r));
         }
@@ -150,7 +159,7 @@ export function scoreState(
     for (const unit of own) {
         if (UnitSystem.unitTypesRecord[unit.type]?.canCapture) continue;
         const found = state.getBuildingAt(unit.q, unit.r);
-        if (found && found[1].isEntrance && found[1].ownerIndex !== playerIndex) {
+        if (found && !found[1].isHeadquarters && found[1].isEntrance && found[1].ownerIndex !== playerIndex) {
             score -= weights.buildingBlockPenalty;
         }
     }

@@ -12,6 +12,7 @@ import { applyFireTick, burningTilesOf, FIRE_DAMAGE, tickFires, unitsStandingInF
 import { pickProductionSpot, PRODUCTION_INTERVAL } from '../shared/hexengine/production';
 import { FireSystem } from '../shared/hexengine/FireSystem';
 import { VisualizationSystem } from '../shared/hexengine/VisualizationSystem';
+import { headquartersLosers } from '../shared/hexengine/headquarters';
 
 class GameState {
     static readonly CPU_TURN_PAUSE_MS = 400;
@@ -79,6 +80,12 @@ class GameState {
 
     nextTurn(): void {
         if (this.gameOver) return;
+
+        // Optional per-side hard rule: only a side that was authored an HQ
+        // can lose this way. Destroyed buildings remain in the ledger, so no
+        // separate start-of-match snapshot is needed and an HQ destroyed
+        // before the first End Turn is still recognised.
+        if (this.checkHeadquartersDefeat()) return;
 
         // Victory check: a side with no units left has lost. Without this,
         // an AI-vs-AI match would keep exchanging empty turns forever.
@@ -151,7 +158,9 @@ class GameState {
                 // factory patches the unit up. Mirrors SimState's
                 // turnStarted rule so the AI values it correctly.
                 const building = this.buildings.find(
-                    (b) => !b.destroyed && b.q === unit.q && b.r === unit.r && b.ownerIndex === unit.playerIndex
+                    (b) => b.type !== 'hq' && !b.destroyed
+                        && b.q === unit.q && b.r === unit.r
+                        && b.ownerIndex === unit.playerIndex
                 );
                 if (building && unit.hp < unit.maxHp) {
                     const before = unit.hp;
@@ -292,6 +301,20 @@ class GameState {
         window.dispatchEvent(new CustomEvent('vibewars:gameover', {
             detail: { winner, name: winner >= 0 ? this.players[winner].name : null, reason },
         }));
+    }
+
+    // Returns true once the match is over. Public because the building
+    // destruction path calls it immediately when an HQ tile sinks.
+    checkHeadquartersDefeat(): boolean {
+        if (this.gameOver) return true;
+        const lost = headquartersLosers(this.buildings, this.players.length);
+        if (lost.length === 0) return false;
+
+        const winner = lost.length === this.players.length
+            ? -1
+            : this.players.findIndex((_, index) => !lost.includes(index));
+        this.endGame(winner, 'headquarters lost');
+        return true;
     }
 
     // Decide an unwinnable/capped match on points: highest total remaining

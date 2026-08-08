@@ -175,8 +175,8 @@ export interface ResolvedAttackOutcome {
   impacts: Array<{ q: number; r: number; craterDelta: number }>;
 }
 
-// A building placed on the map (currently only factories). Ownership is
-// per-player-index; null means neutral. A factory may hold one hidden unit
+// A building placed on the map. Ownership is per-player-index; null means
+// neutral. A factory may hold one hidden unit
 // that is yielded (spawned next to the building) the first time a
 // canCapture unit takes the tile; hiddenUnitType is nulled after that, so
 // re-captures only flip ownership. `visual` is the THREE group decorating
@@ -185,7 +185,7 @@ export interface ResolvedAttackOutcome {
 // hexes -- each piece is its own building, so capture, tinting, decorator
 // transparency and tile-sinking all keep working per hex exactly as they
 // did for the single-tile factory.
-export type BuildingType = 'factory' | 'forgeDepotN' | 'forgeDepotS' | 'forgeDepotE' | 'forgeDepotW';
+export type BuildingType = 'factory' | 'hq' | 'forgeDepotN' | 'forgeDepotS' | 'forgeDepotE' | 'forgeDepotW';
 
 export interface Building {
   type: BuildingType;
@@ -225,6 +225,9 @@ export interface BuildingSpawn {
   type: BuildingType;
   q: number;
   r: number;
+  // HQs are authored for a side from the start. Omitted keeps the existing
+  // neutral-building behaviour used by factories and depots.
+  ownerIndex?: number | null;
   hiddenUnitType: string | null;
   // See Building.groupId: pieces sharing one are captured and tinted as a
   // single structure.

@@ -278,6 +278,17 @@ describe('building capture in the sim', () => {
         expect(nearestCapturableBuildingIndex(state, 0)).toBe(2);
     });
 
+    it('does not treat an enemy HQ as a capture target', () => {
+        const state = makeState(
+            [makeUnit({ type: 'Pike', q: 0, r: 0, playerIndex: 1 })],
+            [{ type: 'hq', q: 1, r: 0, ownerIndex: 0, hiddenUnitType: null }],
+        );
+        expect(nearestCapturableBuildingIndex(state, 0)).toBeNull();
+        expect(applyGene(state, {
+            kind: 'moveToBuilding', unitIndex: 0, buildingIndex: 0, seed: 1,
+        })).toBe(false);
+    });
+
     it('randomGene never emits moveToBuilding for units that cannot capture', () => {
         const state = makeState(
             [makeUnit({ type: 'Bulwark', playerIndex: 1 }), makeUnit({ q: 6, r: 6, playerIndex: 0 })],

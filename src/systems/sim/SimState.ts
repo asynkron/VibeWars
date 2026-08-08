@@ -95,6 +95,9 @@ export interface SimBuilding {
     hasHiddenUnit: boolean;
     yieldedTo: number | null;
     destroyed: boolean;
+    // HQs are owned destruction objectives, never capture targets. Optional
+    // keeps old serialized/test fixtures equivalent to ordinary buildings.
+    isHeadquarters?: boolean;
     // Pieces of one composite structure share this; null means the
     // building stands alone. Capturing the group's entrance captures every
     // piece, so the search values a depot as the single object it looks
@@ -403,6 +406,9 @@ export class SimState {
             hasHiddenUnit: b.hasHiddenUnit ?? b.hiddenUnitType != null,
             yieldedTo: null,
             destroyed: !!b.destroyed,
+            ...(b.isHeadquarters === true || b.type === 'hq'
+                ? { isHeadquarters: true }
+                : {}),
             groupId: b.groupId ?? null,
             // A building with no group is its own way in. A grouped one
             // must say which piece carries the door -- defaulting those to
@@ -715,7 +721,8 @@ export class SimState {
                         // GameState.nextTurn's live rule). Deterministic,
                         // so it may live in apply() like the move reset.
                         const building = this.getBuildingAt(unit.q, unit.r);
-                        const repaired = building && building[1].ownerIndex === unit.playerIndex
+                        const repaired = building && !building[1].isHeadquarters
+                            && building[1].ownerIndex === unit.playerIndex
                             ? Math.min(unit.maxHp, unit.hp + SimState.FACTORY_REPAIR_HP)
                             : unit.hp;
                         // tickCooldowns returns the SAME object when nothing
@@ -844,7 +851,7 @@ export class SimState {
             }
             case 'buildingCaptured': {
                 const captured = this.getBuilding(event.buildingIndex);
-                if (!captured || captured.destroyed) return;
+                if (!captured || captured.destroyed || captured.isHeadquarters) return;
                 // A composite building changes hands whole. The prize is
                 // credited only on the piece that actually held one -- the
                 // depot's prize lives in a single piece, and crediting all

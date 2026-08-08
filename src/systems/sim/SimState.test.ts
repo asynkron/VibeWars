@@ -218,6 +218,17 @@ describe('buildings', () => {
         expect(sim.getBuilding(0)).toMatchObject({ ownerIndex: 1, yieldedTo: null });
     });
 
+    it('marks HQs and refuses capture events against them', () => {
+        const sim = SimState.snapshot(makeSourceWithFactory({
+            type: 'hq', ownerIndex: 0, hiddenUnitType: null,
+        }));
+        expect(sim.getBuilding(0)).toMatchObject({
+            ownerIndex: 0, isHeadquarters: true,
+        });
+        sim.record({ type: 'buildingCaptured', buildingIndex: 0, playerIndex: 1 });
+        expect(sim.getBuilding(0)!.ownerIndex).toBe(0);
+    });
+
     it('sinking a building tile to WATER destroys the building', () => {
         const sim = SimState.snapshot(makeSourceWithFactory());
         sim.record({ type: 'terrainModified', q: 2, r: 2, delta: -1 });
@@ -254,6 +265,16 @@ describe('buildings', () => {
         });
         neutral.record({ type: 'turnStarted', playerIndex: 0 });
         expect(neutral.getUnit(0)!.hp).toBe(5);
+    });
+
+    it('does not give factory repair to an HQ', () => {
+        const source = makeSourceWithFactory({
+            type: 'hq', ownerIndex: 0, hiddenUnitType: null,
+        });
+        source.units[0] = { ...source.units[0], q: 2, r: 2, hp: 5 };
+        const sim = SimState.snapshot(source);
+        sim.record({ type: 'turnStarted', playerIndex: 0 });
+        expect(sim.getUnit(0)!.hp).toBe(5);
     });
 
     it('fork isolates building state and condense carries it (resetting yieldedTo)', () => {

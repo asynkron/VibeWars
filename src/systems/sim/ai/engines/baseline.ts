@@ -42,6 +42,8 @@ export const baselineEngine = createEngine({
             capturePull: 3,
             // The hard rule's score mirror -- see ScoreWeights.vitalWorth.
             vitalWorth: 1500,
+            // Same hard-objective mirror for optional HQ maps.
+            headquartersWorth: 1500,
         },
 
         // --- Which genes exist and how often each is rolled.
