@@ -28,6 +28,25 @@ import { players, VISUAL_OFFSETS } from '../../constants';
 // Drawn once, tinted per team through material.color.
 const GLYPH_SIZE = 128;
 
+const UP = new THREE.Vector3(0, 1, 0);
+// Lays the icon plane on the ground. The glyph is drawn nose-up on the
+// canvas, which is the plane's local +Y, and this maps that to world -Z.
+const FLAT = new THREE.Euler(-Math.PI / 2, 0, 0);
+// ...which is NORTH, while a unit model at rotation.y = 0 faces +Z, south
+// -- see UnitSystem.getRotation, whose comment states the convention. So
+// the glyph was pointing the opposite way to the aircraft above it. Half a
+// turn puts the nose on the model's nose, and the unit's own yaw goes on
+// top of it so the symbol turns as the aircraft turns.
+const GLYPH_YAW_OFFSET = Math.PI;
+
+// How far the symbol floats over the tile.
+//
+// Set by the GRASS, not by taste: a blade is 0.30 tall and instances scale
+// to 1.35 of that, so anything under 0.41 is inside the turf and mown down
+// by it. Just clear of the tallest blade, close enough to the ground to
+// still read as lying on the tile.
+const GLYPH_CLEARANCE = 0.45;
+
 function glyphTexture(kind: 'helo' | 'jet'): any {
     const canvas = document.createElement('canvas');
     canvas.width = GLYPH_SIZE;
@@ -91,6 +110,8 @@ class AirMarkerSystem {
     // rebuilt on load.
     private static markers = new Map<any, { tether: any; icon: any }>();
     private static textures: Record<string, any> = {};
+    // Scratch, so the per-frame update allocates nothing.
+    private static readonly yaw = new THREE.Quaternion();
 
     private static texture(kind: 'helo' | 'jet'): any {
         if (!this.textures[kind]) this.textures[kind] = glyphTexture(kind);
@@ -115,19 +136,19 @@ class AirMarkerSystem {
                 map: this.texture(kind), color: colour,
                 transparent: true, opacity: 0.9,
                 depthWrite: false,
-                // AN OVERLAY, NOT A DECAL. Depth-tested it sank into the
-                // grass -- blades stand 0.3 to 0.4 and the marker lies on
-                // the surface -- and it would vanish behind any ridge
-                // between the camera and the tile. The whole point is to
-                // answer "which hex" at a glance, which it cannot do if
-                // the terrain is allowed to hide it.
-                depthTest: false,
+                // DEPTH-TESTED LIKE EVERYTHING ELSE. Drawing it on top of
+                // the whole scene did keep it visible, and it also let it
+                // shine through hills and hulls standing in front of it,
+                // which reads as a bug rather than as a marker. It obeys
+                // the buffer; the clearance below is what keeps it out of
+                // the grass.
+                depthTest: true,
             })
         );
-        // Flat on the ground rather than upright.
-        icon.rotation.x = -Math.PI / 2;
-        // Above the highlights and footprints, which are the other things
-        // drawn on a tile surface.
+        // Laid flat; the heading is applied per frame in update().
+        icon.quaternion.setFromEuler(FLAT);
+        // After the highlights and footprints, which are the other things
+        // drawn flat on a tile.
         icon.renderOrder = 900;
         scene.add(icon);
 
@@ -184,7 +205,13 @@ class AirMarkerSystem {
             // not under the aircraft, which drifts off it while moving and
             // would leave the marker pointing at nothing in particular.
             const centre = new HexCoord(unit.q, unit.r).getWorldPosition();
-            marker.icon.position.set(centre.x, groundY + 0.02, centre.z);
+            marker.icon.position.set(centre.x, groundY + GLYPH_CLEARANCE, centre.z);
+            // Heading, tracked live: the aircraft turns as it flies, and a
+            // symbol frozen in one direction reads as a mistake the moment
+            // the two disagree.
+            marker.icon.quaternion.setFromEuler(FLAT);
+            marker.icon.quaternion.premultiply(
+                AirMarkerSystem.yaw.setFromAxisAngle(UP, visual.rotation.y + GLYPH_YAW_OFFSET));
         }
 
         for (const [visual, marker] of this.markers) {

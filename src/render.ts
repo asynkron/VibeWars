@@ -1,6 +1,7 @@
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
 import { AirMarkerSystem } from './shared/hexengine/AirMarkerSystem';
+import { UnitInfoPanel } from './systems/unitInfoPanel';
 import { GrassSystem } from './shared/hexengine/GrassSystem';
 import { FireSystem } from './shared/hexengine/FireSystem';
 import { GlowSystem } from './shared/hexengine/GlowSystem';
@@ -313,6 +314,10 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
     // Tethers and tile symbols under the aircraft, rebuilt from the live
     // unit list -- see AirMarkerSystem.
     AirMarkerSystem.update();
+
+    // The inspected unit's readout is live: it follows damage taken while
+    // you are looking at it, and closes if that unit dies.
+    UnitInfoPanel.update();
 
     // Gutter the models' energy panels on the same clock.
     GlowSystem.animate(seconds);

@@ -27,6 +27,7 @@ import { GrassSystem } from './shared/hexengine/GrassSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
 import { getHexIntersects } from './shared/hexengine/utils';
+import { UnitInfoPanel } from './systems/unitInfoPanel';
 import { MAP_CONFIG, MAP_KEY, START_MODE, AI_DIFFICULTY} from './constants';
 import { initViewToolbar } from './systems/viewToolbar';
 import { renderFrame } from './render';
@@ -307,6 +308,15 @@ function setupEventListeners(matrices: CameraMatrices) {
             const hexGroup = intersects[0].object.parent;
             const unitOnHex = getGameState().getUnitAt(hexGroup.userData.q, hexGroup.userData.r);
 
+            // INSPECTION FIRST, and unconditionally. Every branch below can
+            // return -- a cast consumes the click, an attack consumes the
+            // click -- so anything placed after them only runs for some
+            // clicks. And it deliberately does not ask whose unit it is or
+            // whose turn it is: reading an enemy's stats is not an order,
+            // and in an AI-vs-AI match there is no human turn to wait for.
+            if (unitOnHex) UnitInfoPanel.show(unitOnHex);
+            else UnitInfoPanel.hide();
+
             // A non-attack skill armed from the bar takes the click first.
             // Checked BEFORE the attack path rather than after, because a
             // Repair and an attack can both be legal against overlapping
@@ -361,7 +371,9 @@ function setupEventListeners(matrices: CameraMatrices) {
             return;
         }
 
-        // Clear selection if clicking outside the grid
+        // Off the board entirely: nothing is selected and nothing is being
+        // looked at.
+        UnitInfoPanel.hide();
         if (selectedUnit) {
             clearSelection();
         }
@@ -668,7 +680,7 @@ function clearSelection(): void {
 export function isUiClick(target: EventTarget | null): boolean {
     const element = target as HTMLElement | null;
     if (!element || typeof element.closest !== 'function') return false;
-    return !!element.closest('button, #skill-bar, #view-toolbar, #minimap-overlay, #start-menu');
+    return !!element.closest('button, #skill-bar, #view-toolbar, #minimap-overlay, #start-menu, #unit-info');
 }
 
 // Cast whatever the skill bar has armed, if it is not the plain attack and
