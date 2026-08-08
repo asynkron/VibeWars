@@ -146,18 +146,18 @@ function build(): HTMLElement {
     const panel = document.createElement('div');
     panel.id = 'unit-info';
     panel.innerHTML = `
+        <div class="unit-info-head">
+            <span class="unit-info-name"></span>
+            <span class="unit-info-owner"></span>
+        </div>
+        <div class="unit-info-class"></div>
         <div class="unit-info-portrait"><img alt=""></div>
+        <div class="unit-info-skills"></div>
         <div class="unit-info-body">
-            <div class="unit-info-head">
-                <span class="unit-info-name"></span>
-                <span class="unit-info-owner"></span>
-            </div>
-            <div class="unit-info-class"></div>
             <dl class="unit-info-stats"></dl>
             <div class="unit-info-vs-label">VERSUS</div>
             <div class="unit-info-vs"></div>
-        </div>
-        <div class="unit-info-skills"></div>`;
+        </div>`;
     document.body.appendChild(panel);
     return panel;
 }
@@ -197,7 +197,6 @@ class UnitInfoPanel {
         const mine = state ? state.isPlayerTurn(unit.playerIndex) : false;
         owner.textContent = mine ? 'ACTIVE SIDE' : '';
         owner.style.color = colour;
-        panel.style.borderLeftColor = colour;
 
         (panel.querySelector('.unit-info-class') as HTMLElement).textContent =
             String(config.unitClass ?? '').toUpperCase();

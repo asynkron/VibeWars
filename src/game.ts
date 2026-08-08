@@ -87,36 +87,11 @@ function setupEventListeners(matrices: CameraMatrices) {
     const nextUnitButton = document.createElement('button');
     nextUnitButton.id = 'next-unit-button';
     nextUnitButton.textContent = 'Next Unit';
-    nextUnitButton.className = 'game-button';  // Use same class as end turn button
-    nextUnitButton.style.position = 'absolute';
-    nextUnitButton.style.bottom = '10px';
-    nextUnitButton.style.left = '10px';  // Position on the left side
+    nextUnitButton.className = 'game-button';
     document.body.appendChild(nextUnitButton);
 
-    // Add CSS for consistent button styling
-    const style = document.createElement('style');
-    style.textContent = `
-        .game-button {
-            padding: 10px 20px;
-            font-size: 16px;
-            background-color: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-        }
-        .game-button:hover {
-            background-color: #45a049;
-        }
-        .game-button:disabled {
-            background-color: #cccccc;
-            cursor: not-allowed;
-        }
-    `;
-    document.head.appendChild(style);
-
-    // Add the same class to end turn button for consistency
+    // One stylesheet owns both match controls; runtime CSS used to fight the
+    // static End Turn rules and made the pair only accidentally consistent.
     endTurnButton.className = 'game-button';
 
     function isMinimapPosition(x: number, y: number): boolean {
@@ -459,10 +434,12 @@ function setupEventListeners(matrices: CameraMatrices) {
 
         // Small delay to ensure camera movement is complete before selection
         setTimeout(() => {
-            // Select the unit using the same function as the click handler
+            // Selection issues orders; inspection drives the left info rail.
+            // A map click performs both earlier in this listener, so cycling
+            // must do both too or the camera/selection advances while the
+            // panel remains stuck on the previously clicked unit.
             if (selectUnit(nextUnit)) {
-                // Force a re-highlight after selection
-                UnitSystem.handleSelection(nextUnit);
+                UnitInfoPanel.show(nextUnit);
             }
         }, 50);
     });
@@ -471,10 +448,8 @@ function setupEventListeners(matrices: CameraMatrices) {
     const updateNextUnitButton = () => {
         if (isHumanTurn()) {
             nextUnitButton.disabled = false;
-            nextUnitButton.style.opacity = '1';
         } else {
             nextUnitButton.disabled = true;
-            nextUnitButton.style.opacity = '0.5';
         }
     };
 
@@ -490,9 +465,6 @@ function setupEventListeners(matrices: CameraMatrices) {
         minimapOverlay.style.top = '10px';
         minimapOverlay.style.right = '10px';
 
-        // Update next unit button position
-        nextUnitButton.style.bottom = '10px';
-        nextUnitButton.style.left = '10px';  // Keep it on the left side
     });
 
     // Prevent context menu from appearing on right click

@@ -11,6 +11,14 @@
             overflow: hidden;
             background: #f0f0f0;
             font-family: Arial, sans-serif;
+            --hud-bg: rgba(14, 18, 24, 0.86);
+            --hud-bg-hover: rgba(26, 34, 43, 0.94);
+            --hud-border: rgba(255, 255, 255, 0.10);
+            --hud-text: #dfe6ee;
+            --hud-muted: #7f8b99;
+            --hud-ready: #7deda0;
+            --hud-font: "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            --hud-font-size: 12px;
         }
 
         canvas {
@@ -117,29 +125,39 @@
             background: #63d1ff;
         }
 
-        /* Unit info, bottom left. Hidden until something is inspected --
+        /* Unit info is one docked LEFT RAIL: portrait, skills, stats. It is
+           not a floating card and none of those sections may become a
+           parallel column. Hidden until something is inspected --
            display:none rather than opacity, so it cannot swallow clicks
            meant for the board while it is invisible. */
         #unit-info {
             position: absolute;
-            left: 16px;
-            /* Above the Next Unit button, which sits at bottom:10px in the
-               same corner -- see game.ts. Overlapping it hid the button
-               behind a panel that opens on any click on any unit. */
-            bottom: 68px;
+            left: 0;
+            /* The Next Unit control continues this rail down to the viewport
+               edge. No floating gap, and no overlap with board clicks. */
+            bottom: 52px;
             display: none;
-            gap: 14px;
-            padding: 12px 16px 12px 12px;
-            border-radius: 10px;
-            border-left: 4px solid #40c4ff;
-            background: rgba(14, 18, 24, 0.86);
+            width: 248px;
+            max-height: calc(100vh - 76px);
+            overflow-y: auto;
+            flex-direction: column;
+            box-sizing: border-box;
+            padding: 12px 14px 14px 12px;
+            border-radius: 0 10px 0 0;
+            background: var(--hud-bg);
             backdrop-filter: blur(4px);
-            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
-            color: #dfe6ee;
-            font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            box-shadow: 5px 4px 16px rgba(0, 0, 0, 0.45);
+            color: var(--hud-text);
+            font-family: var(--hud-font);
             user-select: none;
             pointer-events: auto;
-            align-items: stretch;
+            font-size: var(--hud-font-size);
+        }
+
+        /* One typographic size throughout the rail. Hierarchy comes from
+           weight, spacing and colour instead of jumping between sizes. */
+        #unit-info * {
+            font-size: inherit;
         }
 
         #unit-info.is-open {
@@ -147,14 +165,17 @@
         }
 
         .unit-info-portrait {
-            width: 104px;
-            height: 104px;
-            flex: 0 0 auto;
+            width: 100%;
+            height: 142px;
+            margin-top: 8px;
             border-radius: 8px;
-            background: rgba(255, 255, 255, 0.05);
+            background:
+                linear-gradient(135deg, rgba(64, 196, 255, 0.08), transparent 55%),
+                rgba(255, 255, 255, 0.04);
             display: flex;
             align-items: center;
             justify-content: center;
+            overflow: hidden;
         }
 
         .unit-info-portrait img {
@@ -163,15 +184,14 @@
             object-fit: contain;
         }
 
-        /* FIXED WIDTHS, not flex-grow. The body grew to fill the panel and
-           squeezed the skills column to a few characters, which wrapped one
-           letter per line. Each column owns its width; the panel is as wide
-           as the columns it is showing. */
+        /* One full-width section below another. Width and flex-basis are
+           intentionally absent: this panel has no internal layout columns. */
         .unit-info-body {
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            flex: 0 0 232px;
+            width: 100%;
+            box-sizing: border-box;
+            padding-top: 12px;
         }
 
         .unit-info-head {
@@ -181,22 +201,18 @@
         }
 
         .unit-info-name {
-            font-size: 22px;
             font-weight: 700;
             letter-spacing: 0.3px;
         }
 
         .unit-info-owner {
-            font-size: 10px;
             font-weight: 700;
             letter-spacing: 1.4px;
         }
 
         .unit-info-class {
-            font-size: 10px;
             letter-spacing: 1.6px;
             color: #7f8b99;
-            margin-bottom: 8px;
         }
 
         /* Two columns, label then value, so the numbers line up in a
@@ -207,7 +223,6 @@
             column-gap: 14px;
             row-gap: 3px;
             margin: 0;
-            font-size: 13px;
         }
 
         .unit-info-stats dt {
@@ -223,7 +238,6 @@
 
         .unit-info-vs-label {
             margin-top: 10px;
-            font-size: 9px;
             letter-spacing: 1.6px;
             color: #7f8b99;
         }
@@ -243,7 +257,6 @@
             gap: 5px;
             padding: 2px 7px;
             border-radius: 4px;
-            font-size: 10px;
             letter-spacing: 0.6px;
             text-transform: uppercase;
             background: rgba(255, 255, 255, 0.07);
@@ -251,7 +264,6 @@
         }
 
         .vs-chip b {
-            font-size: 11px;
             font-variant-numeric: tabular-nums;
         }
 
@@ -261,16 +273,15 @@
            at half strength, so it does not look like just another number. */
         .vs-chip.is-none   { background: rgba(255, 59, 48, 0.15);  color: #ff8078; }
 
-        /* The third column, present only when the unit has something past
-           its attack -- .has-skills is what opens it, so a plain tank does
-           not carry an empty column around. */
+        /* Skills are the middle BLOCK, never a third column. Present only
+           when the unit has something past its attack. */
         .unit-info-skills {
             display: none;
-            flex: 0 0 196px;
             flex-direction: column;
-            padding-left: 14px;
-            margin-left: 2px;
-            border-left: 1px solid rgba(255, 255, 255, 0.10);
+            width: 100%;
+            box-sizing: border-box;
+            padding: 2px 0 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.10);
         }
 
         #unit-info.has-skills .unit-info-skills {
@@ -296,19 +307,16 @@
         }
 
         .unit-skill-glyph {
-            font-size: 15px;
             line-height: 1;
         }
 
         .unit-skill-name {
-            font-size: 13px;
             font-weight: 700;
             flex: 1 1 auto;
             white-space: nowrap;
         }
 
         .unit-skill-state {
-            font-size: 9px;
             font-weight: 700;
             letter-spacing: 1px;
             color: #7dedA0;
@@ -319,13 +327,11 @@
         }
 
         .unit-skill-what {
-            font-size: 11px;
             color: #b3bdc8;
             margin-top: 1px;
         }
 
         .unit-skill-meta {
-            font-size: 10px;
             color: #7f8b99;
             margin-top: 1px;
         }
@@ -350,42 +356,74 @@
             user-select: none;
         }
 
-        #end-turn-button {
+        /* Match controls share the unit rail's material and typography.
+           Their position is part of the shape: Next Unit closes the left
+           rail, End Turn mirrors it against the opposite viewport edge. */
+        .game-button {
             position: absolute;
-            bottom: 20px;
-            right: 20px;
-            padding: 15px 30px;
-            font-size: 18px;
-            font-weight: bold;
-            color: white;
-            background-color: #4CAF50;
-            border: none;
-            border-radius: 5px;
+            z-index: 95;
+            height: 52px;
+            box-sizing: border-box;
+            padding: 0 18px;
+            font-family: var(--hud-font);
+            font-size: var(--hud-font-size);
+            font-weight: 700;
+            letter-spacing: 0.10em;
+            text-transform: uppercase;
+            color: var(--hud-text);
+            background: var(--hud-bg);
+            border: 1px solid var(--hud-border);
+            backdrop-filter: blur(4px);
             cursor: pointer;
-            transition: background-color 0.3s, transform 0.1s;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 -3px 14px rgba(0, 0, 0, 0.34);
+            transition: background-color 0.15s, color 0.15s, border-color 0.15s;
         }
 
-        #end-turn-button:hover {
-            background-color: #45a049;
-            transform: translateY(-2px);
+        #next-unit-button {
+            left: 0;
+            bottom: 0;
+            width: 248px;
+            border-left: 0;
+            border-bottom: 0;
+            border-radius: 0 0 10px 0;
         }
 
-        #end-turn-button:active {
-            transform: translateY(0px);
+        #end-turn-button {
+            right: 0;
+            bottom: 0;
+            min-width: 164px;
+            border-right: 0;
+            border-bottom: 0;
+            border-radius: 10px 0 0 0;
         }
 
-        #end-turn-button:disabled {
-            background-color: #cccccc;
+        .game-button:hover:not(:disabled) {
+            color: var(--hud-ready);
+            background: var(--hud-bg-hover);
+            border-color: rgba(125, 237, 160, 0.38);
+        }
+
+        .game-button:active:not(:disabled) {
+            background: rgba(35, 49, 42, 0.96);
+        }
+
+        .game-button:focus-visible {
+            outline: 2px solid #40c4ff;
+            outline-offset: -3px;
+        }
+
+        .game-button:disabled {
+            color: var(--hud-muted);
+            background: rgba(14, 18, 24, 0.68);
+            opacity: 0.58;
             cursor: not-allowed;
-            transform: none;
         }
     </style>
 </head>
 
 <body>
     <div id="minimap-overlay"></div>
-    <button id="end-turn-button">End Turn</button>
+    <button id="end-turn-button" class="game-button">End Turn</button>
     <script>
         window.HEX_ENGINE_OPTIONS = {
             loadModels: true,

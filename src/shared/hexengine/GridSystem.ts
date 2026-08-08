@@ -3,6 +3,7 @@
  */
 import { group, miniMapScene, renderer } from '../../render';
 import { BuildingSystem } from './BuildingSystem';
+import { setDecoratorObscured } from './decoratorTransparency';
 import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
@@ -781,24 +782,7 @@ class GridSystem {
     static updateDecoratorTransparency(hex: any) {
         if (!hex || !hex.userData || !hex.userData.decorator) return;
         const unit = getGameState().getUnitAt(hex.userData.q, hex.userData.r);
-        const decorator = hex.userData.decorator;
-        decorator.traverse((child: any) => {
-            if (child.isMesh) {
-                if (unit) {
-                    child.material.transparent = true;
-                    child.material.opacity = 0.3;
-                    child.material.depthWrite = false;
-                    child.material.depthTest = true;
-                    child.material.side = THREE.DoubleSide;
-                } else {
-                    child.material.transparent = false;
-                    child.material.opacity = 1.0;
-                    child.material.depthWrite = true;
-                    child.material.depthTest = true;
-                    child.material.side = THREE.DoubleSide;
-                }
-            }
-        });
+        setDecoratorObscured(hex.userData.decorator, !!unit);
     }
 
     static updateAllDecoratorTransparency() {
