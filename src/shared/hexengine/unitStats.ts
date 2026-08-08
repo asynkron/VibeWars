@@ -358,6 +358,7 @@ export const UNIT_TYPES = {
             // helicopter hovered inside the branches of anything it flew
             // over. Raise the trees again and this has to follow.
             flightAltitude: 4.3,
+            airGlyph: 'helo' as const,
             // Rocket flurry like the artillery barrage VISUALLY, but every
             // rocket goes at the target hex: several small hits on one
             // unit, no splash, no craters.
@@ -399,6 +400,7 @@ export const UNIT_TYPES = {
             // not read as flying at the same level, or an air stack over one
             // hex is unreadable. See the derivation on the Nightjar.
             flightAltitude: 5.8,
+            airGlyph: 'jet' as const,
             attackEffect: 'projectile',
             footprintTexture: null,  // Flies -- leaves no tracks
             terrainCosts: {

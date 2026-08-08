@@ -53,85 +53,79 @@ class UnitSystem {
         await ModelSystem.loadModels(this.unitTypes);
     }
 
+    // One plaque carrying both the health bar and the name.
+    //
+    // They used to be two loose elements on a transparent canvas -- a bar
+    // pinned to the top edge and white Arial floating in the middle of
+    // nothing. Over a lit 3D scene that text had whatever was behind it as
+    // its background: grass, sky, a tank, all in one word. A dark plate
+    // under both is what makes the name legible, and it also stops the bar
+    // and the name reading as two unrelated things hovering near a unit.
+    //
+    // 256 SQUARE, not a wide strip: the sprite is scaled (1,1,1) and
+    // positioned by setPosition, so changing the aspect ratio here would
+    // stretch every badge on the board. Four times the pixels of the old
+    // 128 go into sharper text, and the plate simply does not use the
+    // bottom half.
     static createUnitSprite(type: string, hp: number, maxHp: number, playerIndex: number) {
         const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 128;
+        canvas.width = 256;
+        canvas.height = 256;
         const ctx = canvas.getContext('2d')!;
 
-        // Draw HP bar background (black)
-        ctx.fillStyle = '#000000';
-        ctx.fillRect(0, 0, 128, 24); // Reduced height from 32 to 24
+        const X = 12, Y = 18, W = 232, H = 104, R = 16;
+        const roundedRect = (x: number, y: number, w: number, h: number, r: number) => {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y);
+            ctx.arcTo(x + w, y, x + w, y + h, r);
+            ctx.arcTo(x + w, y + h, x, y + h, r);
+            ctx.arcTo(x, y + h, x, y, r);
+            ctx.arcTo(x, y, x + w, y, r);
+            ctx.closePath();
+        };
 
-        // Calculate segment width (total width divided by max HP)
-        const segmentWidth = 128 / maxHp;
-        const segmentHeight = 24; // Reduced height from 32 to 24
-        const borderWidth = 2; // Thicker border for more visible 3D effect
+        // The plate.
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.82)';
+        roundedRect(X, Y, W, H, R);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.16)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
 
-        // Draw each HP segment
+        // Health, as pips across the top of the plate. Red below a third,
+        // the same threshold the old bar used.
+        const padding = 12;
+        const barX = X + padding, barY = Y + padding;
+        const barW = W - padding * 2, barH = 26;
+        const gap = 3;
+        const cell = barW / maxHp;
+        const low = hp < maxHp * 0.33;
         for (let i = 0; i < maxHp; i++) {
-            const x = i * segmentWidth;
-
-            // Draw black outline for each segment
-            ctx.fillStyle = '#000000';
-            ctx.fillRect(x, 0, segmentWidth, segmentHeight);
-
-            // Draw segment background (dark gray for missing HP)
-            ctx.fillStyle = '#333333'; // Changed from white to dark gray
-            ctx.fillRect(x + borderWidth, borderWidth, segmentWidth - borderWidth * 2, segmentHeight - borderWidth * 2);
-
-            // If this segment represents HP, fill it with color and 3D effect
+            const x = barX + i * cell;
+            ctx.fillStyle = i < hp ? (low ? '#ff3b30' : '#3ddc5b') : 'rgba(255, 255, 255, 0.13)';
+            ctx.fillRect(x + gap / 2, barY, cell - gap, barH);
             if (i < hp) {
-                const baseColor = hp < maxHp * 0.33 ? '#ff0000' : '#00ff00';
-                const lightColor = hp < maxHp * 0.33 ? '#ff9999' : '#99ff99';
-                const darkColor = hp < maxHp * 0.33 ? '#990000' : '#006600';
-
-                // Draw main segment color
-                ctx.fillStyle = baseColor;
-                ctx.fillRect(x + borderWidth, borderWidth, segmentWidth - borderWidth * 2, segmentHeight - borderWidth * 2);
-
-                // Draw light borders (top and left)
-                ctx.fillStyle = lightColor;
-                ctx.fillRect(x + borderWidth, borderWidth, segmentWidth - borderWidth * 2, borderWidth); // Top border
-                ctx.fillRect(x + borderWidth, borderWidth, borderWidth, segmentHeight - borderWidth * 2); // Left border
-
-                // Draw dark borders (bottom and right)
-                ctx.fillStyle = darkColor;
-                ctx.fillRect(x + borderWidth, segmentHeight - borderWidth * 2, segmentWidth - borderWidth * 2, borderWidth); // Bottom border
-                ctx.fillRect(x + segmentWidth - borderWidth * 2, borderWidth, borderWidth, segmentHeight - borderWidth * 2); // Right border
-            } else {
-                // Add 3D effect to missing HP segments too
-                const lightColor = '#444444';
-                const darkColor = '#222222';
-
-                // Draw light borders (top and left)
-                ctx.fillStyle = lightColor;
-                ctx.fillRect(x + borderWidth, borderWidth, segmentWidth - borderWidth * 2, borderWidth); // Top border
-                ctx.fillRect(x + borderWidth, borderWidth, borderWidth, segmentHeight - borderWidth * 2); // Left border
-
-                // Draw dark borders (bottom and right)
-                ctx.fillStyle = darkColor;
-                ctx.fillRect(x + borderWidth, segmentHeight - borderWidth * 2, segmentWidth - borderWidth * 2, borderWidth); // Bottom border
-                ctx.fillRect(x + segmentWidth - borderWidth * 2, borderWidth, borderWidth, segmentHeight - borderWidth * 2); // Right border
+                // A lighter top edge: enough to read as a filled pip rather
+                // than a flat block, without the four-sided bevel the old
+                // bar drew on every segment.
+                ctx.fillStyle = low ? 'rgba(255, 190, 185, 0.75)' : 'rgba(200, 255, 210, 0.75)';
+                ctx.fillRect(x + gap / 2, barY, cell - gap, 4);
             }
         }
 
-        // Dynamic font sizing for unit name
+        // The name.
         const unitName = this.unitTypesRecord[type].name;
-        let fontSize = 24; // Start with large font
-        ctx.font = `${fontSize}px Arial`;
-        let textWidth = ctx.measureText(unitName).width;
-
-        // Reduce font size if text is too wide
-        while (textWidth > 120 && fontSize > 16) { // Leave 4px margin on each side
+        const face = '"Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif';
+        let fontSize = 38;
+        ctx.font = `700 ${fontSize}px ${face}`;
+        while (ctx.measureText(unitName).width > W - padding * 2 && fontSize > 20) {
             fontSize--;
-            ctx.font = `${fontSize}px Arial`;
-            textWidth = ctx.measureText(unitName).width;
+            ctx.font = `700 ${fontSize}px ${face}`;
         }
-
-        ctx.fillStyle = 'white';
         ctx.textAlign = 'center';
-        ctx.fillText(unitName, 64, 64);
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(unitName, X + W / 2, barY + barH + (H - padding * 2 - barH) / 2 + 4);
 
         return new THREE.Sprite(new THREE.SpriteMaterial({
             map: new THREE.CanvasTexture(canvas),
@@ -240,6 +234,10 @@ class UnitSystem {
                 sprite: unitSprite,  // Store reference to sprite
                 modelHeight: modelHeight,  // Store model height for positioning
                 flightAltitude: this.unitTypesRecord[type].flightAltitude || 0,
+                // Which silhouette the tile marker draws -- see
+                // AirMarkerSystem. Declared per type rather than sniffed
+                // from the model path, which is one rename from wrong.
+                airGlyph: this.unitTypesRecord[type].airGlyph,
                 yOffset: this.unitTypesRecord[type].yOffset || 0,
                 terrainCosts: this.unitTypesRecord[type].terrainCosts
             };

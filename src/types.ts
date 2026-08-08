@@ -77,6 +77,9 @@ export interface UnitTypeConfig {
   // creation time, so it's a per-type default that a specific unit instance
   // can still override individually by mutating its own userData.
   flightAltitude?: number;
+  // Silhouette drawn on the ground tile under a flying unit, so the player
+  // can see which hex it occupies. Only meaningful with flightAltitude.
+  airGlyph?: 'helo' | 'jet';
   // Small per-model vertical correction added on top of the computed
   // ground height -- for models whose visual base doesn't quite match
   // their bounding box (skids, ground clutter baked into the mesh, etc).
