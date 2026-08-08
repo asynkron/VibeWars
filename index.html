@@ -139,7 +139,7 @@
             font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
             user-select: none;
             pointer-events: auto;
-            min-width: 300px;
+            align-items: stretch;
         }
 
         #unit-info.is-open {
@@ -163,11 +163,15 @@
             object-fit: contain;
         }
 
+        /* FIXED WIDTHS, not flex-grow. The body grew to fill the panel and
+           squeezed the skills column to a few characters, which wrapped one
+           letter per line. Each column owns its width; the panel is as wide
+           as the columns it is showing. */
         .unit-info-body {
             display: flex;
             flex-direction: column;
             justify-content: center;
-            flex: 1 1 auto;
+            flex: 0 0 232px;
         }
 
         .unit-info-head {
@@ -215,6 +219,115 @@
             text-align: right;
             font-variant-numeric: tabular-nums;
             font-weight: 600;
+        }
+
+        .unit-info-vs-label {
+            margin-top: 10px;
+            font-size: 9px;
+            letter-spacing: 1.6px;
+            color: #7f8b99;
+        }
+
+        /* Chips rather than more table rows: six matchups as a list would
+           be taller than everything above it put together. */
+        .unit-info-vs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 5px;
+        }
+
+        .vs-chip {
+            display: inline-flex;
+            align-items: baseline;
+            gap: 5px;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 10px;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            background: rgba(255, 255, 255, 0.07);
+            color: #9aa7b5;
+        }
+
+        .vs-chip b {
+            font-size: 11px;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .vs-chip.is-strong { background: rgba(61, 220, 91, 0.18); color: #7dedA0; }
+        .vs-chip.is-weak   { background: rgba(255, 149, 0, 0.18);  color: #ffb454; }
+        /* Cannot touch it at all -- a different statement from hitting it
+           at half strength, so it does not look like just another number. */
+        .vs-chip.is-none   { background: rgba(255, 59, 48, 0.15);  color: #ff8078; }
+
+        /* The third column, present only when the unit has something past
+           its attack -- .has-skills is what opens it, so a plain tank does
+           not carry an empty column around. */
+        .unit-info-skills {
+            display: none;
+            flex: 0 0 196px;
+            flex-direction: column;
+            padding-left: 14px;
+            margin-left: 2px;
+            border-left: 1px solid rgba(255, 255, 255, 0.10);
+        }
+
+        #unit-info.has-skills .unit-info-skills {
+            display: flex;
+        }
+
+        /* PREFIXED, because the skill bar already owns `.skill` and
+           `.skill-glyph` further up this stylesheet -- its rule sets
+           display:flex, which laid these three lines out side by side
+           inside a 200px column. */
+        .unit-skill {
+            margin-top: 8px;
+        }
+
+        .unit-skill.is-cooling {
+            opacity: 0.5;
+        }
+
+        .unit-skill-head {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+        }
+
+        .unit-skill-glyph {
+            font-size: 15px;
+            line-height: 1;
+        }
+
+        .unit-skill-name {
+            font-size: 13px;
+            font-weight: 700;
+            flex: 1 1 auto;
+            white-space: nowrap;
+        }
+
+        .unit-skill-state {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #7dedA0;
+        }
+
+        .unit-skill.is-cooling .unit-skill-state {
+            color: #ffb454;
+        }
+
+        .unit-skill-what {
+            font-size: 11px;
+            color: #b3bdc8;
+            margin-top: 1px;
+        }
+
+        .unit-skill-meta {
+            font-size: 10px;
+            color: #7f8b99;
+            margin-top: 1px;
         }
 
         /* Top left, the one corner nothing else claims: the toolbar and the

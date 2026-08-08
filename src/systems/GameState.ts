@@ -4,6 +4,7 @@ import { isVital } from '../shared/hexengine/unitStats';
 import { GameMap } from '../shared/hexengine/MapSystem';
 import { AIController } from './ai/AIController';
 import { selectedMapProvider } from './maps/mapRegistry';
+import { players as PLAYER_DEFS } from '../constants';
 import type { Building, GameUnit, GamePlayer, PlayerController } from '../types';
 import { NO_COOLDOWNS, tickCooldowns } from '../shared/hexengine/skills';
 import { refreshSkillBar } from './skillBar';
@@ -51,12 +52,20 @@ class GameState {
 
         const nameFor = (controller: PlayerController, index: number) =>
             `${controller === 'human' ? 'Human' : 'AI'} ${index + 1}`;
-        // Same blue constants.ts gives the units. These two drifted apart --
-        // units were drawn 0x0050FF from `players` while buildings took
-        // 0x0000ff from here -- so one side's depot never quite matched the
-        // tanks parked on it.
-        this.players.push({ id: 0, name: nameFor(controllers[0], 0), color: 0x1778FF, controller: controllers[0] });
-        this.players.push({ id: 1, name: nameFor(controllers[1], 1), color: 0xff0000, controller: controllers[1] });
+        // READ, NOT COPIED, from constants.ts. These two drifted apart once
+        // already and the fix was to copy the value across -- which fixed
+        // player 0 and left player 1 at 0xff0000 against the units' 0xFF5000,
+        // so an orange army kept parking on a red depot. Unit models, the air
+        // markers and the info panel all take their colour from `players`;
+        // this is the same list, so there is nothing left to drift.
+        PLAYER_DEFS.forEach((def, index) => {
+            this.players.push({
+                id: index,
+                name: nameFor(controllers[index], index),
+                color: def.color,
+                controller: controllers[index],
+            });
+        });
     }
 
     // Kick off the first turn once the world is fully initialized -- if

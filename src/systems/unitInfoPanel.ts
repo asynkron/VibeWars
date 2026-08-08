@@ -16,9 +16,40 @@
 import { players } from '../constants';
 import { ModelSystem } from '../shared/hexengine/ModelSystem';
 import { UnitSystem } from '../shared/hexengine/UnitSystem';
+import { skillsFor } from '../shared/hexengine/unitStats';
+import { isReady, type SkillDef } from '../shared/hexengine/skills';
 import { getGameStateOrNull } from './gameStateStore';
 
 const PORTRAIT_SIZE = 200;
+
+// The order the matchups are listed in. Fixed, so the row a player learns
+// to look at stays where it was; anything not named here is appended, so a
+// class added later shows up instead of silently vanishing.
+const CLASS_ORDER = ['infantry', 'tank', 'aa', 'artillery', 'air', 'naval'];
+
+// One real unit type per class.
+//
+// THE PANEL ASKS THE SAME FUNCTIONS COMBAT ASKS. canTarget and
+// getClassModifier are written in terms of unit TYPES, not classes, so
+// answering "how does this fare against air" means naming a type that is
+// air and putting it through the real rule. Reading CLASS_COUNTERS here
+// instead would restate the targeting restrictions in a second place, and
+// the first thing to drift would be the panel quietly promising an
+// artillery piece it can shoot down a helicopter.
+let classReps: [string, string][] | null = null;
+function representatives(): [string, string][] {
+    if (classReps) return classReps;
+    const found = new Map<string, string>();
+    for (const [type, config] of Object.entries(UnitSystem.unitTypesRecord)) {
+        const unitClass = (config as any)?.unitClass;
+        if (!unitClass || found.has(unitClass)) continue;
+        found.set(unitClass, type);
+    }
+    const ordered = CLASS_ORDER.filter((c) => found.has(c));
+    const rest = [...found.keys()].filter((c) => !CLASS_ORDER.includes(c));
+    classReps = [...ordered, ...rest].map((c) => [c, found.get(c)!] as [string, string]);
+    return classReps;
+}
 
 // A SECOND, TINY RENDERER, made once and only if a portrait is ever asked
 // for. Rendering these through the main renderer would mean either a
@@ -92,6 +123,25 @@ function portraitFor(type: string, playerIndex: number): string | null {
     return url;
 }
 
+// What a skill actually does, in a few words.
+//
+// Read off the effect union rather than from a description field, because
+// there is no description field -- the numbers live on the effect and this
+// is the only place that has to turn them into a sentence. A skill whose
+// kind is not handled falls back to its own name, which is wrong-looking
+// rather than blank, and blank is the failure that goes unnoticed.
+function effectSummary(skill: SkillDef): string {
+    const effect = skill.effect as any;
+    switch (effect.kind) {
+        case 'repair': return `Restores ${effect.hp} HP`;
+        case 'load': return 'Picks up an ally';
+        case 'unload': return 'Sets its passenger down';
+        case 'startFire': return `Sets the ground alight for ${effect.turns} turns`;
+        case 'attack': return `${effect.minDamage}-${effect.maxDamage} damage`;
+        default: return skill.name;
+    }
+}
+
 function build(): HTMLElement {
     const panel = document.createElement('div');
     panel.id = 'unit-info';
@@ -104,7 +154,10 @@ function build(): HTMLElement {
             </div>
             <div class="unit-info-class"></div>
             <dl class="unit-info-stats"></dl>
-        </div>`;
+            <div class="unit-info-vs-label">VERSUS</div>
+            <div class="unit-info-vs"></div>
+        </div>
+        <div class="unit-info-skills"></div>`;
     document.body.appendChild(panel);
     return panel;
 }
@@ -112,7 +165,11 @@ function build(): HTMLElement {
 class UnitInfoPanel {
     private static panel: HTMLElement | null = null;
     private static unit: any = null;
-    private static shownHp = -1;
+    // What the panel is currently showing, as one comparable string. HP was
+    // not enough once cooldowns went on it: a skill coming off cooldown
+    // changes nothing about the unit's health and everything about what the
+    // panel should say.
+    private static shown = '';
 
     private static element(): HTMLElement {
         if (!this.panel) this.panel = document.getElementById('unit-info') ?? build();
@@ -123,7 +180,7 @@ class UnitInfoPanel {
         if (!unit) return this.hide();
         const panel = this.element();
         this.unit = unit;
-        this.shownHp = unit.hp;
+        this.shown = UnitInfoPanel.signature(unit);
 
         const config = UnitSystem.unitTypesRecord[unit.type] ?? {};
         const player = players[unit.playerIndex];
@@ -163,6 +220,47 @@ class UnitInfoPanel {
             .map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`)
             .join('');
 
+        // Matchups. A unit that cannot touch a class at all is a different
+        // statement from one that hits it at half strength, so they get
+        // different chips rather than a 0.
+        const chips = representatives().map(([unitClass, repType]) => {
+            if (!UnitSystem.canTarget(unit.type, repType)) {
+                return `<span class="vs-chip is-none">${unitClass}<b>—</b></span>`;
+            }
+            const modifier = UnitSystem.getClassModifier(unit.type, repType);
+            const tone = modifier > 1 ? 'is-strong' : modifier < 1 ? 'is-weak' : 'is-even';
+            return `<span class="vs-chip ${tone}">${unitClass}<b>×${modifier.toFixed(1)}</b></span>`;
+        });
+        const vs = panel.querySelector('.unit-info-vs') as HTMLElement;
+        vs.innerHTML = chips.join('');
+
+        // SLOT 0 IS THE ATTACK and it is already spelled out above as
+        // Attack / Damage / Range -- see skillsFor, where the convention is
+        // stated. Listing it again as a "special" would make every unit in
+        // the game look like it has one.
+        const extras = skillsFor(unit.type).slice(1);
+        const skills = panel.querySelector('.unit-info-skills') as HTMLElement;
+        panel.classList.toggle('has-skills', extras.length > 0);
+        skills.innerHTML = extras.length === 0 ? '' :
+            `<div class="unit-info-vs-label">SPECIAL</div>` + extras.map((skill) => {
+                const turnsLeft = unit.cooldowns?.[skill.id] ?? 0;
+                const ready = isReady(unit.cooldowns, skill.id);
+                const range = skill.minRange === skill.maxRange
+                    ? `${skill.maxRange}` : `${skill.minRange}-${skill.maxRange}`;
+                const meta = [
+                    `range ${range}`,
+                    skill.cooldown > 0 ? `cooldown ${skill.cooldown}` : 'every turn',
+                ];
+                if (skill.spendsAction) meta.push('spends action');
+                return `<div class="unit-skill ${ready ? '' : 'is-cooling'}">
+                    <div class="unit-skill-head"><span class="unit-skill-glyph">${skill.glyph}</span>
+                    <span class="unit-skill-name">${skill.name}</span>
+                    <span class="unit-skill-state">${ready ? 'READY' : turnsLeft + 'T'}</span></div>
+                    <div class="unit-skill-what">${effectSummary(skill)}</div>
+                    <div class="unit-skill-meta">${meta.join(' &middot; ')}</div>
+                </div>`;
+            }).join('');
+
         panel.classList.add('is-open');
     }
 
@@ -178,7 +276,11 @@ class UnitInfoPanel {
         if (!this.unit) return;
         const state = getGameStateOrNull();
         if (!state || !state.units.includes(this.unit)) return this.hide();
-        if (this.unit.hp !== this.shownHp) this.show(this.unit);
+        if (UnitInfoPanel.signature(this.unit) !== this.shown) this.show(this.unit);
+    }
+
+    private static signature(unit: any): string {
+        return `${unit.hp}|${unit.move}|${JSON.stringify(unit.cooldowns ?? {})}`;
     }
 
     static get inspected(): any {

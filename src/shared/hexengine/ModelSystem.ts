@@ -94,7 +94,10 @@ class ModelSystem {
 
                 // Apply scaling
                 const baseScale = extension === 'fbx' ? 0.05 : 1.0;
-                const modelScale = config.scale || 1.0;
+                // ?? not ||: a scale of 0 is a legitimate value and `||` turned it
+        // silently into 1.0 -- a piece meant to be invisible came back at
+        // full size instead.
+        const modelScale = config.scale ?? 1.0;
                 const finalScale = baseScale * modelScale;
                 loadedModel.scale.set(finalScale, finalScale, finalScale);
 
@@ -216,19 +219,207 @@ class ModelSystem {
         return group;
     }
 
-    static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null, teamColorMaterial: string | null = null) {
+    // teamColorMaterial takes one material name or several. Several,
+    // because a building carries its side in more than one place: the roof
+    // camo AND the lit strips along its eaves, which the art shows cyan for
+    // one player and orange for the other.
+    // The model exactly as it was authored: a clone and nothing else.
+    //
+    // createModelWithColor below is the war-machine path, and it does a lot
+    // more than its name says -- besides the team tint it runs
+    // applyDirtyPlateToModel, which REPLACES THE MAP ON EVERY MATERIAL with
+    // a grimed version. That is right for a tank; on a building it repaints
+    // the concrete, the trim and the armour panels the artist textured, and
+    // the result is nothing like the reference render.
+    static cloneUntouched(model: any): any {
+        const clone = model.clone();
+        this.useLegacySceneColorEncoding(clone);
+        return clone;
+    }
+
+    // This renderer intentionally still uses its legacy linear output: the
+    // procedural terrain and unit palette were authored against it. GLTFLoader
+    // correctly tags base-colour textures as sRGB, but without an sRGB output
+    // transform that makes those textures get decoded once and never encoded
+    // again, so imported GLBs appear dramatically too dark. Changing the
+    // renderer fixes the GLB and washes out the established scene.
+    //
+    // Keep that compatibility decision local to raw authored buildings. Only
+    // colour-bearing maps are changed; metallic/roughness and normal data must
+    // remain linear. Materials and textures are cloned per source object so
+    // cached models and other instances are not mutated.
+    private static useLegacySceneColorEncoding(model: any): void {
+        const materials = new Map<any, any>();
+        const textures = new Map<any, any>();
+        const convertTexture = (texture: any) => {
+            if (!texture) return texture;
+            const existing = textures.get(texture);
+            if (existing) return existing;
+            const converted = texture.clone();
+            converted.encoding = THREE.LinearEncoding;
+            converted.needsUpdate = true;
+            textures.set(texture, converted);
+            return converted;
+        };
+        const convertMaterial = (material: any) => {
+            if (!material) return material;
+            const existing = materials.get(material);
+            if (existing) return existing;
+            const converted = material.clone();
+            converted.map = convertTexture(material.map);
+            converted.emissiveMap = convertTexture(material.emissiveMap);
+            converted.needsUpdate = true;
+            materials.set(material, converted);
+            return converted;
+        };
+        model.traverse((child: any) => {
+            if (!(child instanceof THREE.Mesh)) return;
+            child.material = Array.isArray(child.material)
+                ? child.material.map(convertMaterial)
+                : convertMaterial(child.material);
+        });
+    }
+
+    // The model as authored, with the team's colour on NAMED MATERIALS ONLY.
+    //
+    // The difference from createModelWithColor is what it does NOT do: no
+    // applyDirtyPlateToModel, which replaces the map on every material in
+    // the model with a grimed version. That is the war-machine treatment and
+    // it repaints a building's concrete, trim and armour panels along with
+    // everything else. Here the concrete stays concrete.
+    // The camo pattern REPAINTED IN THE TEAM'S COLOUR, pixel by pixel.
+    //
+    // Not a tint. `material.color` multiplies the map, and multiplication
+    // can only take light away or clip: the authored camo averages luma 82
+    // of 255, so the team blue landed at RGB(6, 24, 64), and scaling the
+    // colour up to compensate clipped green and blue together and turned
+    // the roof cyan -- measured RGB(43, 180, 215) at x4. A saturated blue
+    // is dark by construction; there is no multiplier that makes it bright
+    // and keeps it blue.
+    //
+    // So the colour is baked into the texture instead and the material is
+    // left white, which means nothing is multiplied at all. The artist's
+    // pattern supplies the SHAPE through its luminance; hue and lightness
+    // are chosen here.
+    private static camoMaps = new Map<string, any>();
+    private static teamCamoMap(map: any, playerColor: number): any {
+        if (!map?.image) return map;
+        const key = `${map.uuid}:${playerColor}`;
+        const cached = this.camoMaps.get(key);
+        if (cached) return cached;
+
+        // The team's HUE at a lightness that reads on a roof under this
+        // scene's light. Saturation is pulled back a little from whatever
+        // the player colour is, because a fully saturated field of colour
+        // reads as a UI element rather than as paint.
+        const colour = new THREE.Color(playerColor);
+        const hsl = { h: 0, s: 0, l: 0 };
+        colour.getHSL(hsl);
+        colour.setHSL(hsl.h, Math.min(hsl.s, 0.72), 0.62);
+
+        const image = map.image;
+        const canvas = document.createElement('canvas');
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(image, 0, 0);
+        const data = ctx.getImageData(0, 0, image.width, image.height);
+        const pixels = data.data;
+        // How far the pattern is allowed to darken the paint. A narrow band:
+        // the camo should read as two or three shades of one colour, not as
+        // the difference between lit and unlit.
+        const LOW = 0.72, HIGH = 1.0;
+        for (let i = 0; i < pixels.length; i += 4) {
+            const luma = (pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114) / 255;
+            const shade = LOW + (HIGH - LOW) * luma;
+            pixels[i] = Math.round(colour.r * 255 * shade);
+            pixels[i + 1] = Math.round(colour.g * 255 * shade);
+            pixels[i + 2] = Math.round(colour.b * 255 * shade);
+        }
+        ctx.putImageData(data, 0, 0);
+
+        const painted = new THREE.CanvasTexture(canvas);
+        painted.wrapS = map.wrapS;
+        painted.wrapT = map.wrapT;
+        painted.repeat.copy(map.repeat);
+        painted.offset.copy(map.offset);
+        painted.encoding = map.encoding;
+        // The source came out of a GLB, which is already the right way up;
+        // CanvasTexture flips by default and would turn the camo over.
+        painted.flipY = false;
+        painted.needsUpdate = true;
+        this.camoMaps.set(key, painted);
+        return painted;
+    }
+
+    // `lighten` mixes the tinted slots towards white, 0 = the team colour
+    // as chosen, 1 = white. The colour is a multiplier
+    // on the texture and three does not clamp it to 1, so a value above one
+    // brightens the map without touching the map -- which is what the camo
+    // needs: its texture averages 82 of 255, dark enough that the team's
+    // colour barely showed through it. Nothing else in the model is
+    // touched.
+    static cloneWithTeamTint(model: any, playerColor: number, materialNames: string[], lighten: number = 0): any {
+        const clone = model.clone();
+        const names = new Set(materialNames);
+        // ONE CLONE PER SOURCE MATERIAL, not per mesh: Object3D.clone()
+        // shares materials, so every mesh using a slot must end up on the
+        // same tinted instance -- the same reason GlowSystem keys its map
+        // on the source material rather than on the mesh.
+        const tinted = new Map<any, any>();
+        const tint = (mat: any) => {
+            if (!mat?.name || !names.has(mat.name)) return mat;
+            const already = tinted.get(mat);
+            if (already) return already;
+            const owned = mat.clone();
+            // WHITE, so the map is what is seen and nothing multiplies it.
+            owned.color.setHex(0xffffff);
+            owned.map = ModelSystem.teamCamoMap(owned.map, playerColor);
+            tinted.set(mat, owned);
+            return owned;
+        };
+
+        clone.traverse((child: any) => {
+            if (!(child instanceof THREE.Mesh)) return;
+            child.material = Array.isArray(child.material)
+                ? child.material.map(tint)
+                : tint(child.material);
+        });
+        // The lit strips still have to gutter. claim() takes every material
+        // with a non-black emissive, so it runs BEFORE the roof is given one
+        // -- otherwise the camo joins the flicker and the whole roof pulses
+        // like a warning light.
+        GlowSystem.claim(clone);
+
+        ModelSystem.useLegacySceneColorEncoding(clone);
+        return clone;
+    }
+
+    static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null, teamColorMaterial: string | string[] | null = null) {
         const modelClone = model.clone();
 
         if (teamColorMaterial) {
+            const teamNames = new Set(
+                Array.isArray(teamColorMaterial) ? teamColorMaterial : [teamColorMaterial]
+            );
             // Tint only the mesh(es) using a specifically-named material
             // (e.g. a "teamCamo" slot the model was authored with), leaving
             // every other material's texture/color untouched. Unlike
             // usePlayerColor/replaceColor below, this doesn't guess based on
             // the material's current color.
             const tintIfMatch = (mat: any) => {
-                if (mat?.name === teamColorMaterial) {
+                if (mat?.name && teamNames.has(mat.name)) {
                     const clonedMat = mat.clone();
                     clonedMat.color.setHex(playerColor);
+                    // A glowing slot has to have its GLOW recoloured too --
+                    // the emissive is what is actually seen on a lit strip,
+                    // and leaving it authored-cyan on an orange building is
+                    // the one part that would still read as the wrong side.
+                    // Set before GlowSystem.claim below, which clones these
+                    // and drives intensity only, so the hue survives.
+                    if (GlowSystem.isGlowMaterial(clonedMat)) {
+                        clonedMat.emissive.setHex(playerColor);
+                    }
                     return clonedMat;
                 }
                 return mat;

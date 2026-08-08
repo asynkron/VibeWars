@@ -42,12 +42,36 @@ const NEUTRAL_TINT = 0x888888;
 // leaves a standalone building at 86% of its tile.
 const DEPOT_SCALE = 1 / 7.2;
 
-const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number; keepOrigin?: boolean }> = {
+// drawnByAnchor marks a piece of a composite whose structure is drawn by
+// ANOTHER piece: the model covers the whole group, so only one member may
+// render it. Scaling the others to zero does not work -- every type here
+// pointing at the same file shares one cached model, and its scale is
+// whatever the last config set.
+// zOffset shifts the model along its OWN forward axis after rotation, in
+// world units. A model that covers several tiles has its origin at the
+// centre of the block it covers, which is not the centre of the hex it is
+// anchored to -- apex-hall spans three columns by two rows, so its centre
+// sits half a row south of the northern tile it hangs from.
+// rawMaterials keeps every texture the model was authored with -- no grime
+// pass. teamTint then names the slots that take the owner's colour and
+// nothing else; an unowned building takes none. See
+// ModelSystem.cloneWithTeamTint.
+const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number; zOffset?: number; keepOrigin?: boolean; drawnByAnchor?: boolean; rawMaterials?: boolean; teamTint?: string[] }> = {
     factory: { model: 'assets/buildings/factory-building.glb', scale: 0.12, yOffset: 0 },
-    forgeDepotN: { model: 'assets/buildings/forge-depot-tile-n.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
-    forgeDepotS: { model: 'assets/buildings/forge-depot-tile-s.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
-    forgeDepotE: { model: 'assets/buildings/forge-depot-tile-e.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
-    forgeDepotW: { model: 'assets/buildings/forge-depot-tile-w.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
+    // TEMPORARY -- apex-hall stands in for the four-piece forge depot so the
+    // team tint can be judged against a TEXTURED building. It is one model
+    // covering a seven-tile flower, not four tile pieces, so the whole
+    // structure is drawn by the group's anchor piece (N) and the other three
+    // are scaled away rather than drawn on top of it. Restore the four lines
+    // below to go back.
+    forgeDepotN: { model: 'assets/buildings/apex-hall.glb', scale: DEPOT_SCALE, yOffset: 0, zOffset: Math.sqrt(3) / 2, keepOrigin: true, rawMaterials: true, teamTint: ['teamCamo'] },
+    forgeDepotS: { model: 'assets/buildings/apex-hall.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true, drawnByAnchor: true },
+    forgeDepotE: { model: 'assets/buildings/apex-hall.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true, drawnByAnchor: true },
+    forgeDepotW: { model: 'assets/buildings/apex-hall.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true, drawnByAnchor: true },
+    // forgeDepotN: { model: 'assets/buildings/forge-depot-tile-n.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
+    // forgeDepotS: { model: 'assets/buildings/forge-depot-tile-s.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
+    // forgeDepotE: { model: 'assets/buildings/forge-depot-tile-e.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
+    // forgeDepotW: { model: 'assets/buildings/forge-depot-tile-w.glb', scale: DEPOT_SCALE, yOffset: 0, keepOrigin: true },
 };
 
 class BuildingSystem {
@@ -86,25 +110,43 @@ class BuildingSystem {
     // register it as the hex's decorator.
     private static attachVisual(building: Building): void {
         const hex = HexCoord.findHex(building.q, building.r);
-        const base = ModelSystem.getModel(BUILDING_TYPES[building.type].model);
+        const spec = BUILDING_TYPES[building.type];
+        // Its structure belongs to another piece of the group -- drawing it
+        // here would stack a second copy of the same building on this hex.
+        if (spec.drawnByAnchor) return;
+        const base = ModelSystem.getModel(spec.model);
         if (!hex || !base) return;
 
         if (building.visual && hex.userData.decorator === building.visual) {
             hex.remove(building.visual);
             hex.userData.decorator = null;
         }
-        const visual = ModelSystem.createModelWithColor(
-            base,
-            this.tintFor(building.ownerIndex),
-            false,
-            null,
-            'teamCamo'
-        );
+        // An OWNED building also flies the colour on its lit strips; an
+        // unowned one keeps the glow the model was authored with, because
+        // tinting that to the neutral grey would put out the light rather
+        // than neutralise it.
+        const visual = spec.rawMaterials
+            ? (spec.teamTint && building.ownerIndex !== null
+                ? ModelSystem.cloneWithTeamTint(
+                    base, this.tintFor(building.ownerIndex), spec.teamTint)
+                : ModelSystem.cloneUntouched(base))
+            : ModelSystem.createModelWithColor(
+                base,
+                this.tintFor(building.ownerIndex),
+                false,
+                null,
+                building.ownerIndex === null ? 'teamCamo' : ['teamCamo', 'energy']
+            );
         const groundY = TerrainSystem.getHeight(hex) + BUILDING_TYPES[building.type].yOffset;
         visual.position.set(hex.userData.x, groundY, hex.userData.z);
         if (building.rotationDeg) {
             visual.rotation.y = (building.rotationDeg * Math.PI) / 180;
         }
+        // AFTER the rotation and along the model's own axis, so a depot
+        // turned to any of its six facings carries its offset round with it.
+        // Offsetting the world position instead would leave a rotated
+        // building sitting off its own tiles.
+        if (spec.zOffset) visual.translateZ(spec.zOffset);
         hex.userData.decorator = visual;
         hex.add(visual);
         building.visual = visual;
