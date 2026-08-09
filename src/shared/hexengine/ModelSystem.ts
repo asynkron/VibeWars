@@ -245,6 +245,7 @@ class ModelSystem {
         const materials = new Map<any, any>();
         const convertMaterial = (material: any) => {
             if (!material) return material;
+            if (material.userData?.sharedGlowMaterial) return material;
             const existing = materials.get(material);
             if (existing) return existing;
             const converted = material.clone();

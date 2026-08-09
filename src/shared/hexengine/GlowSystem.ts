@@ -19,61 +19,50 @@ const GLOW_BOOST = 3.0;
 
 interface Glow {
     material: any;
-    // The object the material belongs to, so a destroyed unit's glow can be
-    // dropped rather than flickering on forever in an orphaned material.
-    root: any;
     base: number;
 }
 
 class GlowSystem {
     static glows: Glow[] = [];
+    private static sharedMaterial: any = null;
 
     static isGlowMaterial(material: any): boolean {
         return !!material?.emissive && material.emissive.getHex() !== 0x000000;
     }
 
-    // Claims every emissive material under `root` for a steady boosted glow.
-    //
-    // The materials are CLONED first. three shares materials across
-    // Object3D.clone(), so without this every unit on the map would be
-    // driving the same material and ownership/disposal would leak across
-    // instances. Each model gets its own material instance instead.
-    //
-    // ONE CLONE PER (root, source material) -- not one per mesh. The
-    // distinction is the whole behaviour. A model is many meshes sharing a
-    // handful of materials, so cloning per mesh gives every individual
-    // panel on the same machine its own material: measured on a forge depot
-    // piece, 19 panels became 19 owned materials. A machine has one power
-    // plant and one steady level, so all meshes using the slot share one.
-    //
-    // Keying the map on the SOURCE material is what collapses them: every
-    // mesh in one model that uses "energy" points at the same material
-    // object, because Object3D.clone() shares them and ModelSystem's
-    // teamColorMaterial path only replaces the one slot it tints.
+    // Every emissive mesh in the scene receives this ONE canonical material.
+    // There is no per-model state left now that glow is steady: no phase, no
+    // timer, no team variant and no authored texture variant.
     static claim(root: any): void {
         if (!root) return;
-
-        const ownedFor = new Map<any, any>();
 
         root.traverse((child: any) => {
             if (!child.isMesh || !child.material) return;
 
             const claimOne = (material: any) => {
                 if (!this.isGlowMaterial(material)) return material;
-
-                const already = ownedFor.get(material);
-                if (already) return already;
-
-                const owned = material.clone();
-                ownedFor.set(material, owned);
-                const base = (owned.emissiveIntensity ?? 1) * GLOW_BOOST;
-                owned.emissiveIntensity = base;
-                this.glows.push({
-                    material: owned,
-                    root,
-                    base,
-                });
-                return owned;
+                if (!this.sharedMaterial) {
+                    const shared = material.clone();
+                    shared.name = 'globalGlow';
+                    shared.color?.setHex?.(0x13a4ff);
+                    shared.emissive?.setHex?.(0x13a4ff);
+                    shared.map = null;
+                    shared.emissiveMap = null;
+                    shared.alphaMap = null;
+                    shared.transparent = false;
+                    shared.opacity = 1;
+                    shared.alphaTest = 0;
+                    shared.depthWrite = true;
+                    shared.userData = {
+                        ...shared.userData,
+                        sharedGlowMaterial: true,
+                    };
+                    const base = GLOW_BOOST;
+                    shared.emissiveIntensity = base;
+                    this.sharedMaterial = shared;
+                    this.glows.push({ material: shared, base });
+                }
+                return this.sharedMaterial;
             };
 
             child.material = Array.isArray(child.material)
@@ -82,26 +71,15 @@ class GlowSystem {
         });
     }
 
-    // Driven from the render loop for lifecycle cleanup. The intensity is
-    // deliberately constant; the old time-based pulse made cyan panels
-    // look like warning lights rather than powered equipment.
+    // Kept as the render-loop hook so callers do not need a special case.
+    // The one global material has no time-dependent or per-object state.
     static animate(_time: number): void {
-        for (let i = this.glows.length - 1; i >= 0; i--) {
-            const glow = this.glows[i];
-
-            // Dropped from the scene (a destroyed unit, a rebuilt
-            // building): stop driving it and let it be collected.
-            if (!glow.root.parent) {
-                glow.material.dispose?.();
-                this.glows.splice(i, 1);
-                continue;
-            }
-
-            glow.material.emissiveIntensity = glow.base;
-        }
+        if (this.sharedMaterial) this.sharedMaterial.emissiveIntensity = GLOW_BOOST;
     }
 
     static clear(): void {
+        this.sharedMaterial?.dispose?.();
+        this.sharedMaterial = null;
         this.glows.length = 0;
     }
 }

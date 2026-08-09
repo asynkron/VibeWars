@@ -64,7 +64,8 @@ const UNIT_ROUGHNESS = /* glsl */ `
 // shared material in through several clones. Chains any onBeforeCompile
 // already present (GlowSystem claims some of these materials).
 export function applyDirtyPlate(material: any): void {
-    if (!material || !material.userData || material.userData.dirtyPlate) return;
+    if (!material || !material.userData || material.userData.dirtyPlate
+        || material.userData.sharedGlowMaterial) return;
     material.userData.dirtyPlate = true;
 
     const previous = material.onBeforeCompile;

@@ -1,5 +1,5 @@
-// GlowSystem's contract is about WHICH meshes share one owned, steady glow
-// material, so the tests cover sharing, intensity and lifecycle cleanup.
+// GlowSystem's contract is that every emissive mesh shares one steady glow
+// material, so the tests cover global sharing and constant intensity.
 //
 // Built from plain objects rather than the THREE stub on purpose: the stub
 // is an infinitely-permissive proxy, so every property access returns a
@@ -43,10 +43,7 @@ function model(meshes: any[]) {
 describe('GlowSystem.claim', () => {
     beforeEach(() => GlowSystem.clear());
 
-    it('gives one model ONE clone per source material, however many meshes use it', () => {
-        // The regression this file exists for. Cloning per mesh gave every
-        // panel on the same machine its own phase; measured on a real depot
-        // piece, 19 panels sat at 19 different intensities at once.
+    it('gives every emissive mesh in one model the one global material', () => {
         const energy = material(0x13a4ff, 'energy');
         const root = model([mesh(energy), mesh(energy), mesh(energy), mesh(energy), mesh(energy)]);
 
@@ -57,18 +54,16 @@ describe('GlowSystem.claim', () => {
         expect(materials.size).toBe(1);
     });
 
-    it('still separates two materials within the same model', () => {
-        // One power plant per machine, but a red warning strip and a cyan
-        // panel are two different lights and may differ.
+    it('merges different emissive source materials into the same global material', () => {
         const energy = material(0x13a4ff, 'energy');
         const warning = material(0xff3300, 'warning');
-        GlowSystem.claim(model([mesh(energy), mesh(energy), mesh(warning)]));
-        expect(GlowSystem.glows).toHaveLength(2);
+        const root = model([mesh(energy), mesh(energy), mesh(warning)]);
+        GlowSystem.claim(root);
+        expect(GlowSystem.glows).toHaveLength(1);
+        expect(new Set(root.children.map((m: any) => m.material)).size).toBe(1);
     });
 
-    it('separates two instances that share a source material', () => {
-        // Separate ownership keeps disposal/recolouring local even though
-        // both instances hold the same steady intensity.
+    it('shares the same material across separate model instances', () => {
         const energy = material(0x13a4ff, 'energy');
         const a = model([mesh(energy), mesh(energy)]);
         const b = model([mesh(energy), mesh(energy)]);
@@ -76,8 +71,8 @@ describe('GlowSystem.claim', () => {
         GlowSystem.claim(a);
         GlowSystem.claim(b);
 
-        expect(GlowSystem.glows).toHaveLength(2);
-        expect(a.children[0].material).not.toBe(b.children[0].material);
+        expect(GlowSystem.glows).toHaveLength(1);
+        expect(a.children[0].material).toBe(b.children[0].material);
     });
 
     it('leaves non-emissive materials alone entirely', () => {
@@ -124,7 +119,7 @@ describe('GlowSystem.animate', () => {
         expect(new Set(values).size).toBe(1);
     });
 
-    it('drops and disposes a model that left the scene', () => {
+    it('keeps the global material when one model leaves the scene', () => {
         const energy = material(0x13a4ff, 'energy');
         const root = model([mesh(energy)]);
         GlowSystem.claim(root);
@@ -133,8 +128,8 @@ describe('GlowSystem.animate', () => {
         root.parent = null;      // destroyed unit / rebuilt building
         GlowSystem.animate(0.5);
 
-        expect(GlowSystem.glows).toHaveLength(0);
-        expect(owned.disposed).toBe(true);
+        expect(GlowSystem.glows).toHaveLength(1);
+        expect(owned.disposed).toBe(false);
     });
 
     it('stays exactly constant over time', () => {
