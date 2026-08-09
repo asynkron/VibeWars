@@ -276,9 +276,9 @@ const GROUND_FRAGMENT = /* glsl */ `
         }
 
         // --- The LOW band: sand, the grass front that closes over it, and
-        // the straw and tufts along that front. One block, because the
-        // grass mask is what mixes sand into grass and both heights feed
-        // the same relief term.
+        // the exposed soil along that front. One block, because the grass
+        // mask is what mixes sand into grass and both heights feed the same
+        // relief term.
         vec3 lowC = vec3(0.0);
         float lowH = 0.0;
         if (wLow > 0.0) {
@@ -289,21 +289,18 @@ const GROUND_FRAGMENT = /* glsl */ `
         // scale they read as strewn potatoes, not stones.)
             // --- Sand -> grass: not a fade but a FRONT. The turf closes in
             // patches (clump noise pushing against the transition height),
-            // a fringe of dry straw runs ahead of every patch edge, and
-            // lone tufts stand out on the open sand -- the way grassland
-            // actually gives out into beach, instead of one airbrushed
-            // gradient. The window opens at 0.70 -- sand's own base height
-            // -- so even sand tiles a step from the grass line carry some
-            // of the front, not just the narrow smoothed ramps between
-            // tiles.
+            // with a strip of exposed earth where the turf thins out. The
+            // window opens at 0.70 -- sand's own base height -- so even
+            // sand tiles a step from the grass line carry some of the
+            // front, not just the narrow smoothed ramps between tiles.
             //
             // COMPUTED FIRST, because the mask it produces decides which of
             // the two halves below is worth computing at all. Sand and
             // grass are the same band by height, so both used to run on
             // every low fragment -- and on open turf, where grassMask
             // saturates at exactly 1, the entire sand half was multiplied
-            // away: patches, grain, ripples and the tuft voronoi, 54 sin()
-            // a pixel over more than half the screen. Same skip as the
+            // away: patches, grain and ripples, 36 sin() a pixel over more
+            // than half the screen. Same skip as the
             // outer bands, one level in, and exact for the same reason.
             float trans = smoothstep(0.70, 0.98, y + wob * 0.10);
             float clump = groundFbm(gp * 4.5 + warp * 3.5);
@@ -315,10 +312,9 @@ const GROUND_FRAGMENT = /* glsl */ `
             // the sand band lives here on purpose (see the 0.70 window
             // above); the saving is on open grass, not on the beach.
             vec3 sandC = vec3(0.0);
-            vec3 dryC = vec3(0.0);
+            vec3 soilC = vec3(0.0);
             float sandH = 0.0;
-            float straw = 0.0;
-            float tufts = 0.0;
+            float soilBand = 0.0;
             if (grassMask < 1.0) {
                 float patches = groundFbm(gp * 1.7 + warp * 2.6);
                 // The finest noises are band-limited: past the point where
@@ -328,13 +324,13 @@ const GROUND_FRAGMENT = /* glsl */ `
                 float rippleS = sin(dot(gp, vec2(9.0, 4.0)) + groundFbm(gp * 1.2) * 9.0) * 0.5 + 0.5;
                 sandC = uSandColor * (0.80 + 0.40 * patches) * (0.94 + 0.10 * grain)
                     * (0.90 + 0.14 * rippleS);
-                straw = smoothstep(0.28, 0.56, front) * (1.0 - grassMask);
-                vec3 tuft = groundVoronoi(gp * 8.0 + warp * 2.0);
-                tufts = (1.0 - smoothstep(0.12, 0.24, tuft.x)) * step(0.45, tuft.z)
-                    * smoothstep(0.02, 0.25, trans) * (1.0 - grassMask);
-                dryC = mix(uSandColor * vec3(0.95, 0.88, 0.62),
-                           uGrassColor * vec3(1.60, 1.45, 0.70), 0.45)
-                    * (0.85 + 0.30 * clump);
+                // A continuous soil strip, never a field of individual
+                // seeds, pebbles or cones. Fixed neutral-brown endpoints
+                // keep this boundary gray-brown even though the beach
+                // palette itself is warm peach.
+                soilBand = smoothstep(0.18, 0.48, front)
+                    * (1.0 - smoothstep(0.72, 0.95, front));
+                soilC = mix(vec3(0.18, 0.16, 0.13), vec3(0.30, 0.26, 0.20), clump);
                 sandH = patches * 0.20 + grain * 0.06 + rippleS * 0.45;
             }
 
@@ -353,19 +349,17 @@ const GROUND_FRAGMENT = /* glsl */ `
                 grassH = meadow * 0.30 + blades * 0.10;
             }
 
-            // Composed in the ORIGINAL order: the dry fringe goes over the
-            // blended sand-and-grass, not over the sand alone. Nesting the
-            // two mixes the other way round is not the same arithmetic in
-            // the transition strip, and the strip is the only place either
-            // term is visible.
+            // Exposed soil lies over the blended sand-and-grass so it stays
+            // confined to the irregular turf edge instead of tinting the
+            // whole beach.
             lowC = mix(sandC, grassC, grassMask);
-            lowC = mix(lowC, dryC, max(straw * 0.85, tufts * 0.9));
+            lowC = mix(lowC, soilC, soilBand * 0.85);
 
             // Relief for the bump pass, reusing the values the colour was
             // computed from so light and shadow fall exactly where the
-            // colour says they should. Tufts and the straw fringe stand a
-            // little proud of the sand.
-            lowH = mix(sandH * 0.6 + tufts * 0.55 + straw * 0.15, grassH, grassMask);
+            // colour says they should. The soil stays flush with the sand;
+            // it is a material transition, not scattered geometry.
+            lowH = mix(sandH * 0.6, grassH, grassMask);
         }
 
         // --- Forest floor: the same recipe pitched darker and mossier.
