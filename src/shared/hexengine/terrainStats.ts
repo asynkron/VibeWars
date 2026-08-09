@@ -53,7 +53,7 @@ export const TERRAIN_TYPES = {
             threshold: 0.45,  // Between water (0.4) and grass (0.6)
             impassable: false,
             material: {
-                color: 0xE8A27D,  // Pastel orange-sand color
+                color: 0xAD8066,  // Muted dark warm-brown sand
                 metalness: 0.1,
                 roughness: 0.7
             }

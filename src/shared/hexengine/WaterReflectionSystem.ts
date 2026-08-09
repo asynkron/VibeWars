@@ -29,6 +29,7 @@ const SURFACE_LIFT = 0.018;
 const SKY_PLANE_HEIGHT = 80;
 const SKY_PLANE_WIDTH = 800;
 const SKY_PLANE_DEPTH = 535;
+const LANDSCAPE_REFLECTION_EXPOSURE = 0.04;
 
 const WATER_REFLECTION_SHADER: any = {
     name: 'VibeWarsWaterReflection',
@@ -495,10 +496,11 @@ export class WaterReflectionSystem {
             scene.traverse((object: any) => {
                 if (!object.visible || !object.isMesh) return;
                 const original = object.material;
+                const isReflectedLandscape = object !== this.skyPlane && object !== this.sunDisc;
                 reflectedMeshes.push([object, original]);
                 object.material = Array.isArray(original)
-                    ? original.map((material: any) => this.getReflectionMaterial(material))
-                    : this.getReflectionMaterial(original);
+                    ? original.map((material: any) => this.getReflectionMaterial(material, isReflectedLandscape))
+                    : this.getReflectionMaterial(original, isReflectedLandscape);
             });
 
             const shadowNeedsUpdate = renderer.shadowMap.needsUpdate;
@@ -523,7 +525,7 @@ export class WaterReflectionSystem {
         };
     }
 
-    private static getReflectionMaterial(source: any): any {
+    private static getReflectionMaterial(source: any, isReflectedLandscape: boolean): any {
         if (!source) return source;
         let material = this.reflectionMaterials.get(source);
         const created = !material;
@@ -535,6 +537,7 @@ export class WaterReflectionSystem {
 
         if (source.color) material.color.copy(source.color);
         else material.color.set(0xffffff);
+        if (isReflectedLandscape) material.color.multiplyScalar(LANDSCAPE_REFLECTION_EXPOSURE);
         material.map = source.map ?? null;
         material.alphaMap = source.alphaMap ?? null;
         material.alphaTest = source.alphaTest ?? 0;
