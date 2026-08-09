@@ -8,6 +8,7 @@ import { RoadSystem } from './RoadSystem';
 import { FootprintSystem } from './FootprintSystem';
 import { TerrainSystem } from './TerrainSystem';
 import { applyProceduralGround, applyWaterSurface } from './TerrainShader';
+import { WATER_TIME_SCALE } from './WaterWaveShader';
 import { createProceduralDecoration } from './ProceduralDecorations';
 import { markShadowsDirty } from './ShadowBudget';
 import { addColorVariation, getVertexOffsets } from './utils';
@@ -126,6 +127,10 @@ class GridSystem {
         const vertexCount = vertices.length / 3;
         geometry.setAttribute('aShoreA', new THREE.Float32BufferAttribute(new Float32Array(vertexCount * 3), 3));
         geometry.setAttribute('aShoreB', new THREE.Float32BufferAttribute(new Float32Array(vertexCount * 3), 3));
+        // Per-vertex shoreline anchor for Gerstner water. Water corners that
+        // touch a land-facing edge are pinned to the undisturbed water level,
+        // preventing a moving crack between the displaced lake and static land.
+        geometry.setAttribute('aWaterPin', new THREE.Float32BufferAttribute(new Float32Array(vertexCount), 1));
 
         // One shared normal for the whole top face (see smoothHexTile).
         // Straight up until the tile is smoothed -- which is also the right
@@ -515,6 +520,7 @@ class GridSystem {
     static paintShoreEdges(geometry: any, neighbors: any[], type: string) {
         const edgesA = geometry.attributes.aShoreA;
         const edgesB = geometry.attributes.aShoreB;
+        const waterPins = geometry.attributes.aWaterPin;
         if (!edgesA || !edgesB) return;
 
         const flags = [];
@@ -533,6 +539,21 @@ class GridSystem {
         }
         edgesA.needsUpdate = true;
         edgesB.needsUpdate = true;
+
+        if (waterPins) {
+            for (let v = 0; v < waterPins.count; v++) {
+                // Vertices 0..5 and 6..11 are duplicate bottom/top rim
+                // corners. Edge e spans corners e and e+1, so corner c must
+                // be anchored when either edge c or edge c-1 borders land.
+                const corner = v < 12 ? v % 6 : -1;
+                const pin = type === 'water' && corner >= 0
+                    && (flags[corner] > 0 || flags[(corner + 5) % 6] > 0)
+                    ? 1
+                    : 0;
+                waterPins.setX(v, pin);
+            }
+            waterPins.needsUpdate = true;
+        }
     }
 
     static smoothHexTile(hexGroup: any) {
@@ -750,10 +771,8 @@ class GridSystem {
         this.materialCache.forEach((material: any) => {
             const uniforms = material?.userData?.shader?.uniforms;
             if (uniforms?.uTime) uniforms.uTime.value = time;
+            if (uniforms?.time) uniforms.time.value = time * WATER_TIME_SCALE;
         });
-        // Water geometry stays completely flat. The old per-tile centre
-        // animation domed each hex independently and created a repeating
-        // tile pattern before reflections were even sampled.
     }
 
     static updateDecoratorTransparency(hex: any) {

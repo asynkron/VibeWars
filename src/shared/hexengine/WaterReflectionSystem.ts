@@ -1,7 +1,16 @@
 import { Reflector } from 'three/addons/objects/Reflector.js';
+import { MAP_CONFIG } from '../../constants';
 import { getShadowRevision } from './ShadowBudget';
 import { SunSystem } from './SunSystem';
-import { WATER_WAVE_GLSL } from './WaterWaveShader';
+import { getTerrainColor } from './terrainStats';
+import { VIEW_UNIFORMS } from './ViewOptions';
+import {
+    createGerstnerUniforms,
+    GERSTNER_WAVE_GLSL,
+    getWaterNormalTexture,
+    WATER_NORMAL_GLSL,
+    WATER_TIME_SCALE,
+} from './WaterWaveShader';
 
 // One planar reflection for every water hex. All water sits at the same
 // world-space height, so rendering one mirrored camera and projecting that
@@ -26,64 +35,125 @@ const WATER_REFLECTION_SHADER: any = {
         color: { value: null },
         tDiffuse: { value: null },
         textureMatrix: { value: null },
-        uTime: { value: 0 },
+        ...createGerstnerUniforms(),
+        alpha: { value: 1 },
+        size: { value: 1 },
+        uHexRadius: { value: MAP_CONFIG.HEX_RADIUS },
+        uShowGrid: { value: 1 },
+        distortionScale: { value: 3.7 },
+        normalSampler: { value: getWaterNormalTexture() },
+        sunColor: { value: new THREE.Color(0xffffff) },
+        sunDirection: { value: new THREE.Vector3(0.70707, 0.70707, 0) },
+        eye: { value: new THREE.Vector3() },
+        waterColor: { value: new THREE.Color(getTerrainColor('WATER')) },
     },
     vertexShader: /* glsl */ `
         uniform mat4 textureMatrix;
+        attribute float aWaterPin;
+        attribute vec2 aTileLocal;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
+        varying vec2 vTileLocal;
+
+        #include <common>
+        ${GERSTNER_WAVE_GLSL}
 
         void main() {
             vec4 localPosition = vec4(position, 1.0);
             vReflectionCoord = textureMatrix * localPosition;
             vWaterWorldPos = (modelMatrix * localPosition).xyz;
-            gl_Position = projectionMatrix * modelViewMatrix * localPosition;
+            vTileLocal = aTileLocal;
+
+            vec3 p = position.xyz;
+            vec3 gerstnerOffset = vec3(0.0);
+            gerstnerOffset += GerstnerWave(waveA, position.xyz);
+            gerstnerOffset += GerstnerWave(waveB, position.xyz);
+            gerstnerOffset += GerstnerWave(waveC, position.xyz);
+            p += gerstnerOffset * 0.035 * (1.0 - aWaterPin);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(p.x, p.y, p.z, 1.0);
         }
     `,
     fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
-        uniform float uTime;
+        uniform float alpha;
+        uniform float distortionScale;
+        uniform vec3 sunColor;
+        uniform vec3 sunDirection;
+        uniform vec3 eye;
+        uniform vec3 waterColor;
+        uniform float uHexRadius;
+        uniform float uShowGrid;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
+        varying vec2 vTileLocal;
 
-        ${WATER_WAVE_GLSL}
+        ${WATER_NORMAL_GLSL}
+
+        float hexEdgeDistance(vec2 local) {
+            float d = 10.0;
+            for (int i = 0; i < 6; i++) {
+                float th = (float(i) + 0.5) * 1.0471975512;
+                d = min(d, 0.8660254 - dot(local, vec2(cos(th), sin(th))));
+            }
+            return d;
+        }
+
+        float hexGridLine(vec2 local) {
+            if (uShowGrid < 0.5) return 0.0;
+            return 1.0 - smoothstep(0.0, 0.05, hexEdgeDistance(local));
+        }
+
+        void sunLight(
+            const vec3 surfaceNormal,
+            const vec3 eyeDirection,
+            float shiny,
+            float spec,
+            float diffuse,
+            inout vec3 diffuseColor,
+            inout vec3 specularColor
+        ) {
+            vec3 reflection = normalize(reflect(-sunDirection, surfaceNormal));
+            float direction = max(0.0, dot(eyeDirection, reflection));
+            specularColor += pow(direction, shiny) * sunColor * spec;
+            diffuseColor += max(dot(sunDirection, surfaceNormal), 0.0) * sunColor * diffuse;
+        }
 
         void main() {
-            vec3 waterNormal = vwWaveNormal(vWaterWorldPos.xz, uTime);
-            vec3 toCamera = normalize(cameraPosition - vWaterWorldPos);
+            vec4 noise = getNoise(vWaterWorldPos.xz * size);
+            vec3 surfaceNormal = normalize(noise.xzy * vec3(1.5, 1.0, 1.5));
+
+            vec3 diffuseLight = vec3(0.0);
+            vec3 specularLight = vec3(0.0);
+            vec3 worldToEye = eye - vWaterWorldPos;
+            vec3 eyeDirection = normalize(worldToEye);
+            sunLight(surfaceNormal, eyeDirection, 100.0, 2.0, 0.5, diffuseLight, specularLight);
+
+            float distance = length(worldToEye);
+            vec2 distortion = surfaceNormal.xz * (0.001 + 1.0 / distance) * distortionScale;
 
             vec2 reflectionUv = vReflectionCoord.xy / vReflectionCoord.w;
-            // Sub-pixel to roughly two-pixel displacement at the 512 target:
-            // enough to break straight reflected edges into calm ripples,
-            // never enough to reveal the noise field as a moving texture.
-            reflectionUv += waterNormal.xz * 0.012;
+            reflectionUv += distortion;
             bool inReflection =
                 reflectionUv.x >= 0.0 && reflectionUv.x <= 1.0
                 && reflectionUv.y >= 0.0 && reflectionUv.y <= 1.0;
-            vec3 reflected = vec3(0.25, 0.40, 0.65);
-            float reflectionCoverage = 0.0;
+            vec3 reflectionSample = waterColor;
             if (inReflection) {
-                // The render target already contains the giant cloud plane,
-                // terrain objects and units in one physically consistent
-                // perspective. A small blur keeps it lake-like.
-                vec2 blur = vec2(1.1 / 512.0);
-                vec4 mirrored =
-                    texture2D(tDiffuse, reflectionUv) * 0.44
-                    + texture2D(tDiffuse, reflectionUv + vec2( blur.x, 0.0)) * 0.14
-                    + texture2D(tDiffuse, reflectionUv + vec2(-blur.x, 0.0)) * 0.14
-                    + texture2D(tDiffuse, reflectionUv + vec2(0.0,  blur.y)) * 0.14
-                    + texture2D(tDiffuse, reflectionUv + vec2(0.0, -blur.y)) * 0.14;
-                reflected = mirrored.rgb;
-                reflectionCoverage = mirrored.a;
+                vec4 mirrored = texture2D(tDiffuse, reflectionUv);
+                reflectionSample = mirrored.rgb;
             }
 
-            float facing = clamp(dot(waterNormal, toCamera), 0.0, 1.0);
-            float fresnel = pow(1.0 - facing, 2.6);
-            // Strategy camera angles look steeply down, so unlike a physical
-            // lake this keeps a useful reflection floor at normal incidence.
-            float alpha = mix(0.48, 0.64, fresnel);
-            alpha *= smoothstep(0.02, 0.90, reflectionCoverage);
-            gl_FragColor = vec4(reflected, alpha);
+            // Preserve the reflection target's actual colour. The Gerstner
+            // reference mixes most of it away into waterColor + vec3(0.1),
+            // which is appropriate for its dark ocean but turned our bright
+            // photographed sky grey. Waves still distort the sample exactly
+            // as before; only the post-sample colour contamination is gone.
+            vec3 albedo = reflectionSample + specularLight;
+            albedo = mix(
+                albedo,
+                vec3(0.04, 0.05, 0.07),
+                hexGridLine(vTileLocal / uHexRadius) * 0.8
+            );
+            gl_FragColor = vec4(albedo, alpha);
         }
     `,
 };
@@ -126,8 +196,9 @@ export class WaterReflectionSystem {
         reflector.renderOrder = 4;
         reflector.castShadow = false;
         reflector.receiveShadow = false;
-        reflector.material.transparent = true;
-        reflector.material.depthWrite = false;
+        reflector.material.transparent = false;
+        reflector.material.depthWrite = true;
+        reflector.material.uniforms.uShowGrid = VIEW_UNIFORMS.showGrid;
         reflector.material.side = THREE.DoubleSide;
         reflector.material.toneMapped = false;
         reflector.userData.excludeFromWaterReflection = true;
@@ -141,7 +212,9 @@ export class WaterReflectionSystem {
         if (!this.reflector) return;
 
         const uniforms = this.reflector.material.uniforms;
-        uniforms.uTime.value = seconds;
+        uniforms.time.value = seconds * WATER_TIME_SCALE;
+        SunSystem.getDirection(uniforms.sunDirection.value);
+        SunSystem.getColor(uniforms.sunColor.value);
         this.positionSkyPlane();
         this.positionSunDisc();
 
@@ -285,6 +358,8 @@ export class WaterReflectionSystem {
 
     private static buildSurfaceGeometry(): any {
         const positions: number[] = [];
+        const waterPins: number[] = [];
+        const tileLocals: number[] = [];
         let count = 0;
 
         for (const hex of this.grid) {
@@ -293,15 +368,20 @@ export class WaterReflectionSystem {
                 (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh,
             );
             const source = mesh?.geometry?.attributes?.position;
+            const sourcePins = mesh?.geometry?.attributes?.aWaterPin;
             if (!source || source.count < 14) continue;
 
             const px = mesh.position.x;
             const pz = mesh.position.z;
-            const pushVertex = (index: number) => positions.push(
-                source.getX(index) + px,
-                -(source.getZ(index) + pz),
-                0,
-            );
+            const pushVertex = (index: number) => {
+                positions.push(
+                    source.getX(index) + px,
+                    -(source.getZ(index) + pz),
+                    0,
+                );
+                waterPins.push(sourcePins?.getX(index) ?? 0);
+                tileLocals.push(source.getX(index), source.getZ(index));
+            };
 
             for (let i = 0; i < 6; i++) {
                 pushVertex(13);
@@ -313,6 +393,8 @@ export class WaterReflectionSystem {
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('aWaterPin', new THREE.Float32BufferAttribute(waterPins, 1));
+        geometry.setAttribute('aTileLocal', new THREE.Float32BufferAttribute(tileLocals, 2));
         geometry.computeVertexNormals();
         geometry.computeBoundingSphere();
         this.waterCount = count;
@@ -323,6 +405,7 @@ export class WaterReflectionSystem {
         const renderReflection = reflector.onBeforeRender.bind(reflector);
 
         reflector.onBeforeRender = (activeRenderer: any, scene: any, camera: any) => {
+            reflector.material.uniforms.eye.value.setFromMatrixPosition(camera.matrixWorld);
             const cameraState = [
                 ...camera.matrixWorld.elements,
                 ...camera.projectionMatrix.elements,

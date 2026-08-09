@@ -21,7 +21,12 @@
 import { TerrainSystem } from './TerrainSystem';
 import { MAP_CONFIG } from '../../constants';
 import { VIEW_UNIFORMS } from './ViewOptions';
-import { WATER_WAVE_GLSL } from './WaterWaveShader';
+import {
+    createGerstnerUniforms,
+    GERSTNER_WAVE_GLSL,
+    getWaterNormalTexture,
+    WATER_NORMAL_GLSL,
+} from './WaterWaveShader';
 
 const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN']);
 
@@ -563,6 +568,7 @@ const WATER_FRAGMENT = /* glsl */ `
 // tile-centre uniform is needed.
 const SHORE_VERTEX_DECL =
     ' varying vec3 vGroundWorldPos;\n attribute vec3 aShoreA;\n attribute vec3 aShoreB;\n' +
+    ' attribute float aWaterPin;\n' +
     ' attribute vec3 aTileNormal;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
     ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;\n' +
     ' attribute float aPristineLum;\n varying float vPristineLum;';
@@ -573,6 +579,22 @@ const SHORE_VERTEX_BODY =
     ' vPristineLum = aPristineLum;\n' +
     // Into view space, where the fragment shader's own normal lives.
     ' vTileNormal = normalize(normalMatrix * aTileNormal);';
+
+// Sean Bradley's reference plane is authored in XY and then rotated onto the
+// water. Our tile meshes are authored directly in XZ, so map world XZ into the
+// reference plane, run its three calls unchanged, and map the displacement
+// back. The minus sign matches the merged Reflector plane's -90 degree X
+// rotation, keeping both surfaces coincident.
+const WATER_GERSTNER_VERTEX_BODY = /* glsl */ `
+    vec3 waterWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+    vec3 gerstnerPosition = vec3(waterWorldPosition.x, -waterWorldPosition.z, waterWorldPosition.y);
+    vec3 gerstnerOffset = vec3(0.0);
+    gerstnerOffset += GerstnerWave(waveA, gerstnerPosition);
+    gerstnerOffset += GerstnerWave(waveB, gerstnerPosition);
+    gerstnerOffset += GerstnerWave(waveC, gerstnerPosition);
+    gerstnerOffset *= 0.035 * (1.0 - aWaterPin);
+    transformed += vec3(gerstnerOffset.x, gerstnerOffset.z, -gerstnerOffset.y);
+`;
 
 const SHORE_FRAGMENT_DECL =
     ' varying vec3 vGroundWorldPos;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
@@ -621,34 +643,48 @@ const GROUND_WATER_METALNESS_FRAGMENT = /* glsl */ `
     metalnessFactor = mix(metalnessFactor, 0.0, gWaterFilm);
 `;
 
-// The geometry remains completely flat. Only the lit normal moves, restoring
-// the original MeshStandardMaterial sun sparkle without bringing back the
-// colour-noise sheet or mechanically repeating vertex waves.
-const WATER_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
+// The reference shader derives its small-scale surface normal from the same
+// four waternormals.jpg samples used by three.js Water. Geometry displacement
+// comes from the exact Gerstner vertex function above.
+const WATER_NORMAL_FRAGMENT = /* glsl */ `
     {
-        vec3 flatWaterNormal = normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0));
-        float waterTop = smoothstep(0.45, 0.82, dot(normal, flatWaterNormal));
-        vec3 rippleNormal = normalize(mat3(viewMatrix) * vwWaveNormal(vGroundWorldPos.xz, uTime));
-        normal = normalize(mix(normal, rippleNormal, waterTop));
+        vec4 noise = getNoise(vGroundWorldPos.xz * size);
+        vec3 surfaceNormal = normalize(noise.xzy * vec3(1.5, 1.0, 1.5));
+        normal = normalize(mat3(viewMatrix) * surfaceNormal);
     }
 `;
 
 export function applyWaterSurface(material: any): void {
+    // The merged reflector is the one visible water surface. Keep these tile
+    // meshes as geometry/raycast proxies only; rendering both produced two
+    // offset shoreline silhouettes once their coast vertices were pinned.
+    material.colorWrite = false;
+    material.depthWrite = false;
+
     material.onBeforeCompile = (shader: any) => {
+        Object.assign(shader.uniforms, createGerstnerUniforms());
         shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
+        shader.uniforms.size = { value: 1 };
+        shader.uniforms.normalSampler = { value: getWaterNormalTexture() };
         // The SAME uniform objects every other terrain material gets, so
         // one toggle reaches the whole map. See ViewOptions.
         shader.uniforms.uShowGrid = VIEW_UNIFORMS.showGrid;
         shader.uniforms.uShowTextures = VIEW_UNIFORMS.showTextures;
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\n' + SHORE_VERTEX_DECL)
-            .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + SHORE_VERTEX_BODY);
+            .replace(
+                '#include <common>',
+                '#include <common>\n' + SHORE_VERTEX_DECL + '\n' + GERSTNER_WAVE_GLSL
+            )
+            .replace(
+                '#include <begin_vertex>',
+                '#include <begin_vertex>\n' + SHORE_VERTEX_BODY + '\n' + WATER_GERSTNER_VERTEX_BODY
+            );
         shader.fragmentShader = shader.fragmentShader
             .replace(
                 '#include <common>',
                 '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
-                NOISE_GLSL_CORE + PERTURB_GLSL + WATER_WAVE_GLSL + SHORE_GLSL
+                NOISE_GLSL_CORE + PERTURB_GLSL + WATER_NORMAL_GLSL + SHORE_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + WATER_FRAGMENT)
             .replace(
@@ -658,7 +694,7 @@ export function applyWaterSurface(material: any): void {
         // Expose the shader so animateWater can drive uTime each frame.
         material.userData.shader = shader;
     };
-    material.customProgramCacheKey = () => 'water-surface';
+    material.customProgramCacheKey = () => 'water-surface-sean-bradley-gerstner';
 }
 
 // Inject the height-banded procedural ground into a terrain

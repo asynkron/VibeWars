@@ -1,16 +1,11 @@
 import { markShadowsDirty } from './ShadowBudget';
 
-// One authoritative sun for the whole renderer. Its direction drives the
-// directional light, the photographed sun in the reflection sky, and the
-// analytic highlight on the water.
-const ORBIT_SECONDS = 24 * 60;
-// The initial camera looks north from the south edge, so beginning with the
-// sun in the north makes its water glint visible immediately. The orbit then
-// carries it around the board continuously.
-const INITIAL_AZIMUTH = -Math.PI * 0.5;
-const BASE_ELEVATION = THREE.MathUtils.degToRad(48);
-const ELEVATION_SWING = THREE.MathUtils.degToRad(10);
-const SHADOW_STEP = THREE.MathUtils.degToRad(0.75);
+// One authoritative, fixed 13:00 sun for the whole renderer. Its direction
+// drives the directional light, the photographed sun in the reflection sky,
+// and the highlight on the water. It does not drift toward evening during a
+// match.
+const ONE_PM_AZIMUTH = THREE.MathUtils.degToRad(110);
+const ONE_PM_ELEVATION = THREE.MathUtils.degToRad(58);
 const LIGHT_DISTANCE = 100;
 
 export class SunSystem {
@@ -18,15 +13,12 @@ export class SunSystem {
     private static center = new THREE.Vector3();
     private static direction = new THREE.Vector3(0.5, 0.7, -0.5).normalize();
     private static color = new THREE.Color(0xffffff);
-    private static startedAt: number | null = null;
-    private static lastShadowDirection = new THREE.Vector3();
 
     static init(scene: any, light: any): void {
         this.light = light;
-        this.startedAt = null;
         light.target.position.copy(this.center);
         if (!light.target.parent) scene.add(light.target);
-        this.updateOrbit(0, true);
+        this.setOnePmDirection();
     }
 
     static setCenter(x: number, y: number, z: number): void {
@@ -37,12 +29,7 @@ export class SunSystem {
         markShadowsDirty();
     }
 
-    static animate(seconds: number): void {
-        if (!this.light) return;
-        this.startedAt ??= seconds;
-        const elapsed = seconds - this.startedAt;
-        this.updateOrbit((elapsed % ORBIT_SECONDS) / ORBIT_SECONDS, false);
-    }
+    static animate(_seconds: number): void {}
 
     // Unit vector from the board toward the sun.
     static getDirection(target = new THREE.Vector3()): any {
@@ -66,29 +53,15 @@ export class SunSystem {
         return target.copy(this.direction).multiplyScalar(distance).add(this.center);
     }
 
-    private static updateOrbit(progress: number, forceShadow: boolean): void {
-        const angle = progress * Math.PI * 2;
-        const azimuth = INITIAL_AZIMUTH + angle;
-        const elevation = BASE_ELEVATION + Math.sin(angle) * ELEVATION_SWING;
-        const horizontal = Math.cos(elevation);
+    private static setOnePmDirection(): void {
+        const horizontal = Math.cos(ONE_PM_ELEVATION);
         this.direction.set(
-            Math.cos(azimuth) * horizontal,
-            Math.sin(elevation),
-            Math.sin(azimuth) * horizontal,
+            Math.cos(ONE_PM_AZIMUTH) * horizontal,
+            Math.sin(ONE_PM_ELEVATION),
+            Math.sin(ONE_PM_AZIMUTH) * horizontal,
         ).normalize();
         this.updateLightPosition();
-
-        const angularChange = this.lastShadowDirection.lengthSq() === 0
-            ? Infinity
-            : Math.acos(THREE.MathUtils.clamp(
-                this.lastShadowDirection.dot(this.direction),
-                -1,
-                1,
-            ));
-        if (forceShadow || angularChange >= SHADOW_STEP) {
-            this.lastShadowDirection.copy(this.direction);
-            markShadowsDirty();
-        }
+        markShadowsDirty();
     }
 
     private static updateLightPosition(): void {
