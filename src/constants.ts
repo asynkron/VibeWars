@@ -89,9 +89,9 @@ const MAP_CONFIG = {
 // directly:
 //
 //   THE GROUND SHADER picks its look from world Y -- sand, grass, forest,
-//   rock, snow -- with rock from 1.60 and snow from 3.20. Every land tile on
-//   the map was past the rock band, so the whole thing rendered as granite
-//   and snowcap. It was not mountainous terrain: on a 50x50 map only 74
+//   then rock from 1.60 upward. Every land tile on the map was past the rock
+//   band, so the whole thing rendered as granite. It was not mountainous
+//   terrain: on a 50x50 map only 74
 //   tiles of 2500 are actually MOUNTAIN, and 1150 are grass. It was grass,
 //   painted as rock.
 //

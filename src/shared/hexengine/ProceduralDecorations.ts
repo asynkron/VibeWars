@@ -6,7 +6,7 @@
 //   FOREST    a small grove: 3-5 trees, conifer-heavy with some deciduous
 //   GRASS     occasional bushes, sometimes a lone deciduous tree
 //   SAND      sparse beach stones
-//   MOUNTAIN  rock outcrops
+//   MOUNTAIN  undergrowth at the foot, the rare conifer -- never stones
 //   WATER     nothing
 //
 // Each decoration is a THREE.Group registered as the hex's decorator, so
@@ -56,17 +56,25 @@ function seedT(seed: number): number {
     return (hash(seed) & 1023) / 1023;
 }
 
-// A restrained cool target for living conifers. The amount is stored on
+// A tile-specific angle that consumes NO decoration rng draws. The worker's
+// vegetation predicate replays that stream exactly, so visual variation must
+// not move anything downstream in it.
+export function rockRotationForTile(q: number, r: number, rockIndex: number): number {
+    const seed = Math.imul(q, 73856093) ^ Math.imul(r, 19349663) ^ Math.imul(rockIndex + 17, 83492791);
+    return seedT(seed) * Math.PI * 2;
+}
+
+// A dark, cool-gray target for living foliage. The amount is stored on
 // the cloned tree's foliage meshes and baked into the merged tile colours,
 // so every placed tree can have its own tone without cloning materials or
 // adding shader programs.
-const CONIFER_BLUE = { r: 0x31 / 255, g: 0x5a / 255, b: 0x70 / 255 };
+const FOLIAGE_DARK_GRAY = { r: 0x2f / 255, g: 0x33 / 255, b: 0x35 / 255 };
 
-function addConiferBlueHint(tree: any, amount: number): void {
+function addFoliageGrayHint(tree: any, amount: number, foliageKind: number): void {
     tree.traverse((child: any) => {
         const kind = child.userData?.decorKind;
-        if (child.isMesh && (kind === 1 || kind === 3)) {
-            child.userData.decorBlueHint = amount;
+        if (child.isMesh && (kind === foliageKind || kind === 3)) {
+            child.userData.decorGrayHint = amount;
         }
     });
 }
@@ -400,18 +408,60 @@ const DECOR_NOISE_GLSL = /* glsl */ `
         if (dxz.x > best.x) best = dxz;
         return best;
     }
+
+    // Cellular noise, the terrain groundVoronoi's construction on the
+    // decoration hash: x = distance to the nearest feature point, y = to
+    // the second nearest (y - x ~ 0 along cell borders -- the cracks),
+    // z = the nearest cell's own hash, tinting each plate as one object.
+    vec3 decorVoronoi(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        float f1 = 8.0;
+        float f2 = 8.0;
+        float id = 0.0;
+        for (int x = -1; x <= 1; x++) {
+            for (int yy = -1; yy <= 1; yy++) {
+                vec2 g = vec2(float(x), float(yy));
+                float h = decorHash(i + g);
+                vec2 o = vec2(h, decorHash(i + g + vec2(31.7, 17.3)));
+                vec2 r = g + o - f;
+                float d = dot(r, r);
+                if (d < f1) { f2 = f1; f1 = d; id = h; }
+                else if (d < f2) { f2 = d; }
+            }
+        }
+        return vec3(sqrt(f1), sqrt(f2), id);
+    }
+
+    // One projection of the stone surface -- the terrain rock band's
+    // construction (plates, gated crack seams, ridges) on a 2D slice of
+    // the rock's local frame. Returns (plate tint, crack mask, ridge).
+    // High crack-zone threshold on purpose, same as the mountainside:
+    // deep seams are fine, MANY seams are not -- most faces stay whole.
+    vec3 decorRockSlice(vec2 p) {
+        vec3 plate = decorVoronoi(p);
+        float zone = smoothstep(0.55, 0.80, decorFbm(p * 0.35 + 3.7));
+        // Narrow, because at stone scale one voronoi cell IS the stone --
+        // a border strip 0.16 cells wide would be a seam fat as a finger.
+        float crack = (1.0 - smoothstep(0.015, 0.07, plate.y - plate.x)) * zone;
+        float ridge = 1.0 - abs(2.0 * decorFbm(p * 0.9) - 1.0);
+        return vec3(plate.z, crack, ridge);
+    }
 `;
 
 const DECOR_FRAGMENT = /* glsl */ `
     {
-        // Base: two octaves of world-space noise with a vertical drift so
-        // the pattern wraps around crowns and trunks instead of projecting
-        // flat from above.
         vec2 dp = vDecorWorldPos.xz * 7.0 + vec2(vDecorWorldPos.y * 3.1, vDecorWorldPos.y * 2.3);
-        float coarse = decorNoise(dp);
-        float fine = mix(0.5, decorNoise(dp * 3.7 + 11.0), decorDetailFade(dp * 3.7));
-        diffuseColor.rgb *= 0.84 + 0.20 * coarse + 0.08 * fine;
         dBumpH = 0.0;
+
+        // Base: two octaves of world-space noise for organic decorations.
+        // Rocks get the terrain rock band's recipe below and deliberately
+        // skip this layer, whose spots made them look like seeds.
+        if (vDecorKind >= -0.5) {
+            float coarse = decorNoise(dp);
+            float fine = mix(0.5, decorNoise(dp * 3.7 + 11.0), decorDetailFade(dp * 3.7));
+            diffuseColor.rgb *= 0.84 + 0.20 * coarse + 0.08 * fine;
+        }
 
         // Crowns are 10% see-through -- REAL alpha, not screen-door
         // dither (tried, read as pixel noise). The material is transparent
@@ -421,16 +471,83 @@ const DECOR_FRAGMENT = /* glsl */ `
         if (vDecorKind > 1.5) diffuseColor.a *= 0.90;
 
         if (vDecorKind < -0.5) {
-            // ROCK: craggy faces with shadowed crevices and a dirt skirt
-            // where the stone meets the ground -- the same weathered-not-
-            // clean rule the mountain band follows.
-            float crag = decorNoise(vDecorLocalPos.xz * 6.0 + vDecorLocalPos.y * 5.0);
-            float crevice = smoothstep(0.10, 0.0, abs(decorNoise(dp * 1.4 + 3.0) - 0.5));
-            diffuseColor.rgb *= 0.80 + 0.34 * crag;
-            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.45, crevice * 0.6);
-            float basecoat = smoothstep(0.10, -0.05, vDecorLocalPos.y);
-            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.35, 0.26), basecoat * 0.35);
-            dBumpH = crag * 0.8 - crevice * 0.6;
+            // ROCK: the terrain mountainside's recipe -- plates, seams,
+            // moss, dirt -- but at a STONE's scale, not a mountain's. A
+            // gameplay stone is a flake OF a mountain: one or two broad
+            // mineral faces and at most a single seam, not a whole massif
+            // of plates shrunk onto a fist of rock. The low frequency here
+            // is what makes that true -- roughly one voronoi cell spans
+            // the stone. Evaluated triplanar in the stone's LOCAL frame,
+            // so the pattern stays glued to the rock under its per-tile
+            // yaw and no world-space pattern is shared between stones.
+            vec3 rockP = vDecorLocalPos * 2.2;
+            vec3 localDir = normalize(vDecorLocalPos + vec3(0.0008));
+            vec3 blend = pow(abs(localDir), vec3(4.0));
+            blend /= max(blend.x + blend.y + blend.z, 0.0001);
+            vec3 slice = decorRockSlice(rockP.yz + vec2(0.17, 7.41)) * blend.x
+                + decorRockSlice(rockP.xz + vec2(3.53, 0.11)) * blend.y
+                + decorRockSlice(rockP.xy + vec2(9.29, 0.73)) * blend.z;
+            float plateTint = slice.x;
+            float crack = slice.y;
+            float ridge = slice.z;
+
+            // Fine mineral grain, band-limited so it fades to its mean at
+            // distance instead of shimmering away to noise.
+            vec2 grainP = vDecorLocalPos.xz * 34.0 + vDecorLocalPos.y * 23.0;
+            float grain = mix(0.5, decorNoise(grainP), decorDetailFade(grainP));
+
+            // Base is this stone's own instance color (already varied per
+            // rock), shaped by the plate and ridge fields -- and the HUE
+            // walks with the plate id, cool blue-gray faces against warm
+            // tan ones, so the stone reads as mineral, never one flat gray.
+            vec3 stone = diffuseColor.rgb
+                * (0.85 + 0.30 * plateTint)
+                * (0.88 + 0.20 * ridge)
+                * (0.90 + 0.20 * grain);
+            stone *= mix(vec3(0.93, 0.98, 1.08), vec3(1.08, 1.00, 0.88), plateTint);
+
+            // FLAT per-face contrast: the facet normal is constant across
+            // each chipped face (screen-space derivatives of the local
+            // position), so hashing it hands every face its own value --
+            // bright faces stand clearly apart from dark ones, the way
+            // flat shading reads on split stone.
+            vec3 faceN = normalize(cross(dFdx(vDecorLocalPos), dFdy(vDecorLocalPos)));
+            float faceTone = decorHash(floor(faceN.xz * 4.0) + floor(faceN.y * 3.0));
+            // Skewed DOWN: the lit side already gets its brightness from
+            // the sun, so the hash mostly hands out darker faces --
+            // otherwise the whole stone bleaches toward white.
+            stone *= 0.58 + 0.55 * faceTone;
+
+            // Cracks: shadowed, and floored with dirt rather than black.
+            stone = mix(stone, stone * 0.45, crack * 0.50);
+            stone = mix(stone, vec3(0.30, 0.26, 0.20), crack * 0.30);
+
+            // Dirt staining in broad patches -- life and weather on the
+            // stone, kept gray-brown and moderate so it never tips the
+            // whole rock into mud.
+            float stain = smoothstep(0.55, 0.85,
+                decorFbm(vDecorLocalPos.xy * 5.0 + vDecorLocalPos.z * 3.0 + 2.3));
+            stone = mix(stone, vec3(0.42, 0.36, 0.27) * (0.75 + 0.45 * plateTint), stain * 0.38);
+
+            // Moss in LARGE readable patches on upward faces; sub-pixel
+            // moss merely averages back into brown at map scale.
+            float upward = smoothstep(0.15, 0.72, localDir.y);
+            float mossField = decorFbm(vDecorLocalPos.xz * 4.2 + vec2(4.7, 1.9));
+            float mossMask = upward * smoothstep(0.38, 0.55, mossField);
+            vec3 moss = vec3(0.15, 0.25, 0.08) * (0.80 + 0.45 * ridge);
+            diffuseColor.rgb = mix(stone, moss, mossMask * 0.85);
+
+            // Pale lichen flecks on the bare faces, same trick as the
+            // high mountainside -- band-limited, and kept off the moss.
+            vec2 lichP = vDecorLocalPos.xz * 26.0 + vDecorLocalPos.y * 19.0;
+            float lich = smoothstep(0.88, 0.96, decorNoise(lichP)) * decorDetailFade(lichP);
+            diffuseColor.rgb += vec3(0.20, 0.21, 0.19) * lich * (1.0 - mossMask);
+
+            // Relief reuses the fields the color came from: plates and
+            // ridges raised, seams recessed, moss a soft cushion on top.
+            // MUCH shallower than the mountainside's: deep bump on a small
+            // faceted stone drowns the flat face lighting that carries it.
+            dBumpH = plateTint * 0.25 + ridge * 0.18 - crack * 0.40 + mossMask * 0.12;
         } else if (vDecorKind < 0.5) {
             // BARK and dead wood: vertical striations -- strong variation
             // AROUND the trunk, weak along it, so the grain runs the way
@@ -619,7 +736,7 @@ function applyOrganicDetail(material: any): void {
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural';
 }
 
 function mat(color: number, kind: number = 0) {
@@ -849,6 +966,8 @@ function addCluster(parent: any, rng: () => number, at: any, radius: number, col
 // not keep flying outward), and a small crown at every tip. The GAPS
 // between those crowns are the point: they are what lets the branches
 // show through, and branches showing through is what says "tree".
+const DECIDUOUS_CROWN_SCALE = 1.25;
+
 function makeDeciduous(rng: () => number, index: number = 0, total: number = 1, dead: boolean = false, autumn: boolean = false): any {
     const tree = new THREE.Group();
     const height = 1.15 + rng() * 0.75;
@@ -923,14 +1042,14 @@ function makeDeciduous(rng: () => number, index: number = 0, total: number = 1, 
             // goes on. The bole, the primaries and the twigs are the same
             // structure -- which is the point: a standing dead tree is the
             // tree it was, minus its leaves, not a different prop.
-            if (!dead) addCluster(tree, rng, twig.tip, (0.15 + rng() * 0.055) * girth, leafColor, seed + cluster++);
+            if (!dead) addCluster(tree, rng, twig.tip, (0.15 + rng() * 0.055) * girth * DECIDUOUS_CROWN_SCALE, leafColor, seed + cluster++);
         }
     }
     // One more mass over the fork itself, filling the hole the outward
     // primaries leave in the middle of the canopy.
     const crownTop = bole.tip.clone();
     crownTop.y += height * 0.16;
-    if (!dead) addCluster(tree, rng, crownTop, (0.17 + rng() * 0.05) * girth, leafColor, seed + cluster);
+    if (!dead) addCluster(tree, rng, crownTop, (0.17 + rng() * 0.05) * girth * DECIDUOUS_CROWN_SCALE, leafColor, seed + cluster);
     return tree;
 }
 
@@ -1018,27 +1137,55 @@ function makeTuft(rng: () => number): any {
     return tuft;
 }
 
-// Rock: 1-3 squashed gray dodecahedra.
+// Rock: one low angular stone, occasionally two -- a lone stone reads as
+// geology, a pile of three read as scattered litter.
 function makeRocks(rng: () => number, base: number): any {
     const rocks = new THREE.Group();
-    const count = 1 + Math.floor(rng() * 3);
+    const count = rng() < 0.25 ? 2 : 1;
     for (let i = 0; i < count; i++) {
         const radius = 0.12 + rng() * 0.13;
         // kind -1: the shader gives rock its own craggy treatment, and the
         // burn check (vDecorKind > 0.5 discards foliage) leaves it standing.
         const rock = addMesh(
             rocks,
-            roughen(new THREE.DodecahedronGeometry(radius, 1), i, radius * 0.35),
+            // Detail 0 keeps broad chipped faces; detail 1 plus radial
+            // normals produced smooth round lumps. Rocks explicitly use
+            // faceted normals so light catches their planes as stone.
+            roughen(new THREE.DodecahedronGeometry(radius, 0), i, radius * 0.22, true),
             vary(base, rng, 0.18),
             (rng() - 0.5) * 0.3,
-            radius * 0.5,
+            0,
             (rng() - 0.5) * 0.3,
             -1
         );
-        rock.scale.y = 0.6 + rng() * 0.3;
+        const yScale = 0.28 + rng() * 0.16;
+        // A visibly asymmetric footprint is required for yaw randomisation
+        // to mean anything. Near-circular dodecahedra look identical after
+        // rotation, which was the original same-direction complaint hiding
+        // behind a nominally random angle.
+        const longAxis = 1.0 + rng() * 0.55;
+        const shortAxis = 0.55 + rng() * 0.25;
+        rock.scale.set(longAxis, yScale, shortAxis);
+        // Sink the bottom edge slightly into the ground instead of balancing
+        // a round body on top of it.
+        rock.position.y = radius * yScale * 0.78;
         rock.rotation.y = rng() * Math.PI;
     }
     return rocks;
+}
+
+// The cached prototype supplies the geometry, but never its final heading.
+// Both the cluster and every stone in it get a tile-specific angle so the
+// same elongated silhouettes do not form a repeated compass direction.
+// This is hash-based rather than rng-based; see rockRotationForTile.
+function orientRocksForTile(rocks: any, q: number, r: number): void {
+    rocks.rotation.y = rockRotationForTile(q, r, -1);
+    let index = 0;
+    rocks.traverse((child: any) => {
+        if (child.isMesh && child.userData?.decorKind === -1) {
+            child.rotation.y = rockRotationForTile(q, r, index++);
+        }
+    });
 }
 
 // Per-individual tint: nudge every mesh color in the assembly along its
@@ -1154,19 +1301,25 @@ function pickTree(kind: 'conifer' | 'deciduous', rng: () => number): any {
             // Reuse the life/death roll instead of consuming another random
             // number: MapSystem replays the tile stream to determine whether
             // vegetation exists. Among living trees this maps evenly to a
-            // restrained 3-20% drift toward cool blue.
+            // clear 55-75% drift toward a dark, cool gray. The foliage
+            // shader adds green back through its sun/shadow palette, so a
+            // weaker mix disappears once the tree is lit in the scene.
             const livingT = (lifeRoll - DEAD_TREE_CHANCE) / (1 - DEAD_TREE_CHANCE);
-            addConiferBlueHint(tree, 0.03 + livingT * 0.17);
+            addFoliageGrayHint(tree, 0.55 + livingT * 0.20, 1);
         }
         return tree;
     }
     if (dead) return pick('deciduous-dead', (r, i, n) => makeDeciduous(r, i, n, true), rng);
+    const livingT = (lifeRoll - DEAD_TREE_CHANCE) / (1 - DEAD_TREE_CHANCE);
     // Only a living tree can have turned -- a dead one has no crown to
     // colour, and rolling for it would quietly halve the dead rate.
-    if (rng() < AUTUMN_TREE_CHANCE) {
-        return pick('deciduous-autumn', (r, i, n) => makeDeciduous(r, i, n, false, true), rng);
-    }
-    return pick('deciduous', makeDeciduous, rng);
+    const tree = rng() < AUTUMN_TREE_CHANCE
+        ? pick('deciduous-autumn', (r, i, n) => makeDeciduous(r, i, n, false, true), rng)
+        : pick('deciduous', makeDeciduous, rng);
+    // Deciduous crowns get the same cool gray, but much more lightly than
+    // conifers so their brighter green and autumn colours remain distinct.
+    addFoliageGrayHint(tree, 0.10 + livingT * 0.08, 2);
+    return tree;
 }
 
 // Ground sampler for the tile currently being decorated, set by
@@ -1256,10 +1409,10 @@ function mergeDecorations(group: any): any | null {
         const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         const c = material?.color ?? { r: 1, g: 1, b: 1 };
         const k = mesh.userData.decorKind ?? 0;
-        const blueHint = mesh.userData.decorBlueHint ?? 0;
-        const cr = c.r + (CONIFER_BLUE.r - c.r) * blueHint;
-        const cg = c.g + (CONIFER_BLUE.g - c.g) * blueHint;
-        const cb = c.b + (CONIFER_BLUE.b - c.b) * blueHint;
+        const grayHint = mesh.userData.decorGrayHint ?? 0;
+        const cr = c.r + (FOLIAGE_DARK_GRAY.r - c.r) * grayHint;
+        const cg = c.g + (FOLIAGE_DARK_GRAY.g - c.g) * grayHint;
+        const cb = c.b + (FOLIAGE_DARK_GRAY.b - c.b) * grayHint;
 
         for (let i = 0; i < count; i++) {
             // Merged, tile-local.
@@ -1416,17 +1569,24 @@ export function createProceduralDecoration(
             break;
         }
         case 'SAND': {
-            if (rng() < 0.35) {
-                place(group, rng, pick('rocks-sand', (r) => makeRocks(r, 0xb8a98c), rng), 0.45, false);
+            // Rare on purpose: sand tiles cluster into beaches, and at 35%
+            // a beach carried ten stones -- reading as gravel spill, not
+            // "the odd stone here and there".
+            if (rng() < 0.10) {
+                const rocks = pick('rocks-sand', (r) => makeRocks(r, 0xb8a98c), rng);
+                orientRocksForTile(rocks, q, r);
+                place(group, rng, rocks, 0.45, false);
             } else {
                 return null;
             }
             break;
         }
         case 'MOUNTAIN': {
-            // The mountain FOOT (low mountain tiles) is alive: undergrowth,
-            // shrubs, and rocks between them. Higher up it's bare rock --
-            // with the rare, hardy little conifer clinging on.
+            // The mountain FOOT (low mountain tiles) is alive: undergrowth
+            // and shrubs. Higher up it's bare rock -- with the rare, hardy
+            // little conifer clinging on. NO decor stones anywhere on
+            // mountains: the tile is already a rock face, and scattered
+            // pebbles on top of it read as clutter, not geology.
             const foot = tileHeight < 2.0;
             if (foot) {
                 if (rng() < 0.55) place(group, rng, pick('tuft', makeTuft, rng), 0.5);
@@ -1434,9 +1594,6 @@ export function createProceduralDecoration(
                     const bush = pick('bush', makeBush, rng);
                     place(group, rng, bush, 0.5, false);
                 }
-                if (rng() < 0.4) place(group, rng, pick('rocks-mountain', (r) => makeRocks(r, 0x7d7a74), rng), 0.4, false);
-            } else if (rng() < 0.5) {
-                place(group, rng, pick('rocks-mountain', (r) => makeRocks(r, 0x7d7a74), rng), 0.4, false);
             }
             // Uncommon but possible: a lone small conifer on the mountain.
             if (rng() < 0.08) {

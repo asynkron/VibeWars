@@ -4,7 +4,7 @@
 //
 // THE NATURAL-GROUND RULE: the fragment's WORLD HEIGHT decides the texture, exactly like
 // the terrain ladder that assigns tile types -- sand < grass < forest <
-// rock < snow. Tile MATERIAL no longer matters for the look. This is what
+// rock. Tile MATERIAL no longer matters for the look. This is what
 // makes the smoothed slopes cohesive: edge smoothing stretches low tiles
 // (sand fords, grass) up the mountainside as steep ramps, and a
 // height-driven shader recolors those ramps through the whole ladder on
@@ -208,7 +208,7 @@ const SHORE_GLSL = /* glsl */ `
 `;
 
 // Colour and strength of the hex grid overlay. Dark rather than bright so
-// it reads as a drawn boundary over both snow and water.
+// it reads as a drawn boundary over both rock and water.
 const GRID_COLOR = 'vec3(0.04, 0.05, 0.07)';
 const GRID_STRENGTH = '0.8';
 
@@ -230,12 +230,11 @@ const GROUND_FRAGMENT = /* glsl */ `
         float toGrass  = smoothstep(0.80, 0.94, y + wob * 0.10);
         float toForest = smoothstep(1.04, 1.24, y + wob * 0.14);
         float toRock   = smoothstep(1.60, 2.05, y + wob * 0.30);
-        float toSnow   = smoothstep(uSnowStart, uSnowFull, y + wob * 1.2);
 
         // What each band is actually WORTH once the bands above it have had
         // their say -- the mix chain at the bottom is
-        //   low*(1-toForest)(1-toRock)(1-toSnow) + forest*toForest(1-toRock)(1-toSnow)
-        //   + rock*toRock(1-toSnow) + snow*toSnow
+        //   low*(1-toForest)(1-toRock) + forest*toForest(1-toRock)
+        //   + rock*toRock
         // and a band whose weight is zero cannot change a single pixel.
         //
         // Every band used to be computed for every fragment and then
@@ -252,10 +251,9 @@ const GROUND_FRAGMENT = /* glsl */ `
         // neighbouring fragments is almost always inside one band, and
         // where it straddles a boundary both sides run and it costs what it
         // always did.
-        float wSnow   = toSnow;
-        float wRock   = toRock * (1.0 - toSnow);
-        float wForest = toForest * (1.0 - toRock) * (1.0 - toSnow);
-        float wLow    = (1.0 - toForest) * (1.0 - toRock) * (1.0 - toSnow);
+        float wRock   = toRock;
+        float wForest = toForest * (1.0 - toRock);
+        float wLow    = (1.0 - toForest) * (1.0 - toRock);
 
         // Hoisted OUT of the branches on purpose: groundDetailFade takes
         // fwidth, and a derivative inside control flow some lanes skip is
@@ -272,12 +270,8 @@ const GROUND_FRAGMENT = /* glsl */ `
 
         // Shared domain warp: every band's patchwork is bent through the
         // same low-frequency field, so patches meander organically instead
-        // of showing value-noise's axis-aligned blobbiness. Under full snow
-        // nothing it feeds is visible.
-        vec2 warp = vec2(0.0);
-        if (wSnow < 1.0) {
-            warp = vec2(groundFbm(gp * 1.1), groundFbm(gp * 1.1 + vec2(5.2, 1.3))) - 0.5;
-        }
+        // of showing value-noise's axis-aligned blobbiness.
+        vec2 warp = vec2(groundFbm(gp * 1.1), groundFbm(gp * 1.1 + vec2(5.2, 1.3))) - 0.5;
 
         // --- The LOW band: sand, the grass front that closes over it, and
         // the exposed soil along that front. One block, because the grass
@@ -381,12 +375,16 @@ const GROUND_FRAGMENT = /* glsl */ `
         // fracture zones (crackZone gates them off elsewhere), because a
         // real mountainside is plate on plate of solid rock with the odd
         // seam -- not a crazed glaze. And the band matures with altitude:
-        // bare is 0 where the rock has just climbed out of the forest --
-        // dark gray, mossy, dirt-stained -- and 1 high up where the stone
-        // finally stands clean. That reads as forest -> dark mossy rock ->
-        // bare gray, instead of a hard green-to-gray seam.
+        // rockAltitude is 0 where the rock has just climbed out of the
+        // forest -- dark gray-brown, mossy, dirt-stained -- and 1 high up
+        // where the stone finally stands clean and neutral gray. That reads
+        // as forest -> dark warm rock -> ordinary mountain gray, instead of
+        // a hard green-to-gray seam.
         vec3 rockC = vec3(0.0);
         float rockH = 0.0;
+        float rockAltitude = smoothstep(1.9, 4.8, y);
+        vec3 summitRock = vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05);
+        vec3 foothillRock = vec3(rockLum * 0.85) * vec3(0.92, 0.80, 0.66);
         if (wRock > 0.0) {
             vec3 plate = groundVoronoi(gp * 1.3 + warp * 1.2);
             // High threshold on purpose: deep seams are fine, MANY seams
@@ -395,8 +393,7 @@ const GROUND_FRAGMENT = /* glsl */ `
             float crackZone = smoothstep(0.62, 0.86, groundFbm(gp * 1.3 + warp * 1.6));
             float crack = (1.0 - smoothstep(0.02, 0.14, plate.y - plate.x)) * crackZone;
             float ridge = 1.0 - abs(2.0 * groundFbm(gp * 5.0) - 1.0);
-            float bare = smoothstep(1.9, 3.6, y);
-            vec3 rockBase = vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05) * mix(0.52, 1.0, bare);
+            vec3 rockBase = mix(foothillRock, summitRock, rockAltitude);
             rockC = rockBase * (0.88 + 0.22 * plate.z) * (0.86 + 0.22 * ridge)
                 * (0.90 + 0.20 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6)));
             // Cracks: shadowed, and floored with dirt rather than black.
@@ -407,36 +404,25 @@ const GROUND_FRAGMENT = /* glsl */ `
             // by the time the rock is bare.
             float stain = smoothstep(0.50, 0.80, groundFbm(gp * 2.0 + warp * 2.5));
             float mossPatch = smoothstep(0.40, 0.75, groundFbm(gp * 3.5 + warp * 1.8));
-            rockC = mix(rockC, uForestColor * vec3(1.30, 1.40, 1.00), mossPatch * 0.60 * (1.0 - bare));
+            rockC = mix(rockC, uForestColor * vec3(1.30, 1.40, 1.00), mossPatch * 0.60 * (1.0 - rockAltitude));
             rockC = mix(rockC, uSandColor * vec3(0.55, 0.50, 0.44) * (0.85 + 0.30 * plate.z),
-                        stain * 0.35 * (1.0 - bare));
+                        stain * 0.35 * (1.0 - rockAltitude));
             rockC += vec3(0.45, 0.47, 0.52) * smoothstep(0.90, 0.98, groundNoise(gp * 52.0))
-                * fade52 * (1.0 - crack) * bare;
-            rockH = plate.z * 0.5 + ridge * 0.40 - crack * 0.7 + mossPatch * (1.0 - bare) * 0.3;
-        }
-
-        // Snow's one noise serves both its colour and its relief, so it is
-        // drawn once here rather than twice down the chain.
-        vec3 snowC = vec3(0.0);
-        float snowN = 0.0;
-        if (wSnow > 0.0) {
-            snowN = groundNoise(gp * 12.0);
-            snowC = vec3(0.92, 0.95, 0.99) * (0.92 + 0.08 * snowN);
+                * fade52 * (1.0 - crack) * rockAltitude;
+            rockH = plate.z * 0.5 + ridge * 0.40 - crack * 0.7 + mossPatch * (1.0 - rockAltitude) * 0.3;
         }
 
         // Climb the ladder.
         vec3 band = lowC;
         band = mix(band, forestC, toForest);
         band = mix(band, rockC, toRock);
-        band = mix(band, snowC, toSnow);
 
         // Relief for the bump pass (normal_fragment below): each band's
         // height field reuses the values its color was already computed
         // from, so light and shadow fall exactly where the color says they
         // should -- cracks recessed, pebbles and facets raised. Rock gets
-        // by far the strongest relief; snow softens everything under it.
+        // by far the strongest relief and continues unchanged to the summit.
         gBumpH = mix(mix(lowH, forestH, toForest), rockH * 1.1, toRock);
-        gBumpH = mix(gBumpH, 0.06 * snowN, toSnow);
         gBumpH *= uShowTextures;
 
         // Texture toggle. The flat version keeps the height LADDER -- sand
@@ -445,8 +431,7 @@ const GROUND_FRAGMENT = /* glsl */ `
         // not be "textures off", it would be "terrain off".
         vec3 flatBand = mix(uSandColor, uGrassColor, toGrass);
         flatBand = mix(flatBand, uForestColor, toForest);
-        flatBand = mix(flatBand, vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05), toRock);
-        flatBand = mix(flatBand, vec3(0.92, 0.95, 0.99), toSnow);
+        flatBand = mix(flatBand, mix(foothillRock, summitRock, rockAltitude), toRock);
         band = mix(flatBand, band, uShowTextures);
 
         // Building foundations are terrain, but they are not part of the
@@ -739,8 +724,6 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         // Same source as the water material's own color, so the film
         // running up the beach is the sea, not a blue of its own.
         shader.uniforms.uWaterColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('WATER')) };
-        shader.uniforms.uSnowStart = { value: 3.2 };
-        shader.uniforms.uSnowFull = { value: 4.6 };
         shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         // Shared by reference across every ground material -- see ViewOptions.
@@ -758,7 +741,6 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
                 ' uniform vec3 uRockColor;\n uniform vec3 uConcreteColor;\n uniform vec3 uWaterColor;\n' +
                 ' uniform float uIsConcrete;\n' +
-                ' uniform float uSnowStart;\n uniform float uSnowFull;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
                 ' float gBumpH;\n float gWaterFilm;\n' +

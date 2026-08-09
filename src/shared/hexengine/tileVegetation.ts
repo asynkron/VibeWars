@@ -50,11 +50,11 @@ const MOUNTAIN_FOOT_HEIGHT = 2.0;
 // Whether the scenery on this tile can catch fire.
 //
 // GREENERY BURNS, STONE DOES NOT, and the difference is not visible from
-// "does this tile have a decorator". SAND is decorated 35% of the time and
-// every one of those is rocks; a third of what MOUNTAIN places is rocks too.
-// Treating "decorated" as "burnable" is the easy way to set fire to bare
-// gravel, so this walks the same branches the generator does and counts only
-// conifers, deciduous trees, bushes, tufts, logs and dead trees.
+// "does this tile have a decorator". Everything SAND ever decorates with is
+// rocks. Treating "decorated" as "burnable" is the easy way to set fire to
+// bare gravel, so this walks the same branches the generator does and
+// counts only conifers, deciduous trees, bushes, tufts, logs and dead
+// trees.
 //
 // `tileHeight` is the height the tile was DECORATED at, which is not
 // necessarily its height now -- craters lower tiles and the scenery is never
@@ -78,18 +78,15 @@ export function hasVegetation(terrainType: string, q: number, r: number, tileHei
         case 'SAND':
             return false;
 
-        // The only terrain that needs the stream replayed, because rocks
-        // must be skipped without being counted, and skipping them still
-        // costs the draws they would have made.
+        // The only terrain that needs the stream replayed: the conifer
+        // roll comes after the foot rolls, so reaching it costs the draws
+        // the tuft and bush would have made. (Mountains place no stones.)
         case 'MOUNTAIN': {
             const rng = tileRng(q, r);
             let vegetated = false;
             if (tileHeight < MOUNTAIN_FOOT_HEIGHT) {
                 if (rng() < 0.55) { vegetated = true; skip(rng, 4); }   // tuft: pick 1 + place-spin 3
                 if (rng() < 0.45) { vegetated = true; skip(rng, 3); }   // bush: pick 1 + place-no-spin 2
-                if (rng() < 0.4) skip(rng, 3);                          // rocks: not vegetation
-            } else if (rng() < 0.5) {
-                skip(rng, 3);                                           // rocks: not vegetation
             }
             // The rare hardy conifer, at any height.
             if (rng() < 0.08) vegetated = true;
