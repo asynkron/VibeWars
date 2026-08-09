@@ -31,7 +31,7 @@ export interface Object3DLike {
 
 export type HexGroup = Object3DLike;
 
-// A single terrain type's config (WATER/SAND/GRASS/FOREST/MOUNTAIN), see
+// A single terrain type's config (WATER/SAND/GRASS/FOREST/MOUNTAIN/CONCRETE), see
 // TerrainSystem.terrainTypes.
 export interface TerrainTypeConfig {
   name: string;

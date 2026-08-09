@@ -26,7 +26,7 @@ import { combineSeed, mulberry32 } from './resolveAttack';
 import { startTurn } from './SimCommands';
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
-import type { MapProvider, StartingUnit } from '../maps/MapProvider';
+import { generateMap, type MapProvider, type StartingUnit } from '../maps/MapProvider';
 import { NO_COOLDOWNS } from '../../shared/hexengine/skills';
 import { headquartersLosers } from '../../shared/hexengine/headquarters';
 
@@ -131,7 +131,7 @@ function spawnToSimUnit(spawn: StartingUnit, playerIndex: number) {
 // Build the initial pure state for a map provider, exactly as the real
 // game would set it up (tiles + both sides' spawns).
 export function stateFromProvider(provider: MapProvider): SimState {
-    const tiles = provider.generate();
+    const tiles = generateMap(provider);
     const units = [
         ...provider.spawns.player.map((s) => spawnToSimUnit(s, 0)),
         ...provider.spawns.cpu.map((s) => spawnToSimUnit(s, 1)),

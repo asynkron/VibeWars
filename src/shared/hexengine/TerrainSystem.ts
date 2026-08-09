@@ -63,6 +63,7 @@ class TerrainSystem {
     static getTerrainTypeFromNoise(noiseValue: number): string {
         // Convert terrainTypes to array and sort by threshold
         const sortedTypes = Object.entries(this.terrainTypesRecord)
+            .filter(([type]) => type !== 'CONCRETE')
             .sort(([, a], [, b]) => a.threshold - b.threshold);
 
         // Check thresholds in ascending order
@@ -92,6 +93,7 @@ class TerrainSystem {
     static getLerpedTerrainColor(noiseValue: number): number {
         // Convert terrainTypes to array and sort by threshold
         const sortedTypes = Object.entries(this.terrainTypesRecord)
+            .filter(([type]) => type !== 'CONCRETE')
             .sort(([, a], [, b]) => a.threshold - b.threshold);
 
         // Find the current and next terrain type based on noise value

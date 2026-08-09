@@ -39,6 +39,38 @@ export interface MapProvider {
     generate(): TileLike[][];
 }
 
+// Replace the natural terrain under every authored building piece with one
+// real terrain tile. This happens after generate(): random-map providers do
+// not know their final building coordinates until they have seen the rolled
+// mainland, and their grouped buildings have already levelled their shared
+// pad by then. Preserve that height; only the surface becomes concrete.
+export function applyBuildingFoundations(
+    tiles: TileLike[][],
+    buildings: readonly BuildingSpawn[]
+): TileLike[][] {
+    const concrete = TerrainSystem.terrainTypes.CONCRETE;
+    for (const building of buildings) {
+        const tile = tiles[building.q]?.[building.r];
+        if (!tile) {
+            throw new Error(`Building foundation at ${building.q},${building.r} is outside the map`);
+        }
+        tile.type = 'CONCRETE';
+        tile.color = concrete.material.color;
+        tile.moveCost = concrete.moveCost;
+        tile.hasRoad = false;
+        tile.vegetated = false;
+    }
+    return tiles;
+}
+
+// The canonical map assembly path for both the live GameMap and headless
+// simulation. Reading provider.buildings AFTER generate() is required for
+// random providers, whose placements are generated alongside the terrain.
+export function generateMap(provider: MapProvider): TileLike[][] {
+    const tiles = provider.generate();
+    return applyBuildingFoundations(tiles, provider.buildings ?? []);
+}
+
 export class Tile implements TileLike {
     height: number;
     type: string;

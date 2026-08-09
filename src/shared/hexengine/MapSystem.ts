@@ -4,7 +4,7 @@
 // Tile class lives with the providers now; re-exported here for existing
 // importers.
 import { selectedMapProvider } from '../../systems/maps/mapRegistry';
-import { Tile } from '../../systems/maps/MapProvider';
+import { generateMap, Tile } from '../../systems/maps/MapProvider';
 import { MAP_CONFIG } from '../../constants';
 import type { TileLike } from '../../types';
 import { hasBurnableVegetation } from './tileVegetation';
@@ -17,7 +17,7 @@ class GameMap {
   constructor(rows = MAP_CONFIG.ROWS, cols = MAP_CONFIG.COLS) {
     this.rows = rows;
     this.cols = cols;
-    this.tiles = selectedMapProvider().generate();
+    this.tiles = generateMap(selectedMapProvider());
 
     // Which tiles have greenery on them, decided ONCE here and never again.
     //

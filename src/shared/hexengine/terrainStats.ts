@@ -37,7 +37,7 @@ export const TERRAIN_TYPES = {
                 roughness: 0.4
             }
         },
-        // NOTE on metalness/roughness below: all four GROUND types carry
+        // NOTE on metalness/roughness below: all four NATURAL ground types carry
         // the SAME values (water keeps its own -- water should gleam).
         // The height-banded shader paints COLOR from world height, so a
         // tile's type no longer decides how it looks -- but its material
@@ -99,6 +99,24 @@ export const TERRAIN_TYPES = {
                 metalness: 0.1,
                 roughness: 0.7
             }
+        },
+        // Authored by the building-foundation pass, never by terrain noise.
+        // Its height is inherited from the ground the building replaced so
+        // a lakeside foundation remains a real quay rather than teleporting
+        // to one global elevation.
+        CONCRETE: {
+            name: 'concrete',
+            moveCost: 1,
+            baseHeight: 0.9,
+            heightVariation: 0,
+            heightModifier: 1,
+            threshold: Infinity,
+            impassable: false,
+            material: {
+                color: 0x77736A,
+                metalness: 0.05,
+                roughness: 0.86
+            }
         }
     };
 
@@ -123,7 +141,7 @@ export function getTerrainBaseHeight(terrainType: string): number {
 }
 
 export function getTerrainHeightVariation(terrainType: string): number {
-    return terrainTypesRecord[terrainType]?.heightVariation || TERRAIN_TYPES.GRASS.heightVariation;
+    return terrainTypesRecord[terrainType]?.heightVariation ?? TERRAIN_TYPES.GRASS.heightVariation;
 }
 
 export function getTerrainHeightModifier(terrainType: string): number {

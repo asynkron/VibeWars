@@ -2,7 +2,7 @@
 // materials via onBeforeCompile. No texture assets: a world-position
 // based value-noise/fbm in the fragment shader paints the ground.
 //
-// THE RULE: the fragment's WORLD HEIGHT decides the texture, exactly like
+// THE NATURAL-GROUND RULE: the fragment's WORLD HEIGHT decides the texture, exactly like
 // the terrain ladder that assigns tile types -- sand < grass < forest <
 // rock < snow. Tile MATERIAL no longer matters for the look. This is what
 // makes the smoothed slopes cohesive: edge smoothing stretches low tiles
@@ -17,6 +17,10 @@
 // The water SURFACE has its own shader below; the two meet at the
 // shoreline, where the ground shader runs the wash up the sand from the
 // same wave phase the water foams with.
+//
+// CONCRETE is the deliberate exception: a building foundation keeps its
+// authored surface at any elevation, and a vertical quay suppresses the
+// land-side run-up that only makes physical sense on a sloped beach.
 
 import { TerrainSystem } from './TerrainSystem';
 import { MAP_CONFIG } from '../../constants';
@@ -28,7 +32,7 @@ import {
     WATER_NORMAL_GLSL,
 } from './WaterWaveShader';
 
-const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN']);
+const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN', 'CONCRETE']);
 
 // Shared noise toolkit (no declarations of its own). Exported because the
 // road decal paints its gravel from the same noise the ground does --
@@ -445,6 +449,30 @@ const GROUND_FRAGMENT = /* glsl */ `
         flatBand = mix(flatBand, vec3(0.92, 0.95, 0.99), toSnow);
         band = mix(flatBand, band, uShowTextures);
 
+        // Building foundations are terrain, but they are not part of the
+        // natural height ladder above. Their inherited world height may be
+        // sand-low or mountain-high; neither is allowed to repaint concrete
+        // as beach, turf or rock. Override only the base surface here, then
+        // continue through the shared vertex-darkening, shoreline wash and
+        // grid code below so a concrete quay meets water exactly like land.
+        if (uIsConcrete > 0.5) {
+            float concreteMottle = groundFbm(gp * 2.6);
+            float poreFade = groundDetailFade(gp * 38.0);
+            float pores = mix(0.5, groundNoise(gp * 38.0), poreFade);
+            float aggregate = smoothstep(0.86, 0.98, pores);
+            float hairline = 1.0 - smoothstep(
+                0.0,
+                0.035,
+                abs(groundNoise(gp * 1.45 + vec2(3.7, 8.1)) - 0.5)
+            );
+            vec3 concrete = uConcreteColor * (0.84 + 0.24 * concreteMottle);
+            concrete = mix(concrete, uConcreteColor * 0.56, hairline * 0.30);
+            concrete = mix(concrete, vec3(0.64, 0.63, 0.59), aggregate * 0.22);
+            band = mix(uConcreteColor, concrete, uShowTextures);
+            gBumpH = (concreteMottle * 0.16 + aggregate * 0.10 - hairline * 0.18)
+                * uShowTextures;
+        }
+
         // Vertex color as a darkening signal relative to this vertex's OWN
         // pristine luminance, baked at build time: untouched tiles pass
         // exactly 1.0 whatever color the map generator gave them, and only
@@ -463,7 +491,11 @@ const GROUND_FRAGMENT = /* glsl */ `
         // its foam from the same function against its land-facing edges,
         // so the two bands meet along the whole shared edge.
         float shore = shoreBand(vTileLocal / uHexRadius, vShoreA, vShoreB, 0.38);
-        if (shore > 0.001) {
+        // Concrete foundations are vertical quay walls, not beaches. The
+        // land-side run-up assumes a sloped surface and stretches into a
+        // blue/white curtain on that wall, so suppress it for this terrain
+        // type only. Open water and every natural shoreline stay unchanged.
+        if (shore > 0.001 && uIsConcrete < 0.5) {
             float lap = shoreLap(gp, uTime);
 
             // Permanently damp sand: the strip the waves keep reaching,
@@ -702,6 +734,8 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uGrassColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('GRASS')) };
         shader.uniforms.uForestColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('FOREST')) };
         shader.uniforms.uRockColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('MOUNTAIN')) };
+        shader.uniforms.uConcreteColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('CONCRETE')) };
+        shader.uniforms.uIsConcrete = { value: terrainType === 'CONCRETE' ? 1 : 0 };
         // Same source as the water material's own color, so the film
         // running up the beach is the sea, not a blue of its own.
         shader.uniforms.uWaterColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('WATER')) };
@@ -722,7 +756,8 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 '#include <common>',
                 '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
-                ' uniform vec3 uRockColor;\n uniform vec3 uWaterColor;\n' +
+                ' uniform vec3 uRockColor;\n uniform vec3 uConcreteColor;\n uniform vec3 uWaterColor;\n' +
+                ' uniform float uIsConcrete;\n' +
                 ' uniform float uSnowStart;\n uniform float uSnowFull;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.

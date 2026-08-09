@@ -38,6 +38,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 4,
                 GRASS: 2,
+                CONCRETE: 2,
                 FOREST: 2,
                 MOUNTAIN: null
             },
@@ -68,6 +69,7 @@ export const UNIT_TYPES = {
                 WATER: 1,
                 SAND: null,
                 GRASS: null,
+                CONCRETE: null,
                 FOREST: null,
                 MOUNTAIN: null
             },
@@ -99,6 +101,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 2,
                 MOUNTAIN: null
             },
@@ -142,6 +145,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 2,
                 MOUNTAIN: null
             },
@@ -173,6 +177,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 2,
                 MOUNTAIN: null
             },
@@ -210,6 +215,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 1,
                 MOUNTAIN: 2
             },
@@ -247,6 +253,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 1.5,
                 MOUNTAIN: null
             },
@@ -284,6 +291,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 2,
                 MOUNTAIN: null
             },
@@ -315,6 +323,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 1.5,
                 MOUNTAIN: null
             },
@@ -355,6 +364,7 @@ export const UNIT_TYPES = {
                 WATER: 1,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 1,
                 MOUNTAIN: 1
             },
@@ -389,6 +399,7 @@ export const UNIT_TYPES = {
                 WATER: 1,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 1,
                 MOUNTAIN: 1
             },
@@ -432,6 +443,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 1.5,
                 MOUNTAIN: null
             },
@@ -466,6 +478,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 1.5,
                 MOUNTAIN: null
             },
@@ -500,6 +513,7 @@ export const UNIT_TYPES = {
                 WATER: null,
                 SAND: 1,
                 GRASS: 1,
+                CONCRETE: 1,
                 FOREST: 1.5,
                 MOUNTAIN: null
             },

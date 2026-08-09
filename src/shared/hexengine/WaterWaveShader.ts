@@ -9,7 +9,13 @@ const WATER_NORMAL_TEXTURE = 'assets/textures/waternormals.jpg';
 
 // Preserve every relative Gerstner/normal-map speed from the reference while
 // running its whole water clock more slowly at the scale of this board.
-export const WATER_TIME_SCALE = 0.04;
+export const WATER_TIME_SCALE = 0.05;
+
+// Gerstner phase speed is independent from the scrolling normal texture.
+// Raising the shared clock made the reflection detail rush too; this moves
+// only the large-scale wave topology faster while preserving steepness,
+// displacement and therefore the amount of reflected-image sway.
+export const GERSTNER_PHASE_SPEED = 4.0;
 
 let waterNormalTexture: any = null;
 
@@ -44,7 +50,7 @@ export const GERSTNER_WAVE_GLSL = /* glsl */ `
         float k = 2.0 * PI / wavelength;
         float c = sqrt(9.8 / k);
         vec2 d = normalize(wave.xy);
-        float f = k * (dot(d, p.xy) - c * time);
+        float f = k * (dot(d, p.xy) - c * time * ${GERSTNER_PHASE_SPEED.toFixed(1)});
         float a = steepness / k;
 
         return vec3(
@@ -71,7 +77,7 @@ export const GERSTNER_NORMAL_GLSL = /* glsl */ `
         float k = 2.0 * PI / wavelength;
         float c = sqrt(9.8 / k);
         vec2 d = normalize(wave.xy);
-        float f = k * (dot(d, p.xy) - c * time);
+        float f = k * (dot(d, p.xy) - c * time * ${GERSTNER_PHASE_SPEED.toFixed(1)});
         float scaledSteepness = steepness * displacementScale;
 
         tangent += vec3(
