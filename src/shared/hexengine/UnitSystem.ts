@@ -8,6 +8,7 @@ import { setSelectedUnit } from '../../game';
 import { AudioSystem } from './AudioSystem';
 import { BuildingSystem } from './BuildingSystem';
 import { ModelSystem } from './ModelSystem';
+import { RotorSystem } from './RotorSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
@@ -207,13 +208,28 @@ class UnitSystem {
         // Add 3D model if available
         const unitType = this.unitTypesRecord[type];
         if (unitType.model && ModelSystem.getModel(unitType.model)) {
-            const modelClone = ModelSystem.createModelWithColor(
-                ModelSystem.getModel(unitType.model),
-                players[playerIndex].color,
-                unitType.usePlayerColor,
-                unitType.replaceColor,
-                unitType.teamColorMaterial
-            );
+            const baseModel = ModelSystem.getModel(unitType.model);
+            let modelClone: any;
+            if (unitType.rawMaterials) {
+                const teamSlots = unitType.teamColorMaterial
+                    ? [unitType.teamColorMaterial]
+                    : [];
+                modelClone = teamSlots.length
+                    ? ModelSystem.cloneWithTeamTint(baseModel, players[playerIndex].color, teamSlots)
+                    : ModelSystem.cloneUntouched(baseModel);
+                // Textured units bypass createModelWithColor, whose dirty
+                // plate pass replaces every authored map. Claim animation
+                // explicitly after taking the building-style clone path.
+                RotorSystem.claim(modelClone);
+            } else {
+                modelClone = ModelSystem.createModelWithColor(
+                    baseModel,
+                    players[playerIndex].color,
+                    unitType.usePlayerColor,
+                    unitType.replaceColor,
+                    unitType.teamColorMaterial
+                );
+            }
 
             // Calculate bounding box for model height
             const bbox = new THREE.Box3().setFromObject(modelClone);

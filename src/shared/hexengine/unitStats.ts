@@ -374,6 +374,7 @@ export const UNIT_TYPES = {
             },
             usePlayerColor: false,
             teamColorMaterial: 'teamCamo',
+            rawMaterials: true,
             sounds: {
                 movement: 'rotor',  // synthesised, see AudioSystem.createRotorBuffer
                 attack: 'rlauncher2'

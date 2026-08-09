@@ -107,6 +107,9 @@ export interface UnitTypeConfig {
   // material whose *current* color is close to a target) for models that
   // were authored with a dedicated team-color material slot.
   teamColorMaterial?: string;
+  // Preserve every authored texture and repaint only teamColorMaterial
+  // through the same texture-aware path used by textured buildings.
+  rawMaterials?: boolean;
   sounds: { movement: string | null; attack: string | null };
 }
 

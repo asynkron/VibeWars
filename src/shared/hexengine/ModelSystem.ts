@@ -232,35 +232,35 @@ class ModelSystem {
     // the result is nothing like the reference render.
     static cloneUntouched(model: any): any {
         const clone = model.clone();
-        this.useLegacySceneColorEncoding(clone);
+        this.useAuthoredModelColorEncoding(clone);
         return clone;
     }
 
-    // The procedural scene intentionally retains its old unmanaged linear
-    // output. GLTFLoader tags base-colour textures as sRGB, which would decode
-    // them without a matching display encode and make imported buildings much
-    // too dark. Keep this compatibility local to raw authored models; data
-    // maps such as normal and metallic/roughness must remain untouched.
-    private static useLegacySceneColorEncoding(model: any): void {
+    // The procedural battlefield intentionally keeps its old linear-output
+    // renderer, but GLBs are authored for the standard sRGB output pipeline.
+    // Decode their tagged colour textures normally, light them in linear
+    // space, then encode only these imported materials for display. This
+    // matches the editor without changing terrain, water, waves or overlays.
+    private static useAuthoredModelColorEncoding(model: any): void {
         const materials = new Map<any, any>();
-        const textures = new Map<any, any>();
-        const convertTexture = (texture: any) => {
-            if (!texture) return texture;
-            const existing = textures.get(texture);
-            if (existing) return existing;
-            const converted = texture.clone();
-            converted.colorSpace = THREE.NoColorSpace;
-            converted.needsUpdate = true;
-            textures.set(texture, converted);
-            return converted;
-        };
         const convertMaterial = (material: any) => {
             if (!material) return material;
             const existing = materials.get(material);
             if (existing) return existing;
             const converted = material.clone();
-            converted.map = convertTexture(material.map);
-            converted.emissiveMap = convertTexture(material.emissiveMap);
+            const previousCompile = converted.onBeforeCompile;
+            const previousKey = typeof converted.customProgramCacheKey === 'function'
+                ? converted.customProgramCacheKey.bind(converted)
+                : null;
+            converted.onBeforeCompile = (shader: any, renderer: any) => {
+                previousCompile?.(shader, renderer);
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <colorspace_fragment>',
+                    'gl_FragColor = sRGBTransferOETF( gl_FragColor );'
+                );
+            };
+            converted.customProgramCacheKey = () =>
+                `authored-model-srgb|${previousKey ? previousKey() : ''}`;
             converted.needsUpdate = true;
             materials.set(material, converted);
             return converted;
@@ -290,10 +290,10 @@ class ModelSystem {
     // is dark by construction; there is no multiplier that makes it bright
     // and keeps it blue.
     //
-    // So the colour is baked into the texture instead and the material is
-    // left white, which means nothing is multiplied at all. The artist's
-    // pattern supplies the SHAPE through its luminance; hue and lightness
-    // are chosen here.
+    // Rotate the authored team hue while preserving every pixel's own
+    // saturation and lightness. The old recolour flattened the source into
+    // a narrow brightness band, destroying the blue/grey camouflage and
+    // making textured models look like a different asset than the editor.
     private static camoMaps = new Map<string, any>();
     private static teamCamoMap(map: any, playerColor: number): any {
         if (!map?.image) return map;
@@ -301,14 +301,13 @@ class ModelSystem {
         const cached = this.camoMaps.get(key);
         if (cached) return cached;
 
-        // The team's HUE at a lightness that reads on a roof under this
-        // scene's light. Saturation is pulled back a little from whatever
-        // the player colour is, because a fully saturated field of colour
-        // reads as a UI element rather than as paint.
-        const colour = new THREE.Color(playerColor);
-        const hsl = { h: 0, s: 0, l: 0 };
-        colour.getHSL(hsl);
-        colour.setHSL(hsl.h, Math.min(hsl.s, 0.72), 0.62);
+        const sourceTeam = new THREE.Color(0x1778ff);
+        const targetTeam = new THREE.Color(playerColor);
+        const sourceHsl = { h: 0, s: 0, l: 0 };
+        const targetHsl = { h: 0, s: 0, l: 0 };
+        sourceTeam.getHSL(sourceHsl);
+        targetTeam.getHSL(targetHsl);
+        const hueShift = targetHsl.h - sourceHsl.h;
 
         const image = map.image;
         const canvas = document.createElement('canvas');
@@ -318,16 +317,18 @@ class ModelSystem {
         ctx.drawImage(image, 0, 0);
         const data = ctx.getImageData(0, 0, image.width, image.height);
         const pixels = data.data;
-        // How far the pattern is allowed to darken the paint. A narrow band:
-        // the camo should read as two or three shades of one colour, not as
-        // the difference between lit and unlit.
-        const LOW = 0.72, HIGH = 1.0;
+        const pixel = new THREE.Color();
+        const pixelHsl = { h: 0, s: 0, l: 0 };
         for (let i = 0; i < pixels.length; i += 4) {
-            const luma = (pixels[i] * 0.299 + pixels[i + 1] * 0.587 + pixels[i + 2] * 0.114) / 255;
-            const shade = LOW + (HIGH - LOW) * luma;
-            pixels[i] = Math.round(colour.r * 255 * shade);
-            pixels[i + 1] = Math.round(colour.g * 255 * shade);
-            pixels[i + 2] = Math.round(colour.b * 255 * shade);
+            pixel.setRGB(pixels[i] / 255, pixels[i + 1] / 255, pixels[i + 2] / 255);
+            pixel.getHSL(pixelHsl);
+            // Neutral steel and black shapes are part of the texture, not
+            // team paint; leave them neutral.
+            if (pixelHsl.s < 0.08) continue;
+            pixel.setHSL((pixelHsl.h + hueShift + 1) % 1, pixelHsl.s, pixelHsl.l);
+            pixels[i] = Math.round(pixel.r * 255);
+            pixels[i + 1] = Math.round(pixel.g * 255);
+            pixels[i + 2] = Math.round(pixel.b * 255);
         }
         ctx.putImageData(data, 0, 0);
 
@@ -352,7 +353,12 @@ class ModelSystem {
     // needs: its texture averages 82 of 255, dark enough that the team's
     // colour barely showed through it. Nothing else in the model is
     // touched.
-    static cloneWithTeamTint(model: any, playerColor: number, materialNames: string[], lighten: number = 0): any {
+    static cloneWithTeamTint(
+        model: any,
+        playerColor: number,
+        materialNames: string[],
+        lighten: number = 0
+    ): any {
         const clone = model.clone();
         const names = new Set(materialNames);
         // ONE CLONE PER SOURCE MATERIAL, not per mesh: Object3D.clone()
@@ -382,7 +388,7 @@ class ModelSystem {
         // with a non-black emissive; the painted roof itself remains ordinary
         // PBR paint.
         GlowSystem.claim(clone);
-        ModelSystem.useLegacySceneColorEncoding(clone);
+        ModelSystem.useAuthoredModelColorEncoding(clone);
         return clone;
     }
 

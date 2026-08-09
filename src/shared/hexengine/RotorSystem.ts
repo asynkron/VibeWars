@@ -1,7 +1,7 @@
-// Spinning rotors on the helicopters.
+// Animated rotors on the helicopters.
 //
-// The Nightjar is a COAXIAL design -- two rotor discs stacked on one mast,
-// no tail rotor -- so the pair must turn in OPPOSITE directions. That is
+// The Nightjar is a COAXIAL design -- two textured blur discs stacked on
+// one mast, no tail rotor -- so the pair must turn in OPPOSITE directions. That is
 // not decoration: a coaxial's whole point is that the counter-rotation
 // cancels the torque, which is why it needs no tail rotor to hold heading.
 // The ducted anti-torque fan in the tail fin turns much faster.
@@ -42,13 +42,25 @@ class RotorSystem {
         for (const spec of ROTORS) {
             const node = root.getObjectByName(spec.name);
             if (!node) continue;
-            // Spinning blades are excluded from the shadow pass. They turn
+            // Spinning blades/discs are excluded from the shadow pass. They turn
             // every frame, so leaving them in it holds the shadow map at a
             // full refresh for as long as any helicopter is alive --
             // measured, that alone cost 15.4 ms a frame. At this camera
             // height a rotor disc's own shadow is a few dark pixels against
             // the hull's, which still casts normally.
-            node.traverse((part: any) => { if (part.isMesh) part.castShadow = false; });
+            node.traverse((part: any) => {
+                if (!part.isMesh) return;
+                part.castShadow = false;
+                const materials = Array.isArray(part.material) ? part.material : [part.material];
+                for (const material of materials) {
+                    if (material?.name !== 'rotor_blur') continue;
+                    // The authored alpha texture is the moving rotor. It
+                    // must blend over the hull without writing an opaque
+                    // circular plate into the depth buffer.
+                    material.transparent = true;
+                    material.depthWrite = false;
+                }
+            });
 
             this.rotors.push({
                 node,

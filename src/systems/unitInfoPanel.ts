@@ -75,13 +75,20 @@ function renderPortrait(type: string, playerIndex: number): string | null {
         portraitRenderer.setClearColor(0x000000, 0);
     }
 
-    const model = ModelSystem.createModelWithColor(
-        source,
-        players[playerIndex].color,
-        config.usePlayerColor,
-        config.replaceColor,
-        config.teamColorMaterial
-    );
+    const teamSlots = config.teamColorMaterial
+        ? [config.teamColorMaterial]
+        : [];
+    const model = config.rawMaterials
+        ? (teamSlots.length
+            ? ModelSystem.cloneWithTeamTint(source, players[playerIndex].color, teamSlots)
+            : ModelSystem.cloneUntouched(source))
+        : ModelSystem.createModelWithColor(
+            source,
+            players[playerIndex].color,
+            config.usePlayerColor,
+            config.replaceColor,
+            config.teamColorMaterial
+        );
 
     const scene = new THREE.Scene();
     scene.add(model);
