@@ -543,7 +543,6 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // Create map first and wait for it to be ready
     const { mapCenterX, mapCenterZ } = await GridSystem.createMap(gameState);
     SunSystem.setCenter(mapCenterX, 0, mapCenterZ);
-    await WaterReflectionSystem.init(scene, renderer, GridSystem.hexGrid);
 
 
     // Only initialize units after map is ready
@@ -557,6 +556,11 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // ground. Decorating afterwards lets every piece sample the REAL,
     // final surface (GridSystem.surfaceHeightAt) and sit on it.
     GridSystem.smoothTerrain();
+
+    // Shore pins are painted by smoothTerrain. Build the visible water only
+    // after those attributes exist, otherwise every copied aWaterPin is zero
+    // and the Gerstner surface pulls away from the static land edge.
+    await WaterReflectionSystem.init(scene, renderer, GridSystem.hexGrid);
 
     // After smoothing: blades are planted on the tile surface as it ends up,
     // not as it was authored.

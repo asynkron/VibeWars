@@ -1,15 +1,15 @@
 // This module is a direct port of Sean Bradley's Gerstner-water example:
 // https://github.com/Sean-Bradley/three.js/blob/gerstner-waves/examples/webgl_shaders_ocean_gerstner.html
 //
-// Keep the wave function, the three source waves and the four normal-map
-// samples in sync with that reference. The render systems only adapt the
-// example's XY plane to VibeWars' XZ water plane.
+// Keep the wave function, directions, wavelengths and four normal-map samples
+// in sync with that reference. VibeWars only lowers the shared clock and wave
+// steepness for calm lake water, and adapts XY to its XZ water plane.
 
 const WATER_NORMAL_TEXTURE = 'assets/textures/waternormals.jpg';
 
 // Preserve every relative Gerstner/normal-map speed from the reference while
 // running its whole water clock more slowly at the scale of this board.
-export const WATER_TIME_SCALE = 0.35;
+export const WATER_TIME_SCALE = 0.04;
 
 let waterNormalTexture: any = null;
 
@@ -24,14 +24,14 @@ export function getWaterNormalTexture(): any {
 export function createGerstnerUniforms(): Record<string, any> {
     return {
         time: { value: 0 },
-        waveA: { value: new THREE.Vector4(0, 1, 0.4, 60) },
-        waveB: { value: new THREE.Vector4(0.5, 0.8660254037844386, 0.4, 30) },
-        waveC: { value: new THREE.Vector4(0.8660254037844386, 0.5, 0.4, 15) },
+        waveA: { value: new THREE.Vector4(0, 1, 0.05, 60) },
+        waveB: { value: new THREE.Vector4(0.5, 0.8660254037844386, 0.035, 30) },
+        waveC: { value: new THREE.Vector4(0.8660254037844386, 0.5, 0.025, 15) },
     };
 }
 
 // Copied from the reference vertex shader. Do not replace this with a
-// home-grown multi-wave approximation: these are the waves the example uses.
+// home-grown multi-wave approximation.
 export const GERSTNER_WAVE_GLSL = /* glsl */ `
     uniform float time;
     uniform vec4 waveA;
@@ -52,6 +52,47 @@ export const GERSTNER_WAVE_GLSL = /* glsl */ `
             d.y * (a * cos(f)),
             a * sin(f)
         );
+    }
+`;
+
+// Shader equivalent of the reference example's getWaveInfo() tangent and
+// binormal calculation. The water mesh is authored in local XY with local Z
+// as up, so cross(tangent, binormal) produces the displaced face normal.
+export const GERSTNER_NORMAL_GLSL = /* glsl */ `
+    void GerstnerFrame(
+        vec4 wave,
+        vec3 p,
+        float displacementScale,
+        inout vec3 tangent,
+        inout vec3 binormal
+    ) {
+        float steepness = wave.z;
+        float wavelength = wave.w;
+        float k = 2.0 * PI / wavelength;
+        float c = sqrt(9.8 / k);
+        vec2 d = normalize(wave.xy);
+        float f = k * (dot(d, p.xy) - c * time);
+        float scaledSteepness = steepness * displacementScale;
+
+        tangent += vec3(
+            -d.x * d.x * scaledSteepness * sin(f),
+            -d.x * d.y * scaledSteepness * sin(f),
+             d.x * scaledSteepness * cos(f)
+        );
+        binormal += vec3(
+            -d.x * d.y * scaledSteepness * sin(f),
+            -d.y * d.y * scaledSteepness * sin(f),
+             d.y * scaledSteepness * cos(f)
+        );
+    }
+
+    vec3 GerstnerNormal(vec3 p, float displacementScale) {
+        vec3 tangent = vec3(1.0, 0.0, 0.0);
+        vec3 binormal = vec3(0.0, 1.0, 0.0);
+        GerstnerFrame(waveA, p, displacementScale, tangent, binormal);
+        GerstnerFrame(waveB, p, displacementScale, tangent, binormal);
+        GerstnerFrame(waveC, p, displacementScale, tangent, binormal);
+        return normalize(cross(tangent, binormal));
     }
 `;
 

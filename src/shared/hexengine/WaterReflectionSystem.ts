@@ -6,6 +6,7 @@ import { getTerrainColor } from './terrainStats';
 import { VIEW_UNIFORMS } from './ViewOptions';
 import {
     createGerstnerUniforms,
+    GERSTNER_NORMAL_GLSL,
     GERSTNER_WAVE_GLSL,
     getWaterNormalTexture,
     WATER_NORMAL_GLSL,
@@ -40,7 +41,7 @@ const WATER_REFLECTION_SHADER: any = {
         size: { value: 1 },
         uHexRadius: { value: MAP_CONFIG.HEX_RADIUS },
         uShowGrid: { value: 1 },
-        distortionScale: { value: 3.7 },
+        distortionScale: { value: 0.9 },
         normalSampler: { value: getWaterNormalTexture() },
         sunColor: { value: new THREE.Color(0xffffff) },
         sunDirection: { value: new THREE.Vector3(0.70707, 0.70707, 0) },
@@ -53,7 +54,9 @@ const WATER_REFLECTION_SHADER: any = {
         attribute vec2 aTileLocal;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
+        varying vec3 vWaterLocalPos;
         varying vec2 vTileLocal;
+        varying float vWaterPin;
 
         #include <common>
         ${GERSTNER_WAVE_GLSL}
@@ -62,7 +65,9 @@ const WATER_REFLECTION_SHADER: any = {
             vec4 localPosition = vec4(position, 1.0);
             vReflectionCoord = textureMatrix * localPosition;
             vWaterWorldPos = (modelMatrix * localPosition).xyz;
+            vWaterLocalPos = position.xyz;
             vTileLocal = aTileLocal;
+            vWaterPin = aWaterPin;
 
             vec3 p = position.xyz;
             vec3 gerstnerOffset = vec3(0.0);
@@ -81,13 +86,20 @@ const WATER_REFLECTION_SHADER: any = {
         uniform vec3 sunDirection;
         uniform vec3 eye;
         uniform vec3 waterColor;
+        uniform vec4 waveA;
+        uniform vec4 waveB;
+        uniform vec4 waveC;
         uniform float uHexRadius;
         uniform float uShowGrid;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
+        varying vec3 vWaterLocalPos;
         varying vec2 vTileLocal;
+        varying float vWaterPin;
 
+        #include <common>
         ${WATER_NORMAL_GLSL}
+        ${GERSTNER_NORMAL_GLSL}
 
         float hexEdgeDistance(vec2 local) {
             float d = 10.0;
@@ -142,12 +154,49 @@ const WATER_REFLECTION_SHADER: any = {
                 reflectionSample = mirrored.rgb;
             }
 
-            // Preserve the reflection target's actual colour. The Gerstner
-            // reference mixes most of it away into waterColor + vec3(0.1),
-            // which is appropriate for its dark ocean but turned our bright
-            // photographed sky grey. Waves still distort the sample exactly
-            // as before; only the post-sample colour contamination is gone.
-            vec3 albedo = reflectionSample + specularLight;
+            // Sean Bradley reference shading: sun diffuse/specular, Fresnel
+            // reflectance and water-colour scatter. The reference multiplies
+            // the diffuse branch by getShadowMask(); this custom Reflector is
+            // not a shadow receiver, so that factor is exactly 1.0 here.
+            float theta = max(dot(eyeDirection, surfaceNormal), 0.0);
+            float rf0 = 0.3;
+            float reflectance = rf0 + (1.0 - rf0) * pow(1.0 - theta, 5.0);
+            vec3 scatter = max(0.0, dot(surfaceNormal, eyeDirection)) * waterColor;
+            const vec3 luminanceWeights = vec3(0.2126, 0.7152, 0.0722);
+            float reflectionLuminance = dot(reflectionSample, luminanceWeights);
+            vec3 albedo = mix(
+                sunColor * diffuseLight * 0.3 + scatter,
+                vec3(0.1) + reflectionSample * 0.9
+                    + specularLight * reflectionLuminance,
+                reflectance
+            );
+
+            // Keep the reflected image as the neutral exposure. The actual
+            // Gerstner face normal then redistributes brightness symmetrically:
+            // a face turned away from the sun loses the same amount that the
+            // corresponding sun-facing face gains.
+            vec3 localFaceNormal = GerstnerNormal(vWaterLocalPos, 0.035);
+            vec3 faceNormal = normalize(vec3(
+                localFaceNormal.x,
+                localFaceNormal.z,
+                -localFaceNormal.y
+            ));
+            faceNormal = normalize(mix(
+                vec3(0.0, 1.0, 0.0),
+                faceNormal,
+                1.0 - vWaterPin
+            ));
+            float flatSun = dot(vec3(0.0, 1.0, 0.0), sunDirection);
+            float faceSun = dot(faceNormal, sunDirection);
+            float faceDelta = clamp((faceSun - flatSun) * 8.0, -0.45, 0.45);
+            float baseLuminance = dot(albedo, luminanceWeights);
+
+            // Dark faces retain the reflected hue. Lit faces receive the
+            // matching luminance in the white sun's colour instead of scaling
+            // blue reflection channels into cyan clipping.
+            albedo *= 1.0 + min(faceDelta, 0.0);
+            albedo += sunColor * baseLuminance * max(faceDelta, 0.0);
+
             albedo = mix(
                 albedo,
                 vec3(0.04, 0.05, 0.07),
