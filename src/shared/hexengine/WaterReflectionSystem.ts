@@ -29,7 +29,7 @@ const SURFACE_LIFT = 0.018;
 const SKY_PLANE_HEIGHT = 80;
 const SKY_PLANE_WIDTH = 800;
 const SKY_PLANE_DEPTH = 535;
-const LANDSCAPE_REFLECTION_EXPOSURE = 0.04;
+const LANDSCAPE_REFLECTION_EXPOSURE = 0.32;
 
 const WATER_REFLECTION_SHADER: any = {
     name: 'VibeWarsWaterReflection',
@@ -216,6 +216,7 @@ export class WaterReflectionSystem {
     private static lastCameraState: number[] = [];
     private static lastSceneRevision = -1;
     private static reflectionMaterials = new Map<any, any>();
+    private static reflectionColorTextures = new Map<any, any>();
     private static skyPlane: any = null;
     private static sunDisc: any = null;
 
@@ -301,6 +302,8 @@ export class WaterReflectionSystem {
         }
         for (const material of this.reflectionMaterials.values()) material.dispose?.();
         this.reflectionMaterials.clear();
+        for (const texture of this.reflectionColorTextures.values()) texture.dispose?.();
+        this.reflectionColorTextures.clear();
         this.reflector = null;
         this.skyPlane = null;
         this.sunDisc = null;
@@ -538,7 +541,9 @@ export class WaterReflectionSystem {
         if (source.color) material.color.copy(source.color);
         else material.color.set(0xffffff);
         if (isReflectedLandscape) material.color.multiplyScalar(LANDSCAPE_REFLECTION_EXPOSURE);
-        material.map = source.map ?? null;
+        material.map = isReflectedLandscape
+            ? this.getReflectionColorTexture(source.map)
+            : source.map ?? null;
         material.alphaMap = source.alphaMap ?? null;
         material.alphaTest = source.alphaTest ?? 0;
         material.opacity = source.opacity ?? 1;
@@ -552,6 +557,24 @@ export class WaterReflectionSystem {
         material.toneMapped = false;
         if (created) material.needsUpdate = true;
         return material;
+    }
+
+    // The main renderer has a legacy linear-output contract. An sRGB map in
+    // the mirrored pass is otherwise decoded to tiny linear values before
+    // LANDSCAPE_REFLECTION_EXPOSURE is applied; the water's neutral base then
+    // overwhelms its chroma and the result is a grey-black silhouette. Use a
+    // lightweight texture clone so only the reflection samples authored
+    // colour values directly. The source texture used by the real object is
+    // never modified.
+    private static getReflectionColorTexture(source: any): any {
+        if (!source || source.colorSpace !== THREE.SRGBColorSpace) return source ?? null;
+        let texture = this.reflectionColorTextures.get(source);
+        if (texture) return texture;
+        texture = source.clone();
+        texture.colorSpace = THREE.NoColorSpace;
+        texture.needsUpdate = true;
+        this.reflectionColorTextures.set(source, texture);
+        return texture;
     }
 
     private static matrixChanged(next: number[]): boolean {
