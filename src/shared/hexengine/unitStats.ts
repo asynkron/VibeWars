@@ -252,6 +252,7 @@ export const UNIT_TYPES = {
             },
             usePlayerColor: false,
             teamColorMaterial: 'teamCamo',
+            rawMaterials: true,
             sounds: {
                 movement: 'engine_light',
                 attack: 'rlauncher1'
