@@ -15,10 +15,12 @@
 // module graph shifted. A leaf module cannot do that to anyone.
 
 let dirty = true;
+let revision = 1;
 
 // Something moved, spawned, died or deformed.
 export function markShadowsDirty(): void {
     dirty = true;
+    revision++;
 }
 
 // Called by the render loop; clears the flag.
@@ -26,4 +28,11 @@ export function consumeShadowsDirty(): boolean {
     const was = dirty;
     dirty = false;
     return was;
+}
+
+// The water reflection depicts the same moving scene as the shadow map.
+// It can use this monotonically increasing revision without consuming the
+// dirty flag that belongs to the renderer.
+export function getShadowRevision(): number {
+    return revision;
 }

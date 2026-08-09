@@ -528,13 +528,9 @@ const WATER_FRAGMENT = /* glsl */ `
         // 1 hard against the land, falling off out to sea.
         float shore = shoreBand(vTileLocal / uHexRadius, vShoreA, vShoreB, 0.40);
 
-        // Two drifting ripple layers shimmering across the whole surface.
-        // Kept SOFT: at higher contrast the shimmer reads as whitecaps and
-        // the whole sea looks like weather rather than water.
-        float ripple1 = groundNoise(wp * 3.0 + vec2(uTime * 0.35, uTime * 0.22));
-        float ripple2 = mix(0.5, groundNoise(wp * 6.5 - vec2(uTime * 0.28, uTime * 0.41)),
-            groundDetailFade(wp * 6.5));
-        diffuseColor.rgb *= 0.92 + 0.08 * ripple1 + 0.04 * ripple2;
+        // Flat diagnostic baseline: reflection supplies all surface detail.
+        // Do not paint procedural ripples into the water body while the
+        // cloud and planar projections are being judged.
 
         // Lapping: the foam breathes in and out with the same shoreLap the
         // ground shader runs on the sand just across the waterline, so this
@@ -612,23 +608,9 @@ const GROUND_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
     }
 `;
 
-// Water relief: a drifting two-scale wave field. Perturbing the NORMAL is
-// what turns the directional light's reflection into moving glitter --
-// the color-space ripples alone shimmer but never sparkle.
-const WATER_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
-    {
-        vec2 wnp = vGroundWorldPos.xz;
-        // Broad swell plus a MUCH weaker chop: the swell tilts whole
-        // patches so the sun's reflection wanders, the chop only breaks
-        // the highlight into sparse glints. A strong chop here turns the
-        // entire sea into uniform glitter static -- and even a moderate
-        // one reads as a STORM from map height, so both terms stay small:
-        // calm inland water, a few glints riding a slow swell.
-        float waveH = groundFbm(wnp * 2.0 + vec2(uTime * 0.18, uTime * 0.13))
-            + 0.06 * groundNoise(wnp * 8.0 - vec2(uTime * 0.30, uTime * 0.23));
-        normal = groundPerturbNormal(vGroundWorldPos, normal, waveH * uShowTextures, 0.04);
-    }
-`;
+// Flat diagnostic baseline. The shared tile normal still merges the six
+// fan triangles into one plane, but nothing perturbs that plane.
+const WATER_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT;
 
 export function applyWaterSurface(material: any): void {
     material.onBeforeCompile = (shader: any) => {

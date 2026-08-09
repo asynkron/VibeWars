@@ -165,7 +165,11 @@ class GridSystem {
         const mesh = new THREE.Mesh(geometry, material);
         mesh.position.set(x, 0, z);
         mesh.castShadow = true;
-        mesh.receiveShadow = true;
+        // Water depicts nearby objects through the planar reflection pass.
+        // Receiving the directional shadow map as well paints a second,
+        // razor-sharp black silhouette onto the surface and makes the real
+        // reflection read as an ordinary cast shadow.
+        mesh.receiveShadow = type !== 'water';
         return mesh;
     }
 
@@ -747,36 +751,9 @@ class GridSystem {
             const uniforms = material?.userData?.shader?.uniforms;
             if (uniforms?.uTime) uniforms.uTime.value = time;
         });
-        this.hexGrid.forEach((hexGroup: any) => {
-            if (hexGroup.userData.type !== 'water') return;
-            const hexMesh = hexGroup.children.find(
-                (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
-            );
-            if (!hexMesh) return;
-            const geometry = hexMesh.geometry;
-            const position = geometry.attributes.position;
-            const { timeOffset, originalHeight } = hexGroup.userData;
-            const amplitude = 0.01, frequency = 3;
-            const waveHeight = Math.sin((time + timeOffset) * frequency) * amplitude;
-
-            // Add circular movement in x and z
-            const circleRadius = 0.01; // Radius of circular movement
-            const circleFrequency = 2; // Speed of circular movement
-            const xOffset = Math.cos((time + timeOffset) * circleFrequency) * circleRadius;
-            const zOffset = Math.sin((time + timeOffset) * circleFrequency) * circleRadius;
-
-            // Get the base center position (index 13)
-            const baseX = (position.getX(6) + position.getX(7) + position.getX(8) + position.getX(9) + position.getX(10) + position.getX(11)) / 6;
-            const baseZ = (position.getZ(6) + position.getZ(7) + position.getZ(8) + position.getZ(9) + position.getZ(10) + position.getZ(11)) / 6;
-
-            // Update center vertex position (index 13) relative to the calculated base center
-            position.setXYZ(13,
-                baseX + xOffset,
-                originalHeight + waveHeight,
-                baseZ + zOffset
-            );
-            position.needsUpdate = true;
-        });
+        // Water geometry stays completely flat. The old per-tile centre
+        // animation domed each hex independently and created a repeating
+        // tile pattern before reflections were even sampled.
     }
 
     static updateDecoratorTransparency(hex: any) {

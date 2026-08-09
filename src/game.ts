@@ -17,6 +17,7 @@ import {
     resizeComposer,
 } from './render';
 import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
+import { WaterReflectionSystem } from './shared/hexengine/WaterReflectionSystem';
 import { GameState } from './systems/GameState';
 import { RoadSystem } from './shared/hexengine/RoadSystem';
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
@@ -540,6 +541,7 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
 
     // Create map first and wait for it to be ready
     const { mapCenterX, mapCenterZ } = await GridSystem.createMap(gameState);
+    await WaterReflectionSystem.init(scene, renderer, GridSystem.hexGrid);
 
 
     // Only initialize units after map is ready

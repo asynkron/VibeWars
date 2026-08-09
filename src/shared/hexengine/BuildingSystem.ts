@@ -25,6 +25,7 @@ import { VisualizationSystem } from './VisualizationSystem';
 import { getGameState } from '../../systems/gameStateStore';
 import { selectedMapProvider } from '../../systems/maps/mapRegistry';
 import { PRODUCTION_INTERVAL } from './production';
+import { markShadowsDirty } from './ShadowBudget';
 import type { Building, GameUnit } from '../../types';
 
 // Neutral (unowned) buildings render in gray; owned ones in player color.
@@ -153,6 +154,9 @@ class BuildingSystem {
         hex.userData.decorator = visual;
         hex.add(visual);
         building.visual = visual;
+        // Replacing or retinting this reflected shadow-caster invalidates
+        // both the cached shadow map and the cached water reflection.
+        markShadowsDirty();
         // Dim immediately if a unit is standing on the tile (the capturing
         // unit is, at retint time).
         GridSystem.updateDecoratorTransparency(hex);

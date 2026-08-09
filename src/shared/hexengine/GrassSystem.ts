@@ -237,6 +237,7 @@ class GrassSystem {
         for (const chunk of this.chunkTiles(tiles)) {
             const mesh = this.buildChunk(chunk, baseGeometry, material);
             if (mesh) {
+                mesh.userData.excludeFromWaterReflection = true;
                 this.meshes.push(mesh);
                 scene.add(mesh);
             }

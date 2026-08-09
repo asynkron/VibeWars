@@ -33,6 +33,10 @@ class SkyboxSystem {
 
         // Create skybox mesh
         this.skybox = new THREE.Mesh(geometry, materials);
+        // Reflected water gets its own daylight cloud environment. Mirroring
+        // the decorative space backdrop into the lake would put stars under
+        // a sunny battlefield.
+        this.skybox.userData.excludeFromWaterReflection = true;
         this.skybox.renderOrder = -1; // Ensure skybox renders first
         scene.add(this.skybox);
     }

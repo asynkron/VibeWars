@@ -6,6 +6,7 @@ import { GrassSystem } from './shared/hexengine/GrassSystem';
 import { FireSystem } from './shared/hexengine/FireSystem';
 import { GlowSystem } from './shared/hexengine/GlowSystem';
 import { RotorSystem } from './shared/hexengine/RotorSystem';
+import { WaterReflectionSystem } from './shared/hexengine/WaterReflectionSystem';
 import { viewOptions } from './shared/hexengine/ViewOptions';
 import { consumeShadowsDirty, markShadowsDirty } from './shared/hexengine/ShadowBudget';
 import { FrameStats } from './systems/frameStats';
@@ -314,6 +315,7 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
     // Animate water tiles
     const seconds = performance.now() * 0.001;
     GridSystem.animateWater(seconds);
+    WaterReflectionSystem.animate(seconds);
 
     // Wind on the same clock, plus the camera distance that decides which
     // blades are drawn and the viewport height they are kept a pixel wide
