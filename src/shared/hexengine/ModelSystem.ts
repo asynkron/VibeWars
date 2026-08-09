@@ -116,9 +116,9 @@ class ModelSystem {
                 // 8 pieces into 263 materials and 386 draw calls.
                 //
                 // It also defeated GlowSystem, which clones one material
-                // per model so a machine's panels gutter together -- with
-                // the source already split per mesh there was nothing left
-                // to share, and each panel flickered on its own phase.
+                // per model so a machine's panels share one steady glow --
+                // with the source already split per mesh there was nothing
+                // left to share.
                 const prepared = new Map<any, any>();
                 const prepare = (mat: any) => {
                     if (!mat) mat = new THREE.MeshStandardMaterial();

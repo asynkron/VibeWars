@@ -52,6 +52,11 @@ class RoadSystem {
             const tile = getGameState().map.getTile(hex.userData.q, hex.userData.r);
             if (tile) {
                 tile.hasRoad = true;
+                // Roads replace the procedural vegetation before it is
+                // drawn. Keep the fire snapshot aligned with that visible
+                // fact, including roads generated after GameMap's initial
+                // vegetation pass.
+                tile.vegetated = false;
 
                 // Trigger terrain smoothing to update the visual representation
                 GridSystem.smoothHexTile(hex);

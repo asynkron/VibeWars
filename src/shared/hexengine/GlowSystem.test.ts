@@ -1,5 +1,5 @@
-// GlowSystem's contract is about WHICH materials share a phase, so the
-// tests are about sharing rather than about the maths of the flicker.
+// GlowSystem's contract is about WHICH meshes share one owned, steady glow
+// material, so the tests cover sharing, intensity and lifecycle cleanup.
 //
 // Built from plain objects rather than the THREE stub on purpose: the stub
 // is an infinitely-permissive proxy, so every property access returns a
@@ -67,8 +67,8 @@ describe('GlowSystem.claim', () => {
     });
 
     it('separates two instances that share a source material', () => {
-        // The original point of cloning: two depots must not gutter in
-        // lockstep just because they came from the same loaded GLB.
+        // Separate ownership keeps disposal/recolouring local even though
+        // both instances hold the same steady intensity.
         const energy = material(0x13a4ff, 'energy');
         const a = model([mesh(energy), mesh(energy)]);
         const b = model([mesh(energy), mesh(energy)]);
@@ -77,7 +77,6 @@ describe('GlowSystem.claim', () => {
         GlowSystem.claim(b);
 
         expect(GlowSystem.glows).toHaveLength(2);
-        expect(GlowSystem.glows[0].phase).not.toBe(GlowSystem.glows[1].phase);
         expect(a.children[0].material).not.toBe(b.children[0].material);
     });
 
@@ -138,18 +137,14 @@ describe('GlowSystem.animate', () => {
         expect(owned.disposed).toBe(true);
     });
 
-    it('stays inside the depth it advertises', () => {
-        // base * (1 +/- FLICKER_DEPTH). Drifting outside would let a panel
-        // go black or blow past the bloom threshold permanently.
+    it('stays exactly constant over time', () => {
         const energy = material(0x13a4ff, 'energy');
         GlowSystem.claim(model([mesh(energy)]));
         const base = GlowSystem.glows[0].base;
 
         for (let t = 0; t < 200; t++) {
             GlowSystem.animate(t * 0.037);
-            const v = GlowSystem.glows[0].material.emissiveIntensity;
-            expect(v).toBeGreaterThanOrEqual(base * 0.55 - 1e-9);
-            expect(v).toBeLessThanOrEqual(base * 1.45 + 1e-9);
+            expect(GlowSystem.glows[0].material.emissiveIntensity).toBe(base);
         }
     });
 });

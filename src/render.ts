@@ -336,7 +336,8 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
     // you are looking at it, and closes if that unit dies.
     UnitInfoPanel.update();
 
-    // Gutter the models' energy panels on the same clock.
+    // Maintain the models' steady energy-panel glow and release materials
+    // whose owning model has left the scene.
     GlowSystem.animate(seconds);
     // One call drives every burning tile, rather than a rAF chain
 

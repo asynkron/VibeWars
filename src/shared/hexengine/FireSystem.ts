@@ -121,6 +121,62 @@ interface Fire {
     charred: boolean;
 }
 
+export interface DecorationFireAnchors {
+    trunks: Array<{ x: number; y: number; z: number }>;
+    crowns: Array<{ x: number; y: number; z: number }>;
+}
+
+export interface FireParticleCounts {
+    flames: number;
+    smoke: number;
+}
+
+// Read the vegetation's ACTUAL merged geometry. ProceduralDecorations
+// preserves aDecorKind when it merges every tree on a tile into one draw:
+// bark/stems are kind 0, foliage and its fringe are > 0. A burnUniform is
+// the identity check that keeps buildings and other decorators out.
+export function collectDecorationFireAnchors(decor: any): DecorationFireAnchors {
+    const empty: DecorationFireAnchors = { trunks: [], crowns: [] };
+    const materials = Array.isArray(decor?.material) ? decor.material : [decor?.material];
+    if (!materials.some((material: any) => material?.userData?.burnUniform)) return empty;
+
+    const position = decor?.geometry?.attributes?.position;
+    const kind = decor?.geometry?.attributes?.aDecorKind;
+    if (!position || !kind || position.count !== kind.count) return empty;
+
+    for (let i = 0; i < position.count; i++) {
+        const anchor = { x: position.getX(i), y: position.getY(i), z: position.getZ(i) };
+        if (kind.getX(i) > 0.5) empty.crowns.push(anchor);
+        else empty.trunks.push(anchor);
+    }
+    return empty;
+}
+
+// Scale visual density from the vegetation envelope, not from vertex count.
+// Vertex count measures mesh tessellation; height and footprint measure how
+// much plant there is to burn. The cap is deliberate: a huge grove may look
+// bigger, but it must not create an unbounded particle system.
+export function vegetationParticleCounts(anchors: DecorationFireAnchors): FireParticleCounts {
+    const points = [...anchors.trunks, ...anchors.crowns];
+    if (!points.length) return { flames: FLAMES_PER_TILE, smoke: SMOKE_PER_TILE };
+
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
+    let minZ = Infinity, maxZ = -Infinity;
+    for (const point of points) {
+        minX = Math.min(minX, point.x); maxX = Math.max(maxX, point.x);
+        minY = Math.min(minY, point.y); maxY = Math.max(maxY, point.y);
+        minZ = Math.min(minZ, point.z); maxZ = Math.max(maxZ, point.z);
+    }
+
+    const height = maxY - minY;
+    const footprint = Math.hypot(maxX - minX, maxZ - minZ);
+    const visualMass = height * 0.80 + footprint * 0.35;
+    const flames = Math.max(14, Math.min(88, Math.round(8 + visualMass * 22)));
+    const smoke = Math.max(6, Math.min(36, Math.round(flames * SMOKE_PER_TILE / FLAMES_PER_TILE)));
+    return { flames, smoke };
+}
+
 class FireSystem {
     private static fires = new Map<string, Fire>();
     private static group: any = null;
@@ -214,14 +270,44 @@ class FireSystem {
         const base = { x: world.x, y: height + 0.04, z: world.z };
         const fire: Fire = { q, r, layers: [], smoulder: -1, charred: false };
 
+        const decor = GridSystem.findHex(q, r)?.userData?.decorator;
+        const localAnchors = collectDecorationFireAnchors(decor);
+        const particleCounts = vegetationParticleCounts(localAnchors);
+        const toWorld = (anchor: { x: number; y: number; z: number }) => {
+            const point = new THREE.Vector3(anchor.x, anchor.y, anchor.z);
+            decor.localToWorld(point);
+            return { x: point.x, y: point.y, z: point.z };
+        };
+        if (localAnchors.trunks.length || localAnchors.crowns.length) {
+            decor.updateWorldMatrix(true, false);
+        }
+        const trunks = localAnchors.trunks.map(toWorld);
+        const crowns = localAnchors.crowns.map(toWorld);
+        const crownBottom = crowns.reduce((lowest, point) => Math.min(lowest, point.y), Infinity);
+        const crownTop = crowns.reduce((highest, point) => Math.max(highest, point.y), -Infinity);
+        const upperCrowns = crowns.filter((point) =>
+            point.y >= crownBottom + (crownTop - crownBottom) * 0.55
+        );
+
+        // Equal vertex counts would heavily favour foliage because crowns
+        // contain much more geometry than trunks. Explicit weights keep a
+        // visible fire running up the stems while most of it consumes the
+        // canopy. With no vegetation, layer() falls back to the old broad
+        // ground emitter.
+        const flameAnchors = [
+            { points: trunks, weight: 0.38 },
+            { points: crowns, weight: 0.62 },
+        ].filter((group) => group.points.length > 0);
+
         fire.layers.push(this.layer({
             base,
-            count: FLAMES_PER_TILE,
+            anchorGroups: flameAnchors,
+            count: particleCounts.flames,
             texturePaths: FLAME_TEXTURES,
             size: FLAME_SIZE,
             life: FLAME_LIFE,
             rise: FLAME_RISE,
-            spread: 0.55,
+            spread: flameAnchors.length ? 0.045 : 0.55,
             hot: FLAME_HOT,
             cool: FLAME_COOL,
             emissive: FLAME_EMISSIVE,
@@ -229,12 +315,15 @@ class FireSystem {
         }));
         fire.layers.push(this.layer({
             base: { ...base, y: base.y + 0.35 },
-            count: SMOKE_PER_TILE,
+            anchorGroups: upperCrowns.length
+                ? [{ points: upperCrowns, weight: 1 }]
+                : flameAnchors,
+            count: particleCounts.smoke,
             texturePaths: SMOKE_TEXTURES,
             size: SMOKE_SIZE,
             life: SMOKE_LIFE,
             rise: SMOKE_RISE,
-            spread: 0.42,
+            spread: flameAnchors.length ? 0.055 : 0.42,
             hot: SMOKE_COLOR,
             cool: SMOKE_COLOR,
             emissive: 1.0,
@@ -244,7 +333,9 @@ class FireSystem {
         this.fires.set(this.key(q, r), fire);
     }
 
-    // One looping billboard column.
+    // One looping billboard layer. On vegetated tiles its particles are
+    // born across actual trunk/crown vertices; without anchors it remains
+    // the broad ground column used on open terrain.
     //
     // The shape is createParticleEffect's -- one THREE.Points, per-particle
     // attributes, motion integrated in the vertex shader from a `uTime`
@@ -256,7 +347,7 @@ class FireSystem {
     // per fire per turn -- and would hit createParticleEffect's teardown,
     // which disposes the SHARED cached textures out from under everyone.
     private static layer(opts: any): { points: any; material: any } {
-        const { base, count, texturePaths, size, life, rise, spread, hot, cool, emissive, additive } = opts;
+        const { base, anchorGroups = [], count, texturePaths, size, life, rise, spread, hot, cool, emissive, additive } = opts;
 
         const positions = new Float32Array(count * 3);
         const phases = new Float32Array(count);
@@ -264,12 +355,26 @@ class FireSystem {
         const drifts = new Float32Array(count * 2);
         const texIndex = new Float32Array(count);
 
+        const groups = anchorGroups.filter((group: any) => group.points?.length && group.weight > 0);
+        const totalAnchorWeight = groups.reduce((sum: number, group: any) => sum + group.weight, 0);
+        const pickAnchor = () => {
+            if (!groups.length) return base;
+            let roll = Math.random() * totalAnchorWeight;
+            let group = groups[groups.length - 1];
+            for (const candidate of groups) {
+                roll -= candidate.weight;
+                if (roll <= 0) { group = candidate; break; }
+            }
+            return group.points[Math.floor(Math.random() * group.points.length)];
+        };
+
         for (let i = 0; i < count; i++) {
+            const anchor = pickAnchor();
             const angle = Math.random() * Math.PI * 2;
             const dist = Math.sqrt(Math.random()) * MAP_CONFIG.HEX_RADIUS * spread;
-            positions[i * 3] = base.x + Math.cos(angle) * dist;
-            positions[i * 3 + 1] = base.y;
-            positions[i * 3 + 2] = base.z + Math.sin(angle) * dist;
+            positions[i * 3] = anchor.x + Math.cos(angle) * dist;
+            positions[i * 3 + 1] = anchor.y;
+            positions[i * 3 + 2] = anchor.z + Math.sin(angle) * dist;
             // Staggered so the column is full at t=0 instead of pulsing.
             phases[i] = Math.random();
             sizes[i] = size * (0.65 + Math.random() * 0.7);

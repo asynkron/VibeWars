@@ -1,4 +1,4 @@
-// Guttering light on the models' energy panels.
+// Steady light on the models' energy panels.
 //
 // WHICH materials glow is decided by the models themselves: the GLBs give
 // exactly one material a non-zero emissiveFactor -- "energy", the cyan
@@ -17,19 +17,11 @@
 // than merely painted.
 const GLOW_BOOST = 3.0;
 
-// How far the level swings either side of that, and the two rates it beats
-// at. The rates are deliberately not multiples of each other, so the sum
-// never settles into a visible loop.
-const FLICKER_DEPTH = 0.45;
-const FLICKER_SLOW = 2.3;
-const FLICKER_FAST = 7.1;
-
 interface Glow {
     material: any;
     // The object the material belongs to, so a destroyed unit's glow can be
     // dropped rather than flickering on forever in an orphaned material.
     root: any;
-    phase: number;
     base: number;
 }
 
@@ -40,20 +32,19 @@ class GlowSystem {
         return !!material?.emissive && material.emissive.getHex() !== 0x000000;
     }
 
-    // Claims every emissive material under `root` for animation.
+    // Claims every emissive material under `root` for a steady boosted glow.
     //
     // The materials are CLONED first. three shares materials across
     // Object3D.clone(), so without this every unit on the map would be
-    // driving the same material and the whole army would gutter in
-    // lockstep. Each clone gets its own phase instead.
+    // driving the same material and ownership/disposal would leak across
+    // instances. Each model gets its own material instance instead.
     //
     // ONE CLONE PER (root, source material) -- not one per mesh. The
     // distinction is the whole behaviour. A model is many meshes sharing a
     // handful of materials, so cloning per mesh gives every individual
-    // panel on the same machine its own phase: measured on a forge depot
-    // piece, 19 panels held 19 different intensities at once, one at 1.65
-    // while its neighbour on the same wall sat at 4.26. A machine has one
-    // power plant, so its panels gutter together; separate machines differ.
+    // panel on the same machine its own material: measured on a forge depot
+    // piece, 19 panels became 19 owned materials. A machine has one power
+    // plant and one steady level, so all meshes using the slot share one.
     //
     // Keying the map on the SOURCE material is what collapses them: every
     // mesh in one model that uses "energy" points at the same material
@@ -75,11 +66,12 @@ class GlowSystem {
 
                 const owned = material.clone();
                 ownedFor.set(material, owned);
+                const base = (owned.emissiveIntensity ?? 1) * GLOW_BOOST;
+                owned.emissiveIntensity = base;
                 this.glows.push({
                     material: owned,
                     root,
-                    phase: this.glows.length * 1.7,   // deterministic, no two alike
-                    base: (owned.emissiveIntensity ?? 1) * GLOW_BOOST,
+                    base,
                 });
                 return owned;
             };
@@ -90,8 +82,10 @@ class GlowSystem {
         });
     }
 
-    // Driven from the render loop, `time` in seconds.
-    static animate(time: number): void {
+    // Driven from the render loop for lifecycle cleanup. The intensity is
+    // deliberately constant; the old time-based pulse made cyan panels
+    // look like warning lights rather than powered equipment.
+    static animate(_time: number): void {
         for (let i = this.glows.length - 1; i >= 0; i--) {
             const glow = this.glows[i];
 
@@ -103,10 +97,7 @@ class GlowSystem {
                 continue;
             }
 
-            const slow = Math.sin(time * FLICKER_SLOW + glow.phase);
-            const fast = Math.sin(time * FLICKER_FAST + glow.phase * 2.1);
-            const swing = 0.65 * slow + 0.35 * fast;   // in [-1, 1]
-            glow.material.emissiveIntensity = glow.base * (1 + FLICKER_DEPTH * swing);
+            glow.material.emissiveIntensity = glow.base;
         }
     }
 

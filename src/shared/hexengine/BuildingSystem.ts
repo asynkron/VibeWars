@@ -161,7 +161,10 @@ class BuildingSystem {
     // Populate gameState.buildings from the selected map provider's
     // authored spawns and create their visuals. Call after the map exists
     // and building models are loaded.
-    static initializeBuildings(gameState: { buildings: Building[] }): void {
+    static initializeBuildings(gameState: {
+        buildings: Building[];
+        map?: { getTile(q: number, r: number): { vegetated: boolean } | null };
+    }): void {
         const spawns = selectedMapProvider().buildings ?? [];
         for (const spawn of spawns) {
             const building: Building = {
@@ -178,6 +181,11 @@ class BuildingSystem {
                 visual: null,
             };
             gameState.buildings.push(building);
+            // Defensive second boundary after GameMap's provider-based
+            // suppression: a building tile has no vegetation to burn even
+            // if a future caller initializes buildings dynamically.
+            const tile = gameState.map?.getTile(building.q, building.r);
+            if (tile) tile.vegetated = false;
             this.attachVisual(building);
         }
     }

@@ -102,6 +102,21 @@ export function hasVegetation(terrainType: string, q: number, r: number, tileHei
     }
 }
 
+// The generator may have chosen vegetation for this terrain position, but
+// roads and buildings replace it before anything is drawn. Fire must answer
+// for the scenery that survives those placement passes, not for the hidden
+// procedural choice underneath them.
+export function hasBurnableVegetation(
+    terrainType: string,
+    q: number,
+    r: number,
+    tileHeight: number,
+    hasRoad: boolean,
+    hasBuilding: boolean,
+): boolean {
+    return !hasRoad && !hasBuilding && hasVegetation(terrainType, q, r, tileHeight);
+}
+
 function skip(rng: () => number, draws: number): void {
     for (let i = 0; i < draws; i++) rng();
 }
