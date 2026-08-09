@@ -304,7 +304,13 @@ class GrassSystem {
 
         const mesh = new THREE.InstancedMesh(geometry, material, tileMeshes.length * BLADES_PER_TILE);
         mesh.castShadow = false;
-        mesh.receiveShadow = false;
+        // The ground underneath already receives the directional shadow,
+        // but bright unshadowed blades drawn over it washed that shadow
+        // back out. MeshStandardMaterial already contains Three's shadow
+        // chunks, so let the blades sample the same map. They still do NOT
+        // cast shadows: keeping tens of thousands of instances out of the
+        // shadow pass is the important performance boundary.
+        mesh.receiveShadow = true;
         mesh.position.set(cx, cy, cz);
         mesh.updateMatrix();
         mesh.updateMatrixWorld(true);
