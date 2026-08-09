@@ -132,7 +132,16 @@ export type GameEvent =
     // one of them and destroy the very comparison that proves this
     // migration changed nothing. Omitted means the unit's primary attack,
     // which is what every event in the game meant before skills existed.
-    | { type: 'unitAttacked'; attackerIndex: number; defenderIndex: number; damage: number; skillId?: string }
+    | {
+        type: 'unitAttacked';
+        attackerIndex: number;
+        defenderIndex: number;
+        damage: number;
+        skillId?: string;
+        // A counterattack is a reaction, not the unit's turn action. It
+        // deals damage normally but does not spend hasAttacked/cooldowns.
+        isCounter?: true;
+    }
     | { type: 'unitDied'; unitIndex: number }
     // A unit patched an ally up. Carries the hp actually restored, already
     // clamped by the command layer -- apply() stays mechanical and derives
@@ -564,7 +573,7 @@ export class SimState {
             case 'unitAttacked': {
                 const attacker = this.getUnit(event.attackerIndex);
                 const defender = this.getUnit(event.defenderIndex);
-                if (attacker) {
+                if (attacker && !event.isCounter) {
                     // The cooldown starts HERE, in apply(), rather than at
                     // the command layer -- so it starts identically for a
                     // simulated cast, a replayed one and a player's, all

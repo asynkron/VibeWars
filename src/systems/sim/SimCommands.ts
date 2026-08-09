@@ -19,7 +19,7 @@ import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
 import { simDijkstra, simCostFieldFrom, simMoveCost, simPath, simPathToTarget } from './SimPathfinding';
-import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
+import { resolveAttack, mulberry32, combineSeed, type ResolvedAttack } from './resolveAttack';
 import { burningTilesOf, canIgnite, FIRE_DAMAGE, firePathDamage, isBurning, tickFires } from '../../shared/hexengine/fire';
 import { pickProductionSpot } from '../../shared/hexengine/production';
 
@@ -427,6 +427,42 @@ function chargeFireDamage(state: SimState, unitIndex: number, toQ: number, toR: 
 // event was recorded. `extras` supplies any engine-registered kinds; an
 // unknown kind is a no-op rather than an error, so a plan carried between
 // engines degrades instead of throwing.
+function recordAttackOutcome(
+    state: SimState,
+    resolved: ResolvedAttack,
+    attackerIndex: number,
+    skillId?: string,
+    isCounter = false,
+): void {
+    for (const hit of resolved.hits) {
+        state.record({
+            type: 'unitAttacked',
+            attackerIndex,
+            defenderIndex: hit.unitIndex,
+            damage: hit.damage,
+            ...(skillId ? { skillId } : {}),
+            ...(isCounter ? { isCounter: true as const } : {}),
+        });
+        const victim = state.getUnit(hit.unitIndex);
+        if (victim && victim.hp <= 0) recordDeath(state, hit.unitIndex);
+    }
+
+    for (const impact of resolved.impacts) {
+        if (impact.craterDelta === 0) continue; // volley rockets: visual only
+        const before = state.getTile(impact.q, impact.r);
+        state.record({ type: 'terrainModified', q: impact.q, r: impact.r, delta: impact.craterDelta });
+        const after = state.getTile(impact.q, impact.r);
+        // Drowning: a tile that just sank into WATER takes any land unit
+        // standing on it down with it. Plums.
+        if (before && before.type !== 'WATER' && after && after.type === 'WATER') {
+            const standing = state.getUnitAt(impact.q, impact.r);
+            if (standing && UnitSystem.unitTypesRecord[standing[1].type].terrainCosts.WATER == null) {
+                recordDeath(state, standing[0]);
+            }
+        }
+    }
+}
+
 export function applyGene(
     state: SimState,
     gene: Gene,
@@ -454,37 +490,28 @@ export function applyGene(
             const resolved = resolveAttack(state, gene.unitIndex, targetIndex, gene.seed, gene.skillId);
             if (!resolved || resolved.hits.length === 0) return false;
 
-            for (const hit of resolved.hits) {
-                state.record({
-                    type: 'unitAttacked',
-                    attackerIndex: gene.unitIndex,
-                    defenderIndex: hit.unitIndex,
-                    damage: hit.damage,
-                    // Named only when it is NOT the primary attack. The
-                    // event log is hashed verbatim by the neutrality
-                    // fixture, so writing the primary's id into every
-                    // attack would move all eight digests and throw away
-                    // the comparison that proves this migration is
-                    // behaviour-neutral -- for a field that carries no
-                    // information, since absent already means primary.
-                    ...(gene.skillId ? { skillId: gene.skillId } : {}),
-                });
-                const victim = state.getUnit(hit.unitIndex);
-                if (victim && victim.hp <= 0) {
-                    recordDeath(state, hit.unitIndex);
-                }
-            }
-            for (const impact of resolved.impacts) {
-                if (impact.craterDelta === 0) continue; // volley rockets: visual only
-                const before = state.getTile(impact.q, impact.r);
-                state.record({ type: 'terrainModified', q: impact.q, r: impact.r, delta: impact.craterDelta });
-                const after = state.getTile(impact.q, impact.r);
-                // Drowning: a tile that just sank into WATER takes any
-                // land unit standing on it down with it. Plums.
-                if (before && before.type !== 'WATER' && after && after.type === 'WATER') {
-                    const standing = state.getUnitAt(impact.q, impact.r);
-                    if (standing && UnitSystem.unitTypesRecord[standing[1].type].terrainCosts.WATER == null) {
-                        recordDeath(state, standing[0]);
+            recordAttackOutcome(state, resolved, gene.unitIndex, gene.skillId);
+
+            // One immediate reaction, resolved against the POST-HIT state.
+            // That is important now that attack strength follows HP: a unit
+            // reduced to half health must counter at half strength. The
+            // reaction ignores hasAttacked and never recursively triggers
+            // another reaction.
+            const counter = state.getUnit(targetIndex);
+            const counterTarget = state.getUnit(gene.unitIndex);
+            if (counter && counterTarget) {
+                const counterDistance = HexCoord.getDistance(
+                    counter.q, counter.r, counterTarget.q, counterTarget.r,
+                );
+                const inCounterRange = counterDistance >= counter.minRange
+                    && counterDistance <= counter.maxRange;
+                if (inCounterRange && UnitSystem.canTarget(counter.type, counterTarget.type)) {
+                    const counterSeed = combineSeed(gene.seed, targetIndex, gene.unitIndex, 0xc0a17e);
+                    const counterResolved = resolveAttack(
+                        state, targetIndex, gene.unitIndex, counterSeed,
+                    );
+                    if (counterResolved?.hits.length) {
+                        recordAttackOutcome(state, counterResolved, targetIndex, undefined, true);
                     }
                 }
             }

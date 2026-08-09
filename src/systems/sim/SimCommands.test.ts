@@ -41,6 +41,79 @@ describe('attack gene', () => {
         expect(state.getUnit(1)).toBeNull();
     });
 
+    it('lets a surviving defender counter once without spending its action', () => {
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const state = makeState([
+            makeUnit({ playerIndex: 1 }),
+            makeUnit({ q: neighbor.q, r: neighbor.r, playerIndex: 0 }),
+        ]);
+
+        expect(applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(true);
+        expect(state.events).toEqual([
+            { type: 'unitAttacked', attackerIndex: 0, defenderIndex: 1, damage: 5 },
+            { type: 'unitAttacked', attackerIndex: 1, defenderIndex: 0, damage: 3, isCounter: true },
+        ]);
+        expect(state.getUnit(0)!.hp).toBe(7);
+        expect(state.getUnit(0)!.hasAttacked).toBe(true);
+        expect(state.getUnit(1)!.hp).toBe(5);
+        expect(state.getUnit(1)!.hasAttacked).toBe(false);
+    });
+
+    it('records the original attacker death when the counter is lethal', () => {
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const state = makeState([
+            makeUnit({ playerIndex: 1, hp: 2, maxHp: 2 }),
+            makeUnit({ q: neighbor.q, r: neighbor.r, playerIndex: 0 }),
+        ]);
+
+        applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 });
+        expect(state.events).toEqual([
+            { type: 'unitAttacked', attackerIndex: 0, defenderIndex: 1, damage: 5 },
+            { type: 'unitAttacked', attackerIndex: 1, defenderIndex: 0, damage: 3, isCounter: true },
+            { type: 'unitDied', unitIndex: 0 },
+        ]);
+        expect(state.getUnit(0)).toBeNull();
+    });
+
+    it('allows a counter even when the defender already used its turn attack', () => {
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const state = makeState([
+            makeUnit({ playerIndex: 1 }),
+            makeUnit({ q: neighbor.q, r: neighbor.r, playerIndex: 0, hasAttacked: true }),
+        ]);
+
+        applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 });
+        expect(state.events.some((event) =>
+            event.type === 'unitAttacked' && event.isCounter === true
+        )).toBe(true);
+        expect(state.getUnit(1)!.hasAttacked).toBe(true);
+    });
+
+    it('does not counter when the attacker is outside the defender range', () => {
+        const state = makeState([
+            makeUnit({ type: 'Kestrel', q: 2, r: 2, playerIndex: 1, minRange: 2, maxRange: 3 }),
+            makeUnit({ type: 'Pike', q: 4, r: 2, playerIndex: 0, minRange: 1, maxRange: 1 }),
+        ]);
+
+        applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 });
+        expect(state.events.some((event) =>
+            event.type === 'unitAttacked' && event.isCounter === true
+        )).toBe(false);
+    });
+
+    it('does not counter a unit type the defender cannot attack', () => {
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const state = makeState([
+            makeUnit({ type: 'Nightjar', q: 2, r: 2, playerIndex: 1 }),
+            makeUnit({ type: 'Pike', q: neighbor.q, r: neighbor.r, playerIndex: 0 }),
+        ]);
+
+        applyGene(state, { kind: 'attack', unitIndex: 0, targetIndex: 1, seed: 1 });
+        expect(state.events.some((event) =>
+            event.type === 'unitAttacked' && event.isCounter === true
+        )).toBe(false);
+    });
+
     it('rejects out-of-range, friendly, and repeat attacks', () => {
         const state = makeState([
             makeUnit({ playerIndex: 1, minRange: 1, maxRange: 1 }),

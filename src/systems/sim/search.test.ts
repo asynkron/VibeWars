@@ -143,14 +143,14 @@ describe('planTurn', () => {
         expect(result.events.some((e) => e.type === 'unitDied' && e.unitIndex === 1)).toBe(true);
     });
 
-    it('lookahead refuses flying a lone jet into AA that greedy search loves', () => {
+    it('even greedy search refuses a suicidal attack into immediate AA counterfire', () => {
         // A lone Shrike (air, move 5, range 1, 4 hp) against a Halberd (aa,
         // 8 hp, range 1-2). The class triangle makes this THE classic
         // blunder: air deals half to aa (floor(8*0.5) = 4, Halberd
         // survives) while aa deals double to air (floor(5*2) = 10, the 4hp
-        // Shrike is obliterated). Greedy (no lookahead) still loves the +40
-        // damage score and attacks; lookahead must not end the turn inside
-        // the Halberd's reply reach.
+        // Shrike is obliterated). Counterfire happens inside the attack
+        // itself, so even greedy search sees the death without needing a
+        // future reply ply. Lookahead must make the same safe choice.
         const build = () => makeState([
             makeUnit({ type: 'Shrike', q: 1, r: 1, playerIndex: 1, hp: 4, maxHp: 4, move: 5, minRange: 1, maxRange: 1 }),
             makeUnit({ type: 'Halberd', q: 7, r: 1, playerIndex: 0, hp: 8, maxHp: 8, move: 2, minRange: 1, maxRange: 2 }),
@@ -158,14 +158,15 @@ describe('planTurn', () => {
         expect(HexCoord.getDistance(1, 1, 7, 1)).toBe(6);
 
         const greedy = planTurn(build(), 1, { population: 24, rounds: 4, seed: 5, lookaheadPlies: 0 });
-        expect(greedy.events.some((e) => e.type === 'unitAttacked' && e.attackerIndex === 0)).toBe(true);
+        expect(greedy.events.some((e) => e.type === 'unitAttacked' && e.attackerIndex === 0)).toBe(false);
 
         const farsighted = planTurn(build(), 1, { population: 24, rounds: 4, seed: 5, lookaheadPlies: 2 });
         const replayed = build().fork();
-        farsighted.events.forEach((e) => replayed.record(e));
+        farsighted.events.forEach((event) => replayed.record(event));
         const shrike = replayed.getUnit(0)!;
         const halberd = replayed.getUnit(1)!;
-        // Not parked inside the AA's direct-fire zone at end of turn.
+        // Future reply search still adds something greedy cannot see: it
+        // refuses even to PARK inside the AA's next-turn firing zone.
         expect(HexCoord.getDistance(shrike.q, shrike.r, halberd.q, halberd.r)).toBeGreaterThan(2);
     });
 

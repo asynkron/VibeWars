@@ -42,6 +42,16 @@ describe('resolveAttack: projectile/laser', () => {
         expect(resolved.impacts).toEqual([]);
     });
 
+    it('scales the final hit by the attacker health percentage', () => {
+        const state = makeState([
+            makeUnit({ type: 'Bulwark', q: 1, r: 1, playerIndex: 1, hp: 5, maxHp: 10 }),
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 0 }),
+        ]);
+
+        // Bulwark resolves to 5 damage; at 50% health that rounds to 3.
+        expect(resolveAttack(state, 0, 1, 42)!.hits).toEqual([{ unitIndex: 1, damage: 3 }]);
+    });
+
     it('null when attacker or defender is dead', () => {
         const state = makeState([makeUnit(), makeUnit({ q: 3, r: 3, playerIndex: 0 })]);
         state.record({ type: 'unitDied', unitIndex: 1 });
@@ -75,6 +85,19 @@ describe('resolveAttack: rocketBarrage', () => {
             const dist = HexCoord.getDistance(impact.q, impact.r, 2, 2);
             expect(dist).toBeLessThanOrEqual(1); // target hex or a neighbor
         }
+    });
+
+    it('health-scales both primary and splash damage', () => {
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const state = makeState([
+            makeUnit({ type: 'Kestrel', q: 0, r: 0, playerIndex: 1, hp: 5, maxHp: 10 }),
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 0 }),
+            makeUnit({ type: 'Bulwark', q: neighbor.q, r: neighbor.r, playerIndex: 0 }),
+        ]);
+
+        const hits = resolveAttack(state, 0, 1, 7)!.hits;
+        expect(hits.find((hit) => hit.unitIndex === 1)?.damage).toBe(2);
+        expect(hits.find((hit) => hit.unitIndex === 2)?.damage).toBe(1);
     });
 
     it('same seed gives identical impacts, different seeds diverge', () => {
@@ -147,6 +170,17 @@ describe('resolveAttack: rocketVolley (attack helicopter)', () => {
             expect(impact.craterDelta).toBe(0);
         }
     });
+
+    it('health-scales the total before splitting it between rockets', () => {
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const state = makeState([
+            makeUnit({ type: 'Nightjar', q: neighbor.q, r: neighbor.r, playerIndex: 1, hp: 5, maxHp: 10 }),
+            makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 0 }),
+        ]);
+
+        const hits = resolveAttack(state, 0, 1, 3)!.hits;
+        expect(hits.reduce((sum, hit) => sum + hit.damage, 0)).toBe(3);
+    });
 });
 
 describe('class counter triangle (aa > air > tank > aa)', () => {
@@ -185,6 +219,17 @@ describe('class counter triangle (aa > air > tank > aa)', () => {
     it('neutral matchups are unmodified', () => {
         expect(duel('Bulwark', 'Sabre')).toBe(5);   // tank vs tank
         expect(duel('Pike', 'Bulwark')).toBe(3);   // infantry neutral, expected (2+4)/2
+    });
+
+    it('health scaling is applied after the class modifier', () => {
+        const n = neighborOf(2, 2);
+        const state = makeState([
+            makeUnit({ type: 'Bulwark', q: 2, r: 2, playerIndex: 1, hp: 5, maxHp: 10 }),
+            makeUnit({ type: 'Halberd', q: n.q, r: n.r, playerIndex: 0 }),
+        ]);
+
+        // 5 base x 2 class advantage x 50% health = 5.
+        expect(resolveAttack(state, 0, 1, 1)!.hits[0].damage).toBe(5);
     });
 });
 

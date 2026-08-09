@@ -28,6 +28,7 @@
 
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
+import { scaleDamageByHealth } from '../../shared/hexengine/combatDamage';
 import { SimState } from './SimState';
 import type { SkillDef } from '../../shared/hexengine/skills';
 
@@ -128,6 +129,8 @@ export function resolveAttack(
     const stats = UnitSystem.unitTypesRecord[attacker.type];
     const attackEffect = skill?.effect.kind === 'attack' ? skill.effect.attackEffect : stats.attackEffect;
     const damage = skill ? skillDamage(skill) : expectedDamage(attacker.type);
+    const healthScaled = (resolvedDamage: number) =>
+        scaleDamageByHealth(resolvedDamage, attacker.hp, attacker.maxHp);
     const hits: ResolvedHit[] = [];
     const impacts: ResolvedImpact[] = [];
 
@@ -146,7 +149,7 @@ export function resolveAttack(
     if (attackEffect === 'projectile' || attackEffect === 'laser'
         || attackEffect === 'cannon' || attackEffect === 'flak') {
         const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);
-        hits.push({ unitIndex: defenderIndex, damage: Math.floor(damage * classModifier) });
+        hits.push({ unitIndex: defenderIndex, damage: healthScaled(Math.floor(damage * classModifier)) });
     } else if (attackEffect === 'rocketBarrage') {
         // Splash hexes: defender's hex + all in-bounds neighbors.
         const splashHexes = [{ q: defender.q, r: defender.r }];
@@ -166,7 +169,10 @@ export function resolveAttack(
             if (!UnitSystem.canTarget(attacker.type, victim.type)) continue;
             const isPrimary = hex.q === defender.q && hex.r === defender.r;
             const classModifier = UnitSystem.getClassModifier(attacker.type, victim.type);
-            hits.push({ unitIndex, damage: Math.floor(damage * (isPrimary ? 1 : SPLASH_FACTOR) * classModifier) });
+            hits.push({
+                unitIndex,
+                damage: healthScaled(Math.floor(damage * (isPrimary ? 1 : SPLASH_FACTOR) * classModifier)),
+            });
         }
 
         // Craters: each rocket lands on a seeded-random splash hex.
@@ -179,7 +185,7 @@ export function resolveAttack(
         // Several small rockets, all at the same target: the per-rocket
         // damages sum exactly to the usual single-shot total.
         const classModifier = UnitSystem.getClassModifier(attacker.type, defender.type);
-        const total = Math.floor(damage * classModifier);
+        const total = healthScaled(Math.floor(damage * classModifier));
         const base = Math.floor(total / VOLLEY_COUNT);
         let remainder = total - base * VOLLEY_COUNT;
         for (let i = 0; i < VOLLEY_COUNT; i++) {

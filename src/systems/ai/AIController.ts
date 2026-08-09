@@ -222,10 +222,12 @@ export class AIController {
                 // swallowed into the first outcome and replayed as one
                 // attack. Cheap now, invisible later.
                 const skillId = (event as any).skillId;
+                const isCounter = (event as any).isCounter === true;
                 while (i < events.length) {
                     const e = events[i];
                     if (e.type === 'unitAttacked' && e.attackerIndex === attackerIndex
-                        && (e as any).skillId === skillId) {
+                        && (e as any).skillId === skillId
+                        && ((e as any).isCounter === true) === isCounter) {
                         const victim = liveRefs[e.defenderIndex];
                         if (victim) outcome.damages.push({ unit: victim, damage: e.damage });
                         i++;
@@ -258,7 +260,8 @@ export class AIController {
                     // silently -- verify them here so a diverged replay is
                     // visible instead of a no-op.
                     const dist = UnitSystem.getHexDistance(attacker.q, attacker.r, primaryDefender.q, primaryDefender.r);
-                    if (dist < attacker.minRange || dist > attacker.maxRange || UnitSystem.hasUnitAttacked(attacker)) {
+                    if (dist < attacker.minRange || dist > attacker.maxRange
+                        || (!isCounter && UnitSystem.hasUnitAttacked(attacker))) {
                         console.warn(
                             `AI replay: attack dropped for ${attacker.type} at (${attacker.q},${attacker.r}) -> ` +
                             `${primaryDefender.type} at (${primaryDefender.q},${primaryDefender.r}): ` +
@@ -273,7 +276,11 @@ export class AIController {
                         // its player and its AI both call
                         // Unit.AnimateSpellCast, which is the single most
                         // copyable idea in the whole thing.
-                        await UnitSystem.attack(attacker, primaryDefender, outcome, skillId);
+                        if (isCounter) {
+                            await UnitSystem.counterAttack(attacker, primaryDefender, outcome);
+                        } else {
+                            await UnitSystem.attack(attacker, primaryDefender, outcome, skillId);
+                        }
                         await sleep(ACTION_PAUSE_MS);
                     }
                 }

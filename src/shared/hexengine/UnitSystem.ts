@@ -13,6 +13,7 @@ import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 import { players, HIGHLIGHT_COLORS } from '../../constants';
 import { getGameState } from '../../systems/gameStateStore';
+import { scaleDamageByHealth } from './combatDamage';
 // THE COMBAT NUMBERS COME FROM THE SIMULATION, not from copies kept here.
 // resolveAttack.ts's header says its rules "mirror UnitSystem.attack
 // exactly", and the two had already drifted: splash was 0.5 here against
@@ -24,7 +25,7 @@ import { getGameState } from '../../systems/gameStateStore';
 // The direction is safe: resolveAttack reaches only unitStats and SimState,
 // never this file, so there is no cycle -- and workerSafety.test.ts keeps
 // it that way.
-import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT } from '../../systems/sim/resolveAttack';
+import { SPLASH_FACTOR, CRATER_DELTA, ROCKET_COUNT, VOLLEY_COUNT } from '../../systems/sim/resolveAttack';
 import type { UnitTypeConfig, GameUnit, ResolvedAttackOutcome } from '../../types';
 import { skillCost, PIKE_REPAIR, DROVER_LOAD, DROVER_UNLOAD, type SkillDef } from './skills';
 import { showSkillsFor } from '../../systems/skillBar';
@@ -903,9 +904,13 @@ class UnitSystem {
     // and optional, so every existing call site keeps meaning what it
     // meant: the unit's primary attack.
     static async attack(
-        attacker: GameUnit, defender: GameUnit, resolved?: ResolvedAttackOutcome, skillId?: string
+        attacker: GameUnit,
+        defender: GameUnit,
+        resolved?: ResolvedAttackOutcome,
+        skillId?: string,
+        isCounter = false,
     ): Promise<void> {
-        if (this.hasUnitAttacked(attacker)) {
+        if (!isCounter && this.hasUnitAttacked(attacker)) {
             return;
         }
 
@@ -942,7 +947,7 @@ class UnitSystem {
         // second attack or a skill cast launched inside its own explosion.
         // hasUnitAttacked at the top of this function is the guard; it only
         // works if the flag is already set.
-        this.setHasAttacked(attacker, true);
+        if (!isCounter) this.setHasAttacked(attacker, true);
 
         // Resolve-first: every random decision (damage roll, rocket landing
         // hexes) is made up front. Player attacks resolve here and now; AI
@@ -1013,13 +1018,36 @@ class UnitSystem {
             this.applyResolvedOutcome(outcome);
         }
 
+        // Player attacks are resolved locally, so their automatic reaction
+        // is created here after the first outcome has actually been applied.
+        // AI attacks arrive pre-resolved as separate primary/counter event
+        // groups and are replayed independently by AIController.
+        if (!resolved && !isCounter
+            && getGameState().units.includes(attacker)
+            && getGameState().units.includes(defender)) {
+            await this.counterAttack(defender, attacker);
+        }
+
         // The selection goes, and the bar goes with it. showSkillsFor holds
         // its own copy of the selected unit and the armed skill; clearing
         // only setSelectedUnit left a live bar belonging to a unit that was
         // no longer selected, still arming casts against it.
-        setSelectedUnit(null);
-        showSkillsFor(null);
-        VisualizationSystem.clearHighlights();
+        if (!isCounter) {
+            setSelectedUnit(null);
+            showSkillsFor(null);
+            VisualizationSystem.clearHighlights();
+        }
+    }
+
+    // A counterattack uses the normal weapon, range, targeting, damage and
+    // visuals, but it is a reaction: no hasAttacked guard, no action/cooldown
+    // charge, and attack()'s isCounter gate prevents a counter-counter.
+    static async counterAttack(
+        attacker: GameUnit,
+        defender: GameUnit,
+        resolved?: ResolvedAttackOutcome,
+    ): Promise<void> {
+        await this.attack(attacker, defender, resolved, undefined, true);
     }
 
     // Live-side resolver mirroring src/systems/sim/resolveAttack.ts, but
@@ -1030,6 +1058,8 @@ class UnitSystem {
         attacker: GameUnit, defender: GameUnit, attackerStats: UnitTypeConfig, skill?: SkillDef
     ): ResolvedAttackOutcome {
         const damage = this.calculateDamage(attackerStats, defender, skill);
+        const healthScaled = (resolvedDamage: number) =>
+            scaleDamageByHealth(resolvedDamage, attacker.hp, attacker.maxHp);
         const effect = skill?.effect.kind === 'attack' ? skill.effect.attackEffect : attackerStats.attackEffect;
         const damages: ResolvedAttackOutcome['damages'] = [];
         const impacts: ResolvedAttackOutcome['impacts'] = [];
@@ -1050,7 +1080,7 @@ class UnitSystem {
                 const classModifier = this.getClassModifier(attacker.type, unitAtHex.type);
                 damages.push({
                     unit: unitAtHex,
-                    damage: Math.floor(damage * (isPrimary ? 1 : SPLASH_FACTOR) * classModifier),
+                    damage: healthScaled(Math.floor(damage * (isPrimary ? 1 : SPLASH_FACTOR) * classModifier)),
                 });
             }
 
@@ -1062,11 +1092,10 @@ class UnitSystem {
             // Several small rockets, all at the target hex -- per-rocket
             // damages sum to the single-shot total; no splash, no craters.
             const classModifier = this.getClassModifier(attacker.type, defender.type);
-            const total = Math.floor(damage * classModifier);
-            const volleyCount = 4; // keep in sync with sim VOLLEY_COUNT
-            const base = Math.floor(total / volleyCount);
-            let remainder = total - base * volleyCount;
-            for (let i = 0; i < volleyCount; i++) {
+            const total = healthScaled(Math.floor(damage * classModifier));
+            const base = Math.floor(total / VOLLEY_COUNT);
+            let remainder = total - base * VOLLEY_COUNT;
+            for (let i = 0; i < VOLLEY_COUNT; i++) {
                 const rocketDamage = base + (remainder-- > 0 ? 1 : 0);
                 if (rocketDamage > 0) damages.push({ unit: defender, damage: rocketDamage });
                 impacts.push({ q: defender.q, r: defender.r, craterDelta: 0 });
@@ -1074,7 +1103,7 @@ class UnitSystem {
         } else {
             // projectile/laser (and any future single-target effect)
             const classModifier = this.getClassModifier(attacker.type, defender.type);
-            damages.push({ unit: defender, damage: Math.floor(damage * classModifier) });
+            damages.push({ unit: defender, damage: healthScaled(Math.floor(damage * classModifier)) });
         }
 
         return { damages, impacts };
