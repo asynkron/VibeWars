@@ -1,6 +1,7 @@
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { getShadowRevision } from './ShadowBudget';
 import { SunSystem } from './SunSystem';
+import { WATER_WAVE_GLSL } from './WaterWaveShader';
 
 // One planar reflection for every water hex. All water sits at the same
 // world-space height, so rendering one mirrored camera and projecting that
@@ -25,9 +26,7 @@ const WATER_REFLECTION_SHADER: any = {
         color: { value: null },
         tDiffuse: { value: null },
         textureMatrix: { value: null },
-        sunDirection: { value: new THREE.Vector3(0.5, 0.7, -0.5).normalize() },
-        sunColor: { value: new THREE.Color(0xffffff) },
-        sunIntensity: { value: 1 },
+        uTime: { value: 0 },
     },
     vertexShader: /* glsl */ `
         uniform mat4 textureMatrix;
@@ -43,17 +42,21 @@ const WATER_REFLECTION_SHADER: any = {
     `,
     fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
-        uniform vec3 sunDirection;
-        uniform vec3 sunColor;
-        uniform float sunIntensity;
+        uniform float uTime;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
 
+        ${WATER_WAVE_GLSL}
+
         void main() {
-            vec3 waterNormal = vec3(0.0, 1.0, 0.0);
+            vec3 waterNormal = vwWaveNormal(vWaterWorldPos.xz, uTime);
             vec3 toCamera = normalize(cameraPosition - vWaterWorldPos);
 
             vec2 reflectionUv = vReflectionCoord.xy / vReflectionCoord.w;
+            // Sub-pixel to roughly two-pixel displacement at the 512 target:
+            // enough to break straight reflected edges into calm ripples,
+            // never enough to reveal the noise field as a moving texture.
+            reflectionUv += waterNormal.xz * 0.012;
             bool inReflection =
                 reflectionUv.x >= 0.0 && reflectionUv.x <= 1.0
                 && reflectionUv.y >= 0.0 && reflectionUv.y <= 1.0;
@@ -76,20 +79,10 @@ const WATER_REFLECTION_SHADER: any = {
 
             float facing = clamp(dot(waterNormal, toCamera), 0.0, 1.0);
             float fresnel = pow(1.0 - facing, 2.6);
-            // Flat-water sun glint. The half-vector makes the highlight
-            // appear only where the current camera can actually see the
-            // directional light reflected by the horizontal lake.
-            vec3 halfVector = normalize(toCamera + normalize(sunDirection));
-            float tightGlint = pow(max(dot(waterNormal, halfVector), 0.0), 180.0);
-            float softGlint = pow(max(dot(waterNormal, halfVector), 0.0), 34.0);
-            float sunGlint = (tightGlint * 0.72 + softGlint * 0.12)
-                * min(sunIntensity / 3.7699111843, 1.2);
-            reflected += sunColor * sunGlint;
             // Strategy camera angles look steeply down, so unlike a physical
             // lake this keeps a useful reflection floor at normal incidence.
             float alpha = mix(0.48, 0.64, fresnel);
             alpha *= smoothstep(0.02, 0.90, reflectionCoverage);
-            alpha = max(alpha, sunGlint * 0.72);
             gl_FragColor = vec4(reflected, alpha);
         }
     `,
@@ -144,13 +137,11 @@ export class WaterReflectionSystem {
         scene.add(reflector);
     }
 
-    static animate(_seconds: number): void {
+    static animate(seconds: number): void {
         if (!this.reflector) return;
 
         const uniforms = this.reflector.material.uniforms;
-        SunSystem.getDirection(uniforms.sunDirection.value);
-        SunSystem.getColor(uniforms.sunColor.value);
-        uniforms.sunIntensity.value = SunSystem.getIntensity();
+        uniforms.uTime.value = seconds;
         this.positionSkyPlane();
         this.positionSunDisc();
 

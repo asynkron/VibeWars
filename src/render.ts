@@ -69,8 +69,9 @@ let outputPass: any = null;
 // bright clamps to 1.0 before the pass ever sees it -- so the composer
 // renders into a HALF-FLOAT target, and only what a shader deliberately
 // pushes over the line gets a halo: currently the models' energy panels,
-// emissive up to ~3.0 and driven by GlowSystem. White water foam is diffuse
-// paint, not a light source, and deliberately stays below this path.
+// emissive up to ~3.0 and driven by GlowSystem. The strongest broken shore
+// crests now deliberately use the same HDR range; their ordinary surrounding
+// wash remains below the threshold.
 //
 // THE THRESHOLD WAS 1.02, WHICH WAS NOT HIGH ENOUGH TO MEAN THAT. Lit
 // ground clears 1 on its own: ambient 0.5 plus directional 1.2 is 1.7 of

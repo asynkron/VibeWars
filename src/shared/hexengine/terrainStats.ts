@@ -30,11 +30,11 @@ export const TERRAIN_TYPES = {
             impassable: true,
             material: {
                 color: 0x293D86,
-                // The explicit cloud/battlefield reflection is the water's
-                // highlight. A metallic base added a second, clipped white
-                // sun lobe on top of it at a narrow set of camera angles.
-                metalness: 0.0,
-                roughness: 0.68
+                // The planar pass supplies the reflected world; these PBR
+                // values let the real directional light glint naturally in
+                // the small normal ripples underneath it.
+                metalness: 0.3,
+                roughness: 0.4
             }
         },
         // NOTE on metalness/roughness below: all four GROUND types carry
