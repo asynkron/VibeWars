@@ -18,6 +18,7 @@ import {
 } from './render';
 import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
 import { WaterReflectionSystem } from './shared/hexengine/WaterReflectionSystem';
+import { SunSystem } from './shared/hexengine/SunSystem';
 import { GameState } from './systems/GameState';
 import { RoadSystem } from './shared/hexengine/RoadSystem';
 import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
@@ -541,6 +542,7 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
 
     // Create map first and wait for it to be ready
     const { mapCenterX, mapCenterZ } = await GridSystem.createMap(gameState);
+    SunSystem.setCenter(mapCenterX, 0, mapCenterZ);
     await WaterReflectionSystem.init(scene, renderer, GridSystem.hexGrid);
 
 
@@ -1070,7 +1072,6 @@ function configureAmbientLight() {
 function configureDirectionalLight() {
     // Add directional light for shadows
     const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2 * Math.PI);
-    directionalLight.position.set(mapWidth / 2, mapHeight * 0.6, -mapHeight / 2); // Raised height to 60% of map height
     directionalLight.castShadow = true;
 
     // Configure shadow properties.
@@ -1106,6 +1107,7 @@ function initializeLighting() {
 
     scene.add(ambientLight);
     scene.add(directionalLight);
+    SunSystem.init(scene, directionalLight);
 }
 
 export { getSelectedUnit, setSelectedUnit };

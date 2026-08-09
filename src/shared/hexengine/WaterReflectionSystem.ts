@@ -1,5 +1,6 @@
 import { Reflector } from 'three/addons/objects/Reflector.js';
 import { getShadowRevision } from './ShadowBudget';
+import { SunSystem } from './SunSystem';
 
 // One planar reflection for every water hex. All water sits at the same
 // world-space height, so rendering one mirrored camera and projecting that
@@ -24,6 +25,9 @@ const WATER_REFLECTION_SHADER: any = {
         color: { value: null },
         tDiffuse: { value: null },
         textureMatrix: { value: null },
+        sunDirection: { value: new THREE.Vector3(0.5, 0.7, -0.5).normalize() },
+        sunColor: { value: new THREE.Color(0xffffff) },
+        sunIntensity: { value: 1 },
     },
     vertexShader: /* glsl */ `
         uniform mat4 textureMatrix;
@@ -39,6 +43,9 @@ const WATER_REFLECTION_SHADER: any = {
     `,
     fragmentShader: /* glsl */ `
         uniform sampler2D tDiffuse;
+        uniform vec3 sunDirection;
+        uniform vec3 sunColor;
+        uniform float sunIntensity;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
 
@@ -69,10 +76,20 @@ const WATER_REFLECTION_SHADER: any = {
 
             float facing = clamp(dot(waterNormal, toCamera), 0.0, 1.0);
             float fresnel = pow(1.0 - facing, 2.6);
+            // Flat-water sun glint. The half-vector makes the highlight
+            // appear only where the current camera can actually see the
+            // directional light reflected by the horizontal lake.
+            vec3 halfVector = normalize(toCamera + normalize(sunDirection));
+            float tightGlint = pow(max(dot(waterNormal, halfVector), 0.0), 180.0);
+            float softGlint = pow(max(dot(waterNormal, halfVector), 0.0), 34.0);
+            float sunGlint = (tightGlint * 0.72 + softGlint * 0.12)
+                * min(sunIntensity / 3.7699111843, 1.2);
+            reflected += sunColor * sunGlint;
             // Strategy camera angles look steeply down, so unlike a physical
             // lake this keeps a useful reflection floor at normal incidence.
             float alpha = mix(0.48, 0.64, fresnel);
             alpha *= smoothstep(0.02, 0.90, reflectionCoverage);
+            alpha = max(alpha, sunGlint * 0.72);
             gl_FragColor = vec4(reflected, alpha);
         }
     `,
@@ -87,6 +104,7 @@ export class WaterReflectionSystem {
     private static lastSceneRevision = -1;
     private static reflectionMaterials = new Map<any, any>();
     private static skyPlane: any = null;
+    private static sunDisc: any = null;
 
     static async init(scene: any, renderer: any, grid: any[]): Promise<void> {
         this.dispose();
@@ -95,6 +113,8 @@ export class WaterReflectionSystem {
 
         this.skyPlane = await this.createSkyPlane(renderer);
         scene.add(this.skyPlane);
+        this.sunDisc = this.createSunDisc();
+        scene.add(this.sunDisc);
         const geometry = this.buildSurfaceGeometry();
         const reflector: any = new Reflector(geometry, {
             clipBias: 0.001,
@@ -127,6 +147,13 @@ export class WaterReflectionSystem {
     static animate(_seconds: number): void {
         if (!this.reflector) return;
 
+        const uniforms = this.reflector.material.uniforms;
+        SunSystem.getDirection(uniforms.sunDirection.value);
+        SunSystem.getColor(uniforms.sunColor.value);
+        uniforms.sunIntensity.value = SunSystem.getIntensity();
+        this.positionSkyPlane();
+        this.positionSunDisc();
+
         const count = this.grid.reduce(
             (sum: number, hex: any) => sum + (hex.userData.type === 'water' ? 1 : 0),
             0,
@@ -152,10 +179,17 @@ export class WaterReflectionSystem {
             this.skyPlane.material?.dispose?.();
             this.skyPlane.geometry?.dispose?.();
         }
+        if (this.sunDisc) {
+            this.sunDisc.parent?.remove(this.sunDisc);
+            this.sunDisc.material?.map?.dispose?.();
+            this.sunDisc.material?.dispose?.();
+            this.sunDisc.geometry?.dispose?.();
+        }
         for (const material of this.reflectionMaterials.values()) material.dispose?.();
         this.reflectionMaterials.clear();
         this.reflector = null;
         this.skyPlane = null;
+        this.sunDisc = null;
         this.waterCount = -1;
         this.lastCameraState = [];
         this.lastSceneRevision = -1;
@@ -191,6 +225,50 @@ export class WaterReflectionSystem {
         // sees a literal ceiling above the board.
         plane.visible = false;
         return plane;
+    }
+
+    private static createSunDisc(): any {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const context = canvas.getContext('2d')!;
+        const glow = context.createRadialGradient(64, 64, 0, 64, 64, 64);
+        glow.addColorStop(0, 'rgba(255, 252, 224, 1)');
+        glow.addColorStop(0.24, 'rgba(255, 244, 184, 1)');
+        glow.addColorStop(0.42, 'rgba(255, 226, 128, 0.55)');
+        glow.addColorStop(1, 'rgba(255, 220, 112, 0)');
+        context.fillStyle = glow;
+        context.fillRect(0, 0, 128, 128);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            depthWrite: false,
+            side: THREE.DoubleSide,
+            toneMapped: false,
+        });
+        const disc = new THREE.Mesh(new THREE.PlaneGeometry(18, 18), material);
+        disc.name = 'waterReflectionSunDisc';
+        disc.rotation.x = -Math.PI / 2;
+        disc.renderOrder = -99;
+        disc.castShadow = false;
+        disc.receiveShadow = false;
+        disc.visible = false;
+        this.positionSunDisc(disc);
+        return disc;
+    }
+
+    private static positionSkyPlane(): void {
+        if (!this.skyPlane) return;
+        const bounds = this.getGridBounds();
+        this.skyPlane.position.set(bounds.x, SKY_PLANE_HEIGHT, bounds.z);
+    }
+
+    private static positionSunDisc(disc = this.sunDisc): void {
+        if (!disc) return;
+        SunSystem.getSkyPosition(SKY_PLANE_HEIGHT - 0.1, disc.position);
     }
 
     private static getGridBounds(): { x: number; z: number } {
@@ -264,6 +342,7 @@ export class WaterReflectionSystem {
             if (!reflector.forceUpdate && !cameraChanged && !sceneChanged) return;
 
             if (this.skyPlane) this.skyPlane.visible = true;
+            if (this.sunDisc) this.sunDisc.visible = true;
             const hidden: any[] = [];
             const reflectedMeshes: Array<[any, any]> = [];
             scene.traverse((object: any) => {
@@ -316,6 +395,7 @@ export class WaterReflectionSystem {
                 for (const [object, material] of reflectedMeshes) object.material = material;
                 for (const object of hidden) object.visible = true;
                 if (this.skyPlane) this.skyPlane.visible = false;
+                if (this.sunDisc) this.sunDisc.visible = false;
             }
         };
     }
