@@ -1639,14 +1639,14 @@ class VisualizationSystem {
             const flashProgress = Math.min(elapsed / flashDuration, 1);
             flashMaterial.opacity = 1 - flashProgress;
             flash.scale.setScalar(1 + flashProgress * 0.8);
-            flashLight.intensity = 14 * (1 - flashProgress);
+            LightPool.setIntensity(flashLight, 14 * (1 - flashProgress));
 
             const flight = Math.min(elapsed / flightDuration, 1);
             const along = startPos.clone().lerp(endPos, flight);
             tracer.position.copy(along);
-            tracerLight.position.copy(along);
+            LightPool.setPosition(tracerLight, along);
             tracerMaterial.opacity = flight < 1 ? 1 : 0;
-            tracerLight.intensity = flight < 1 ? 6 : 0;
+            LightPool.setIntensity(tracerLight, flight < 1 ? 6 : 0);
 
             // Impact, spawned once the round lands.
             if (flight >= 1 && !impact) {
@@ -1666,7 +1666,7 @@ class VisualizationSystem {
                 const burst = Math.min((elapsed - flightDuration) / impactDuration, 1);
                 impact.scale.setScalar(1 + burst * 2.2);
                 impactMaterial.opacity = 1 - burst;
-                impactLight.intensity = 16 * (1 - burst);
+                LightPool.setIntensity(impactLight, 16 * (1 - burst));
             }
 
             if (elapsed < flightDuration + impactDuration) {

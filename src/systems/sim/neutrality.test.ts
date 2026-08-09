@@ -39,14 +39,14 @@ const FAST_PLAN = {
     beamChildCounts: [8, 4, 3, 2, 2],
 };
 const CASES: Array<{ name: string; map: any; seed: number; engines: [string, string]; digest: string }> = [
-    { name: 'rotor12x18 parthian vs parthian, seed 1', map: rotor12x18MapProvider, seed: 1, engines: ['parthian', 'parthian'], digest: '550be0ac:85' },
-    { name: 'rotor12x18 parthian vs parthian, seed 2', map: rotor12x18MapProvider, seed: 2, engines: ['parthian', 'parthian'], digest: '5d7b5b0b:74' },
-    { name: 'rotor12x18 parthian vs baseline, seed 3', map: rotor12x18MapProvider, seed: 3, engines: ['parthian', 'baseline'], digest: '49f42468:129' },
-    { name: 'rotor12x18 baseline vs parthian, seed 4', map: rotor12x18MapProvider, seed: 4, engines: ['baseline', 'parthian'], digest: 'a295825e:92' },
-    { name: 'mirror8 parthian vs parthian, seed 1', map: mirror8MapProvider, seed: 1, engines: ['parthian', 'parthian'], digest: '9d007e65:159' },
-    { name: 'mirror8 parthian vs parthian, seed 5', map: mirror8MapProvider, seed: 5, engines: ['parthian', 'parthian'], digest: 'cf096092:54' },
-    { name: 'mirror8 baseline vs baseline, seed 6', map: mirror8MapProvider, seed: 6, engines: ['baseline', 'baseline'], digest: 'ddcfba74:57' },
-    { name: 'mirror8 parthian vs baseline, seed 7', map: mirror8MapProvider, seed: 7, engines: ['parthian', 'baseline'], digest: '5b189ef6:86' },
+    { name: 'rotor12x18 parthian vs parthian, seed 1', map: rotor12x18MapProvider, seed: 1, engines: ['parthian', 'parthian'], digest: '72817094:93' },
+    { name: 'rotor12x18 parthian vs parthian, seed 2', map: rotor12x18MapProvider, seed: 2, engines: ['parthian', 'parthian'], digest: 'd3025b2b:85' },
+    { name: 'rotor12x18 parthian vs baseline, seed 3', map: rotor12x18MapProvider, seed: 3, engines: ['parthian', 'baseline'], digest: 'a80b8c87:85' },
+    { name: 'rotor12x18 baseline vs parthian, seed 4', map: rotor12x18MapProvider, seed: 4, engines: ['baseline', 'parthian'], digest: '6189c55b:85' },
+    { name: 'mirror8 parthian vs parthian, seed 1', map: mirror8MapProvider, seed: 1, engines: ['parthian', 'parthian'], digest: '9de115b2:109' },
+    { name: 'mirror8 parthian vs parthian, seed 5', map: mirror8MapProvider, seed: 5, engines: ['parthian', 'parthian'], digest: 'b6b40724:85' },
+    { name: 'mirror8 baseline vs baseline, seed 6', map: mirror8MapProvider, seed: 6, engines: ['baseline', 'baseline'], digest: 'e6ab2eed:48' },
+    { name: 'mirror8 parthian vs baseline, seed 7', map: mirror8MapProvider, seed: 7, engines: ['parthian', 'baseline'], digest: 'e286c9c9:71' },
 ];
 
 function play(testCase: typeof CASES[number]) {

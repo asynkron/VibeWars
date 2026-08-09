@@ -28,7 +28,11 @@ class FakeObject3D {
 class FakePointLight extends FakeObject3D {
     isLight = true;
     color = { hex: 0xffffff, setHex(h: number) { this.hex = h; } };
-    position = { x: 0, y: 0, z: 0, set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z; } };
+    position = {
+        x: 0, y: 0, z: 0,
+        set(x: number, y: number, z: number) { this.x = x; this.y = y; this.z = z; },
+        copy(other: any) { this.x = other.x; this.y = other.y; this.z = other.z; },
+    };
     constructor(public colorHex: number, public intensity: number, public distance: number) {
         super();
         this.color.hex = colorHex;
@@ -123,6 +127,29 @@ describe('LightPool', () => {
         }
         expect(LightPool.claim(0xffffff, 5, 5)).toBeNull();
         expect(lightsInScene(scene)).toBe(held.length);
+    });
+
+    it('lets an effect keep animating when the pool is exhausted', () => {
+        const held: any[] = [];
+        let light;
+        while ((light = LightPool.claim(0xffffff, 5, 5)) !== null) held.push(light);
+        const unavailable = LightPool.claim(0xffffff, 5, 5);
+
+        expect(unavailable).toBeNull();
+        expect(() => {
+            LightPool.setPosition(unavailable, { x: 4, y: 5, z: 6 });
+            LightPool.setIntensity(unavailable, 12);
+        }).not.toThrow();
+    });
+
+    it('updates a borrowed effect light through the null-safe API', () => {
+        const light = LightPool.claim(0xffffff, 5, 5);
+
+        LightPool.setPosition(light, { x: 4, y: 5, z: 6 });
+        LightPool.setIntensity(light, 12);
+
+        expect(light.position).toMatchObject({ x: 4, y: 5, z: 6 });
+        expect(light.intensity).toBe(12);
     });
 
     it('makes a released light available again', () => {

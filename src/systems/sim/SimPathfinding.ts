@@ -106,7 +106,12 @@ export function simDijkstra(state: SimState, unitIndex: number, maxCost: number 
     return result;
 }
 
-function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number = Infinity): SimDijkstraResult {
+function simDijkstraUncached(
+    state: SimState,
+    unitIndex: number,
+    maxCost: number = Infinity,
+    occupiedDestinationKey: number | null = null
+): SimDijkstraResult {
     const distances = new Map<number, number>();
     const previous = new Map<number, number>();
     const reachable = new Set<number>();
@@ -138,6 +143,7 @@ function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number
 
         const currentDistance = distances.get(currentKey)!;
         if (currentDistance > maxCost) break;
+        if (currentKey === occupiedDestinationKey) break;
 
         const cq = currentKey % cols;
         const cr = (currentKey - cq) / cols;
@@ -148,17 +154,24 @@ function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number
             if (nq < 0 || nq >= cols || nr < 0 || nr >= rows) continue;
             const neighborKey = nr * cols + nq;
             if (closed.has(neighborKey)) continue;
+            const isDestination = neighborKey === occupiedDestinationKey;
             // Occupied hexes are skipped entirely, mirroring the live
             // dijkstra's coord.isOccupied() filter. Note this sees the
             // simulated positions/deaths in this branch, not the live world.
-            if (state.getUnitAt(nq, nr)) continue;
+            if (!isDestination && state.getUnitAt(nq, nr)) continue;
             const building = state.getBuildingAt(nq, nr)?.[1];
-            if (building && !isAir && !headquartersAllowsGroundEntry(building, unit.playerIndex)) continue;
+            if (!isDestination && building && !isAir
+                && !headquartersAllowsGroundEntry(building, unit.playerIndex)) continue;
 
             const tile = state.getTile(nq, nr);
             if (!tile) continue;
-            const cost = tile.hasRoad ? 0.5 : costs[terrainKey(tile.type)];
-            if (!cost) continue;
+            // The destination is an occupied target marker, not a tile the
+            // mover will enter. Give that final edge zero cost so even an air
+            // target over impassable ground can be routed TOWARD; callers
+            // deliberately stop before this final step.
+            const terrainCost = tile.hasRoad ? 0.5 : costs[terrainKey(tile.type)];
+            if (!isDestination && !terrainCost) continue;
+            const cost = isDestination ? 0 : terrainCost!;
 
             const newDistance = currentDistance + cost;
             if (newDistance < (distances.get(neighborKey) ?? Infinity)) {
@@ -173,6 +186,33 @@ function simDijkstraUncached(state: SimState, unitIndex: number, maxCost: number
     }
 
     return { distances, previous, reachable };
+}
+
+// The complete cheapest route toward an occupied target, independent of the
+// unit's remaining movement. The returned path includes the target marker as
+// its final step; movement callers walk only the affordable prefix before it.
+export function simPathToTarget(
+    state: SimState,
+    unitIndex: number,
+    toQ: number,
+    toR: number
+): SimPathResult | null {
+    const unit = state.getUnit(unitIndex);
+    if (!unit) return null;
+    if (toQ < 0 || toQ >= state.cols || toR < 0 || toR >= state.rows) return null;
+
+    const endKey = toR * state.cols + toQ;
+    const { distances, previous } = simDijkstraUncached(state, unitIndex, Infinity, endKey);
+    if (!distances.has(endKey)) return null;
+
+    const path: { q: number; r: number }[] = [];
+    let currentKey = endKey;
+    while (previous.has(currentKey)) {
+        const q = currentKey % state.cols;
+        path.unshift({ q, r: (currentKey - q) / state.cols });
+        currentKey = previous.get(currentKey)!;
+    }
+    return { path, cost: distances.get(endKey)! };
 }
 
 // Mirror of PathfindingSystem.getPath semantics: null when the destination

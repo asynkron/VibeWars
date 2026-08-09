@@ -224,16 +224,16 @@ describe('building capture in the sim', () => {
     });
 
     it('any movement gene derives the capture when infantry lands on a building', () => {
-        // moveTowards an enemy that happens to sit past the factory tile.
+        // moveTowards an enemy along a cheapest path that crosses the factory.
         const state = makeState(
             [
                 makeUnit({ type: 'Pike', q: 2, r: 2, playerIndex: 1, move: 2 }),
                 makeUnit({ q: 6, r: 2, playerIndex: 0 }),
             ],
-            [factoryAt(4, 2)],
+            [factoryAt(4, 1)],
         );
         applyGene(state, { kind: 'moveTowards', unitIndex: 0, targetIndex: 1, seed: 1 });
-        expect(state.getUnit(0)).toMatchObject({ q: 4, r: 2 });
+        expect(state.getUnit(0)).toMatchObject({ q: 4, r: 1 });
         expect(state.events.some((e) => e.type === 'buildingCaptured')).toBe(true);
     });
 

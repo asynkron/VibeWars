@@ -8,9 +8,8 @@
 //   - Genes are cheap data, safe to mutate/copy during hillclimbing. The
 //     seed drives all per-gene randomness (rocket scatter, random moves),
 //     so a plan evaluates identically every time.
-//   - moveTowards picks the best REACHABLE hex closest to the target
-//     (the old dead AI pathed straight at the enemy's own occupied hex,
-//     which the occupied-skip rule makes unreachable -- so it never moved).
+//   - moveTowards computes the complete cheapest route to the target, then
+//     walks the affordable prefix and stops before its occupied hex.
 //   - unitMoved events carry moveSpent, and applyGene reads the current
 //     branch state, so multiple genes for the same unit compose correctly
 //     against its shrinking movement budget (another old-AI bug: moves
@@ -19,7 +18,7 @@
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import * as UnitSystem from '../../shared/hexengine/unitStats';
 import { SimState, SimUnit } from './SimState';
-import { simDijkstra, simCostFieldFrom, simPath } from './SimPathfinding';
+import { simDijkstra, simCostFieldFrom, simMoveCost, simPath, simPathToTarget } from './SimPathfinding';
 import { resolveAttack, mulberry32, combineSeed } from './resolveAttack';
 import { burningTilesOf, canIgnite, FIRE_DAMAGE, firePathDamage, isBurning, tickFires } from '../../shared/hexengine/fire';
 import { pickProductionSpot } from '../../shared/hexengine/production';
@@ -499,6 +498,27 @@ export function applyGene(
             if (targetIndex === null) return false;
             const target = state.getUnit(targetIndex)!;
 
+            if (gene.kind === 'moveTowards') {
+                // Route all the way to the occupied target without imposing
+                // this turn's movement ceiling. Then consume that route in
+                // order until the next step is unaffordable. The target is a
+                // marker only: stop on the final free hex before it.
+                const route = simPathToTarget(state, gene.unitIndex, target.q, target.r);
+                if (!route) return false;
+                let spent = 0;
+                let destination: { q: number; r: number } | null = null;
+                for (const step of route.path) {
+                    if (step.q === target.q && step.r === target.r) break;
+                    const stepCost = simMoveCost(state, unit.type, step.q, step.r);
+                    if (stepCost === null || spent + stepCost > unit.move) break;
+                    spent += stepCost;
+                    destination = step;
+                }
+                if (!destination) return false;
+                recordSimMove(state, gene.unitIndex, destination.q, destination.r, spent);
+                return true;
+            }
+
             // moveAway flees WITH PURPOSE (the HeroesOfBlazor lesson):
             // best is a hex the threat cannot even reach next turn
             // (distance > its move + max range); only if no such hex is
@@ -510,12 +530,9 @@ export function applyGene(
             const startKey = unit.r * cols + unit.q;
             const { distances, reachable } = simDijkstra(state, gene.unitIndex, unit.move);
             let bestKey: number | null = null;
-            let bestDist = gene.kind === 'moveTowards'
-                ? HexCoord.getDistance(unit.q, unit.r, target.q, target.r)
-                : -Infinity;
+            let bestDist = -Infinity;
             let bestCost = Infinity;
-            let bestSafe = gene.kind === 'moveAway'
-                && HexCoord.getDistance(unit.q, unit.r, target.q, target.r) > safeDist;
+            let bestSafe = HexCoord.getDistance(unit.q, unit.r, target.q, target.r) > safeDist;
 
             for (const key of reachable) {
                 if (key === startKey) continue;
@@ -523,63 +540,18 @@ export function applyGene(
                 const r = (key - q) / cols;
                 const dist = HexCoord.getDistance(q, r, target.q, target.r);
                 const cost = distances.get(key)!;
-                let better: boolean;
-                if (gene.kind === 'moveTowards') {
-                    better = dist < bestDist || (dist === bestDist && cost < bestCost && bestKey !== null);
-                } else {
-                    const safe = dist > safeDist;
-                    // Safe beats unsafe; among safe hexes prefer CHEAP
-                    // (don't waste movement running further than needed);
-                    // among unsafe prefer far.
-                    better = (safe && !bestSafe)
-                        || (safe && bestSafe && (cost < bestCost || (cost === bestCost && dist > bestDist)))
-                        || (!safe && !bestSafe && (dist > bestDist || (dist === bestDist && cost < bestCost && bestKey !== null)));
-                    if (better) bestSafe = safe;
-                }
+                const safe = dist > safeDist;
+                // Safe beats unsafe; among safe hexes prefer CHEAP
+                // (don't waste movement running further than needed);
+                // among unsafe prefer far.
+                const better = (safe && !bestSafe)
+                    || (safe && bestSafe && (cost < bestCost || (cost === bestCost && dist > bestDist)))
+                    || (!safe && !bestSafe && (dist > bestDist || (dist === bestDist && cost < bestCost && bestKey !== null)));
+                if (better) bestSafe = safe;
                 if (better) {
                     bestDist = dist;
                     bestCost = cost;
                     bestKey = key;
-                }
-            }
-
-            // Nothing strictly better by hex distance. For moveAway that
-            // genuinely means stay; for moveTowards it usually means the
-            // unit is standing behind something.
-            //
-            // THE GREEDY RULE HAS A DEAD END, and it is not a corner case.
-            // A hex-distance test can only accept a step that shortens the
-            // straight line, so a unit whose route runs AROUND a ridge or a
-            // lake stops at the obstacle and never moves again -- the first
-            // step around is farther away, so it is refused, and next turn
-            // looks identical. Measured on the shipped 12x18 map, walking a
-            // single unit at a stationary enemy with this gene alone: 74 of
-            // 84 starts for a Bulwark and the same 74 for a Halberd stop
-            // dead at (5,11) and stay there; a Kestrel never arrives from
-            // any of its 84. Only Pike (crosses mountains) and Nightjar
-            // (flies) get through, because they never have to go around
-            // anything. A real route exists in every case -- for that
-            // Bulwark it costs 6.5, about four turns.
-            //
-            // So when the greedy rule finds nothing, fall back to TRUE PATH
-            // DISTANCE: a cost field from the target across ground this
-            // unit can cross, and the reachable hex that is nearest along
-            // it. Only on the fallback, because the field is a full-map
-            // dijkstra and the beam applies thousands of genes per turn --
-            // and because where the greedy rule works it is already right.
-            if (bestKey === null && gene.kind === 'moveTowards') {
-                const field = simCostFieldFrom(state, unit.type, target.q, target.r, unit.playerIndex);
-                let bestField = field.get(startKey) ?? Infinity;
-                for (const key of reachable) {
-                    if (key === startKey) continue;
-                    const value = field.get(key);
-                    if (value === undefined) continue;
-                    const cost = distances.get(key)!;
-                    if (value < bestField || (value === bestField && cost < bestCost && bestKey !== null)) {
-                        bestField = value;
-                        bestCost = cost;
-                        bestKey = key;
-                    }
                 }
             }
 

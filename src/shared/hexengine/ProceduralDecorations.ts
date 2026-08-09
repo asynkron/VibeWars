@@ -56,6 +56,21 @@ function seedT(seed: number): number {
     return (hash(seed) & 1023) / 1023;
 }
 
+// A restrained cool target for living conifers. The amount is stored on
+// the cloned tree's foliage meshes and baked into the merged tile colours,
+// so every placed tree can have its own tone without cloning materials or
+// adding shader programs.
+const CONIFER_BLUE = { r: 0x31 / 255, g: 0x5a / 255, b: 0x70 / 255 };
+
+function addConiferBlueHint(tree: any, amount: number): void {
+    tree.traverse((child: any) => {
+        const kind = child.userData?.decorKind;
+        if (child.isMesh && (kind === 1 || kind === 3)) {
+            child.userData.decorBlueHint = amount;
+        }
+    });
+}
+
 // Irregularize a primitive: displace every vertex by a hash of its
 // QUANTIZED POSITION (plus a per-mesh seed). Position-keyed on purpose,
 // twice over: duplicated vertices (polyhedron soups, cone seams) share a
@@ -1129,11 +1144,21 @@ const DEAD_TREE_CHANCE = 0.05;
 
 // Draw a living tree, or occasionally the standing dead version of it.
 function pickTree(kind: 'conifer' | 'deciduous', rng: () => number): any {
-    const dead = rng() < DEAD_TREE_CHANCE;
+    const lifeRoll = rng();
+    const dead = lifeRoll < DEAD_TREE_CHANCE;
     if (kind === 'conifer') {
-        return dead
+        const tree = dead
             ? pick('conifer-dead', (r, i, n) => makeConifer(r, i, n, true), rng)
             : pick('conifer', makeConifer, rng);
+        if (!dead) {
+            // Reuse the life/death roll instead of consuming another random
+            // number: MapSystem replays the tile stream to determine whether
+            // vegetation exists. Among living trees this maps evenly to a
+            // restrained 3-20% drift toward cool blue.
+            const livingT = (lifeRoll - DEAD_TREE_CHANCE) / (1 - DEAD_TREE_CHANCE);
+            addConiferBlueHint(tree, 0.03 + livingT * 0.17);
+        }
+        return tree;
     }
     if (dead) return pick('deciduous-dead', (r, i, n) => makeDeciduous(r, i, n, true), rng);
     // Only a living tree can have turned -- a dead one has no crown to
@@ -1231,6 +1256,10 @@ function mergeDecorations(group: any): any | null {
         const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         const c = material?.color ?? { r: 1, g: 1, b: 1 };
         const k = mesh.userData.decorKind ?? 0;
+        const blueHint = mesh.userData.decorBlueHint ?? 0;
+        const cr = c.r + (CONIFER_BLUE.r - c.r) * blueHint;
+        const cg = c.g + (CONIFER_BLUE.g - c.g) * blueHint;
+        const cb = c.b + (CONIFER_BLUE.b - c.b) * blueHint;
 
         for (let i = 0; i < count; i++) {
             // Merged, tile-local.
@@ -1257,9 +1286,9 @@ function mergeDecorations(group: any): any | null {
                 uv[(vOffset + i) * 2 + 1] = srcUv.getY(i);
             }
 
-            color[(vOffset + i) * 3] = c.r;
-            color[(vOffset + i) * 3 + 1] = c.g;
-            color[(vOffset + i) * 3 + 2] = c.b;
+            color[(vOffset + i) * 3] = cr;
+            color[(vOffset + i) * 3 + 1] = cg;
+            color[(vOffset + i) * 3 + 2] = cb;
             kind[vOffset + i] = k;
         }
 

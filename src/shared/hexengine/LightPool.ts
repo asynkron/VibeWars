@@ -56,6 +56,20 @@ class LightPool {
         return !!object?.userData?.pooled;
     }
 
+    // Effects must remain valid when the fixed pool is exhausted. Keeping
+    // these writes here makes the nullable result from claim() impossible to
+    // forget inside an animation frame (where an exception would also skip
+    // that effect's teardown and leave its geometry in the scene forever).
+    static setIntensity(light: any, intensity: number): void {
+        if (!this.owns(light)) return;
+        light.intensity = intensity;
+    }
+
+    static setPosition(light: any, position: any): void {
+        if (!this.owns(light)) return;
+        light.position.copy(position);
+    }
+
     // Borrow a light configured for this effect, or null if all four are
     // already out. The caller parents it wherever it should travel.
     static claim(color: number, intensity: number, distance: number): any | null {

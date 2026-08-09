@@ -17,7 +17,7 @@ import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { SimState } from './SimState';
 import { applyGene } from './SimCommands';
-import { simCostFieldFrom } from './SimPathfinding';
+import { simCostFieldFrom, simMoveCost, simPathToTarget } from './SimPathfinding';
 import * as HexCoord from '../../shared/hexengine/hexMath';
 import { unitTypesRecord } from '../../shared/hexengine/unitStats';
 import { rotor12x18MapProvider as MAP } from '../maps/Rotor12x18MapProvider';
@@ -64,6 +64,28 @@ function march(type: string, from: { q: number; r: number }, limit = 40) {
 }
 
 describe('a ground unit can cross the shipped map', () => {
+    it('computes the complete route first, then walks only the affordable prefix', () => {
+        const state = stateWith('Bulwark', 5, 11);
+        const unit = state.getUnit(0)!;
+        const route = simPathToTarget(state, 0, TARGET.q, TARGET.r)!;
+        expect(route.path.length).toBeGreaterThan(unit.move);
+
+        let spent = 0;
+        let expected = { q: unit.q, r: unit.r };
+        for (const step of route.path) {
+            if (step.q === TARGET.q && step.r === TARGET.r) break;
+            const cost = simMoveCost(state, unit.type, step.q, step.r)!;
+            if (spent + cost > unit.move) break;
+            spent += cost;
+            expected = step;
+        }
+
+        expect(applyGene(state, { kind: 'moveTowards', unitIndex: 0, targetIndex: 1, seed: 1 })).toBe(true);
+        const moved = state.getUnit(0)!;
+        expect({ q: moved.q, r: moved.r }).toEqual(expected);
+        expect(moved.move).toBeCloseTo(unit.move - spent);
+    });
+
     it('walks out of the hex where every tank used to stop forever', () => {
         // (5,11) sits against the ridge at (5,12)/(6,11)/(6,12) with the
         // lakes below it. Every reachable hex is the same distance or

@@ -1,7 +1,7 @@
 import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { SimState } from './SimState';
-import { simDijkstra, simPath, simMoveCost } from './SimPathfinding';
+import { simDijkstra, simPath, simMoveCost, simPathToTarget } from './SimPathfinding';
 import { HexCoord } from '../../shared/hexengine/HexCoord';
 
 // Tile factories. Types must exist in UnitSystem terrainCosts (upper-cased).
@@ -158,5 +158,17 @@ describe('simPath', () => {
     it('returns null when the destination is beyond maxCost', () => {
         const state = makeState(() => grass(), [makeUnit({ move: 1 })]);
         expect(simPath(state, 0, 5, 5, 1)).toBeNull();
+    });
+
+    it('routes all the way toward an occupied target regardless of movement left', () => {
+        const target = makeUnit({ q: 5, r: 5, playerIndex: 0 });
+        const state = makeState(() => grass(), [makeUnit({ q: 0, r: 0, move: 1 }), target]);
+
+        const route = simPathToTarget(state, 0, target.q, target.r)!;
+
+        expect(route).not.toBeNull();
+        expect(route.path[route.path.length - 1]).toEqual({ q: target.q, r: target.r });
+        expect(route.path.length).toBeGreaterThan(1);
+        expect(route.cost).toBeGreaterThan(1);
     });
 });
