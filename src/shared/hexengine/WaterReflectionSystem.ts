@@ -6,10 +6,12 @@ import { getTerrainColor } from './terrainStats';
 import { VIEW_UNIFORMS } from './ViewOptions';
 import {
     createGerstnerUniforms,
+    GERSTNER_DISPLACEMENT_SCALE,
     GERSTNER_NORMAL_GLSL,
     GERSTNER_WAVE_GLSL,
     getWaterNormalTexture,
     WATER_NORMAL_GLSL,
+    WATER_NORMAL_SIZE,
     WATER_TIME_SCALE,
 } from './WaterWaveShader';
 
@@ -39,7 +41,7 @@ const WATER_REFLECTION_SHADER: any = {
         textureMatrix: { value: null },
         ...createGerstnerUniforms(),
         alpha: { value: 1 },
-        size: { value: 1 },
+        size: { value: WATER_NORMAL_SIZE },
         uHexRadius: { value: MAP_CONFIG.HEX_RADIUS },
         uShowGrid: { value: 1 },
         distortionScale: { value: 0.9 },
@@ -75,7 +77,7 @@ const WATER_REFLECTION_SHADER: any = {
             gerstnerOffset += GerstnerWave(waveA, position.xyz);
             gerstnerOffset += GerstnerWave(waveB, position.xyz);
             gerstnerOffset += GerstnerWave(waveC, position.xyz);
-            p += gerstnerOffset * 0.035 * (1.0 - aWaterPin);
+            p += gerstnerOffset * ${GERSTNER_DISPLACEMENT_SCALE.toFixed(2)} * (1.0 - aWaterPin);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(p.x, p.y, p.z, 1.0);
         }
     `,
@@ -176,7 +178,10 @@ const WATER_REFLECTION_SHADER: any = {
             // Gerstner face normal then redistributes brightness symmetrically:
             // a face turned away from the sun loses the same amount that the
             // corresponding sun-facing face gains.
-            vec3 localFaceNormal = GerstnerNormal(vWaterLocalPos, 0.035);
+            vec3 localFaceNormal = GerstnerNormal(
+                vWaterLocalPos,
+                ${GERSTNER_DISPLACEMENT_SCALE.toFixed(2)}
+            );
             vec3 faceNormal = normalize(vec3(
                 localFaceNormal.x,
                 localFaceNormal.z,

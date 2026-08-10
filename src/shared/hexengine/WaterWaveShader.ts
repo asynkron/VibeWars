@@ -1,9 +1,9 @@
 // This module is a direct port of Sean Bradley's Gerstner-water example:
 // https://github.com/Sean-Bradley/three.js/blob/gerstner-waves/examples/webgl_shaders_ocean_gerstner.html
 //
-// Keep the wave function, directions, wavelengths and four normal-map samples
-// in sync with that reference. VibeWars only lowers the shared clock and wave
-// steepness for calm lake water, and adapts XY to its XZ water plane.
+// Keep the wave function, directions and four normal-map samples in sync with
+// that reference. VibeWars scales wavelengths, displacement and normal detail
+// together for its much smaller battlefield, and adapts XY to its XZ plane.
 
 const WATER_NORMAL_TEXTURE = 'assets/textures/waternormals.jpg';
 
@@ -16,6 +16,22 @@ export const WATER_TIME_SCALE = 0.05;
 // only the large-scale wave topology faster while preserving steepness,
 // displacement and therefore the amount of reflected-image sway.
 export const GERSTNER_PHASE_SPEED = 4.0;
+
+// The reference ocean is 2048 units wide. On this board its 60/30/15-unit
+// wavelengths read as one broad swell, so use the same 4:2:1 relationship at
+// one sixth of the scale. Keep the shortest wave above the water mesh's vertex
+// spacing so it remains smooth instead of turning into faceted noise.
+export const GERSTNER_DISPLACEMENT_SCALE = 0.18;
+export const GERSTNER_WAVELENGTHS = Object.freeze({
+    large: 10,
+    medium: 5,
+    small: 2.5,
+});
+
+// getNoise divides these coordinates by ~100. At size 1 that means almost no
+// normal-map repetition across a VibeWars map; 32 gives ripples a few world
+// units wide while retaining the reference shader's four-octave composition.
+export const WATER_NORMAL_SIZE = 32;
 
 let waterNormalTexture: any = null;
 
@@ -30,9 +46,9 @@ export function getWaterNormalTexture(): any {
 export function createGerstnerUniforms(): Record<string, any> {
     return {
         time: { value: 0 },
-        waveA: { value: new THREE.Vector4(0, 1, 0.05, 60) },
-        waveB: { value: new THREE.Vector4(0.5, 0.8660254037844386, 0.035, 30) },
-        waveC: { value: new THREE.Vector4(0.8660254037844386, 0.5, 0.025, 15) },
+        waveA: { value: new THREE.Vector4(0, 1, 0.05, GERSTNER_WAVELENGTHS.large) },
+        waveB: { value: new THREE.Vector4(0.5, 0.8660254037844386, 0.035, GERSTNER_WAVELENGTHS.medium) },
+        waveC: { value: new THREE.Vector4(0.8660254037844386, 0.5, 0.025, GERSTNER_WAVELENGTHS.small) },
     };
 }
 

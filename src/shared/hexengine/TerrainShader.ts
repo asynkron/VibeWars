@@ -28,9 +28,11 @@ import { VIEW_UNIFORMS } from './ViewOptions';
 import { SunSystem } from './SunSystem';
 import {
     createGerstnerUniforms,
+    GERSTNER_DISPLACEMENT_SCALE,
     GERSTNER_WAVE_GLSL,
     getWaterNormalTexture,
     WATER_NORMAL_GLSL,
+    WATER_NORMAL_SIZE,
 } from './WaterWaveShader';
 
 const GROUND_TYPES = new Set(['SAND', 'GRASS', 'FOREST', 'MOUNTAIN', 'CONCRETE']);
@@ -623,7 +625,7 @@ const WATER_GERSTNER_VERTEX_BODY = /* glsl */ `
     gerstnerOffset += GerstnerWave(waveA, gerstnerPosition);
     gerstnerOffset += GerstnerWave(waveB, gerstnerPosition);
     gerstnerOffset += GerstnerWave(waveC, gerstnerPosition);
-    gerstnerOffset *= 0.035 * (1.0 - aWaterPin);
+    gerstnerOffset *= ${GERSTNER_DISPLACEMENT_SCALE.toFixed(2)} * (1.0 - aWaterPin);
     transformed += vec3(gerstnerOffset.x, gerstnerOffset.z, -gerstnerOffset.y);
 `;
 
@@ -703,7 +705,7 @@ export function applyWaterSurface(material: any): void {
         Object.assign(shader.uniforms, createGerstnerUniforms());
         shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
-        shader.uniforms.size = { value: 1 };
+        shader.uniforms.size = { value: WATER_NORMAL_SIZE };
         shader.uniforms.normalSampler = { value: getWaterNormalTexture() };
         // The SAME uniform objects every other terrain material gets, so
         // one toggle reaches the whole map. See ViewOptions.
@@ -732,7 +734,7 @@ export function applyWaterSurface(material: any): void {
         // Expose the shader so animateWater can drive uTime each frame.
         material.userData.shader = shader;
     };
-    material.customProgramCacheKey = () => 'water-surface-sean-bradley-gerstner';
+    material.customProgramCacheKey = () => 'water-surface-small-gerstner-v2';
 }
 
 // Inject the height-banded procedural ground into a terrain

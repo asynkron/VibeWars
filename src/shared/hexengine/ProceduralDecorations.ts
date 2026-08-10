@@ -737,8 +737,8 @@ const DECOR_LEAF_FLUTTER_NORMAL = /* glsl */ `
     if (aDecorWind > 0.0) {
         float flutterPhase = dot(aDecorLocal, vec3(11.3, 7.7, 9.1))
             + aDecorWindAnchor.x * 3.1 + aDecorWindAnchor.z * 2.3;
-        float flutterA = sin(uDecorWindTime * 9.2 + flutterPhase);
-        float flutterB = sin(uDecorWindTime * 13.7 + flutterPhase * 1.61);
+        float flutterA = sin(uDecorWindTime * 14.0 + flutterPhase);
+        float flutterB = sin(uDecorWindTime * 21.0 + flutterPhase * 1.61);
         float flutter = flutterA * 0.65 + flutterB * 0.35;
         objectNormal = normalize(objectNormal + vec3(
             flutter * 0.115,
@@ -814,7 +814,7 @@ function applyOrganicDetail(material: any): void {
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v4';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v5';
 }
 
 function mat(color: number, kind: number = 0) {
