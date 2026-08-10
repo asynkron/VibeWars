@@ -13,6 +13,7 @@ import { consumeShadowsDirty, markShadowsDirty } from './shared/hexengine/Shadow
 import { FrameStats } from './systems/frameStats';
 import { GroundInteractionSystem } from './shared/hexengine/GroundInteractionSystem';
 import { MechanicalMotionSystem } from './shared/hexengine/MechanicalMotionSystem';
+import { animateDecorationWind } from './shared/hexengine/ProceduralDecorations';
 import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
 import type { CameraMatrices } from './types';
 
@@ -333,6 +334,7 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
     // blades are drawn and the viewport height they are kept a pixel wide
     // against.
     GrassSystem.update(seconds, camera, renderer.domElement.height);
+    animateDecorationWind(seconds);
 
     // Tethers and tile symbols under the aircraft, rebuilt from the live
     // unit list -- see AirMarkerSystem.

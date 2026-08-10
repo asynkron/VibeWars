@@ -149,20 +149,18 @@ const GRASS_VERTEX = /* glsl */ `
     transformed.x *= widen;
     vGrassFade /= widen;
 
-    // SLOW. 1.6 and 2.7 are gust rates -- weather moving across a field --
-    // and at that speed the blades flickered rather than swayed. 0.45 puts a
-    // full cycle at about fourteen seconds, which is grass in still air.
-    float gust = sin(uTime * 0.45 + gWorld.x * 0.7 + gWorld.z * 0.55)
-               + 0.5 * sin(uTime * 0.8 + gWorld.x * 1.9 - gWorld.z * 1.3);
+    // A visible but calm breeze. The broad wave crosses the field in about
+    // six seconds; the weaker second wave breaks up the metronome without
+    // becoming the rapid leaf-flutter used by deciduous crowns.
+    float gust = sin(uTime * 1.0 + gWorld.x * 0.7 + gWorld.z * 0.55)
+               + 0.5 * sin(uTime * 1.8 + gWorld.x * 1.9 - gWorld.z * 1.3);
     // Cubed, so the root stays planted and only the top half travels.
     //
-    // READ THIS AGAINST BLADE_HEIGHT, because that is the only thing that
-    // makes the number mean anything. gust runs to +-1.5, so the tip travels
-    // 0.045 -- about a sixth of the 0.30 the blade stands. At 0.165, back
-    // when the blade was 0.17 tall, the tip went further than the blade was
-    // high and the field read as loose flakes blowing about rather than
-    // grass bending. A sixth is a breeze; the whole height is a hurricane.
-    float lean = gust * 0.030 * aUp * aUp * aUp;
+    // gust reaches +-1.5, so the 0.085 coefficient moves a 0.30-high blade's
+    // tip at most 0.128: a little over two fifths of its height. Enough to read at
+    // gameplay zoom, still well short of the loose-flakes look from the old
+    // overdriven wind.
+    float lean = gust * 0.085 * aUp * aUp * aUp;
     transformed.x += lean;
     transformed.z += lean * 0.6;
 `;
@@ -388,7 +386,7 @@ class GrassSystem {
                 .replace('#include <common>', '#include <common>\n varying float vGrassUp;\n varying float vGrassFade;')
                 .replace('#include <color_fragment>', '#include <color_fragment>\n' + GRASS_FRAGMENT);
         };
-        material.customProgramCacheKey = () => 'grass-blades';
+        material.customProgramCacheKey = () => 'grass-blades-wind-v2';
     }
 
     // Called every frame. The blades are geometry, so the only cheap lever

@@ -693,6 +693,65 @@ const DECOR_ROUGHNESS_FRAGMENT = /* glsl */ `
     roughnessFactor = mix(roughnessFactor, 0.64, step(1.5, vDecorKind));
 `;
 
+// Every tile material points at this one uniform object, so wind costs one
+// value update per frame rather than a traversal over all decoration meshes.
+const DECOR_WIND_TIME = { value: 0 };
+
+// Positive aDecorWind selects broadleaf sway; negative selects the slower
+// conifer branch response; zero keeps trunks, bushes and rocks still. Every
+// vertex in one crown or branch tier receives the same anchor, while all parts
+// in one tree share the anchor's XZ phase. That makes each volume sway without
+// changing its silhouette like a breathing balloon.
+const DECOR_WIND_VERTEX = /* glsl */ `
+    if (aDecorWind > 0.0) {
+        float windPhase = aDecorWindAnchor.x * 2.17 + aDecorWindAnchor.z * 1.63;
+        float broadSway = sin(uDecorWindTime * 0.82 + windPhase);
+        float leafFlutter = sin(uDecorWindTime * 1.71 + windPhase * 1.37);
+        float crownHeight = smoothstep(0.72, 1.92, aDecorWindAnchor.y);
+        // A low crown stays restrained while a high crown gets almost twice
+        // its sway. The whole cluster still receives one identical offset,
+        // so this height response cannot reintroduce pulsing.
+        float windAmount = aDecorWind * mix(0.60, 1.14, crownHeight);
+        transformed.x += (broadSway * 0.025 + leafFlutter * 0.006) * windAmount;
+        transformed.z += (broadSway * 0.014 - leafFlutter * 0.004) * windAmount;
+        transformed.y += leafFlutter * 0.003 * windAmount;
+    } else if (aDecorWind < 0.0) {
+        // Conifer tiers are heavier and springier than leaves: one slow bend
+        // with a faint secondary recovery motion. Each entire tier receives
+        // one offset, and higher tiers yield more while the trunk stays put.
+        float branchPhase = aDecorWindAnchor.x * 1.73 + aDecorWindAnchor.z * 2.09;
+        float branchSway = sin(uDecorWindTime * 1.05 + branchPhase);
+        float branchRecovery = sin(uDecorWindTime * 2.10 + branchPhase * 1.41);
+        float branchHeight = smoothstep(0.38, 3.15, aDecorWindAnchor.y);
+        float branchAmount = -aDecorWind * mix(0.48, 1.0, branchHeight);
+        transformed.x += (branchSway * 0.058 + branchRecovery * 0.010) * branchAmount;
+        transformed.z += (branchSway * 0.034 - branchRecovery * 0.006) * branchAmount;
+        transformed.y += branchRecovery * 0.004 * branchAmount;
+    }
+`;
+
+// Fast leaf flutter belongs in the lighting normal, not the silhouette.
+// Rotating the apparent leaf faces produces the characteristic broken,
+// high-frequency flashes without scaling or tearing the crown geometry.
+const DECOR_LEAF_FLUTTER_NORMAL = /* glsl */ `
+    if (aDecorWind > 0.0) {
+        float flutterPhase = dot(aDecorLocal, vec3(11.3, 7.7, 9.1))
+            + aDecorWindAnchor.x * 3.1 + aDecorWindAnchor.z * 2.3;
+        float flutterA = sin(uDecorWindTime * 9.2 + flutterPhase);
+        float flutterB = sin(uDecorWindTime * 13.7 + flutterPhase * 1.61);
+        float flutter = flutterA * 0.65 + flutterB * 0.35;
+        objectNormal = normalize(objectNormal + vec3(
+            flutter * 0.115,
+            flutterB * 0.042,
+            flutterA * 0.095
+        ));
+    }
+`;
+
+export function animateDecorationWind(time: number): void {
+    DECOR_WIND_TIME.value = time;
+}
+
 // kind: 0 = generic surface (bark, rock), 1 = conifer foliage,
 // 2 = deciduous/bush leaves.
 // Burning a tile down to bare stems.
@@ -720,13 +779,18 @@ function applyOrganicDetail(material: any): void {
     material.userData.burnUniform = { value: 0 };
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uBurn = material.userData.burnUniform;
+        shader.uniforms.uDecorWindTime = DECOR_WIND_TIME;
         // Two textures shared by every decoration material on the map --
         // baked once, referenced here, never per tile.
         const fields = getLeafFields();
         shader.uniforms.uLeafInner = { value: fields.inner };
         shader.uniforms.uLeafFringe = { value: fields.fringe };
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying float vDecorKind;\n attribute vec3 aDecorLocal;\n attribute float aDecorKind;')
+            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying float vDecorKind;\n uniform float uDecorWindTime;\n attribute vec3 aDecorLocal;\n attribute float aDecorKind;\n attribute float aDecorWind;\n attribute vec3 aDecorWindAnchor;')
+            .replace(
+                '#include <beginnormal_vertex>',
+                '#include <beginnormal_vertex>\n' + DECOR_LEAF_FLUTTER_NORMAL
+            )
             .replace(
                 '#include <begin_vertex>',
                 // aDecorLocal is the vertex's position in ITS OWN mesh, kept
@@ -734,7 +798,7 @@ function applyOrganicDetail(material: any): void {
                 // crown splotches are computed in that frame, so feeding
                 // them the merged tile-local position instead would rescale
                 // every pattern on the map.
-                '#include <begin_vertex>\n vDecorWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorKind = aDecorKind;'
+                '#include <begin_vertex>\n' + DECOR_WIND_VERTEX + '\n vDecorWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorKind = aDecorKind;'
             );
         shader.fragmentShader = shader.fragmentShader
             // dBumpH is written by the color pass and read by the bump
@@ -750,7 +814,7 @@ function applyOrganicDetail(material: any): void {
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic-rock-procedural';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v4';
 }
 
 function mat(color: number, kind: number = 0) {
@@ -779,6 +843,9 @@ function mat(color: number, kind: number = 0) {
 function addFringe(parent: any, source: any): void {
     const shell = new THREE.Mesh(source.geometry, source.material.clone());
     shell.userData.decorKind = 3;
+    // Exactly the same displacement as the inner crown. A larger wind weight
+    // moved the shell relative to its core and read as rhythmic scaling.
+    shell.userData.decorWind = source.userData.decorWind ?? 0;
     shell.position.copy(source.position);
     shell.rotation.copy(source.rotation);
     // 1.16, not a subtle 1.06: at gameplay zoom a 6% shell sits within a
@@ -864,6 +931,9 @@ function makeConifer(rng: () => number, index: number = 0, total: number = 1, de
         // deciduous range so the forest is one population, not two teams.
         const needleColor = lerpHex(0x1d4a2a, 0x4a6b30, seedT(seed * 97));
         const cone = addMesh(tree, roughen(new THREE.ConeGeometry(radius, coneH, 8, 3), seed + i, radius * 0.38), vary(needleColor, rng, 0.18), ox, y, oz, 1);
+        // Negative wind weights select the slow conifer branch response in
+        // DECOR_WIND_VERTEX. Upper, lighter tiers give slightly more.
+        cone.userData.decorWind = -(0.70 + 0.16 * t);
         addFringe(tree, cone);
     }
     return tree;
@@ -954,6 +1024,7 @@ function addCluster(parent: any, rng: () => number, at: any, radius: number, col
         at.x, at.y, at.z,
         2
     );
+    blob.userData.decorWind = 1;
     // Squashed, because a canopy spreads wider than it is tall...
     blob.scale.set(1, 0.74 + rng() * 0.22, 1);
     // ...and turned, which matters far more at twenty faces than at
@@ -1414,10 +1485,14 @@ function mergeDecorations(group: any): any | null {
     const local = new Float32Array(vertices * 3);
     const color = new Float32Array(vertices * 3);
     const kind = new Float32Array(vertices);
+    const wind = new Float32Array(vertices);
+    const windAnchor = new Float32Array(vertices * 3);
     const index = vertices > 65535 ? new Uint32Array(indices) : new Uint16Array(indices);
 
     const normalMatrix = new THREE.Matrix3();
     const vertex = new THREE.Vector3();
+    const treeOrigin = new THREE.Vector3();
+    const clusterCenter = new THREE.Vector3();
     let vOffset = 0;
     let iOffset = 0;
 
@@ -1435,6 +1510,9 @@ function mergeDecorations(group: any): any | null {
         const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         const c = material?.color ?? { r: 1, g: 1, b: 1 };
         const k = mesh.userData.decorKind ?? 0;
+        const windWeight = mesh.userData.decorWind ?? 0;
+        treeOrigin.set(0, 0, 0).applyMatrix4(mesh.parent.matrixWorld);
+        clusterCenter.set(0, 0, 0).applyMatrix4(matrix);
         const grayHint = mesh.userData.decorGrayHint ?? 0;
         const cr = c.r + (FOLIAGE_DARK_GRAY.r - c.r) * grayHint;
         const cg = c.g + (FOLIAGE_DARK_GRAY.g - c.g) * grayHint;
@@ -1469,6 +1547,13 @@ function mergeDecorations(group: any): any | null {
             color[(vOffset + i) * 3 + 1] = cg;
             color[(vOffset + i) * 3 + 2] = cb;
             kind[vOffset + i] = k;
+            wind[vOffset + i] = windWeight;
+            // XZ comes from the tree root so every cluster shares one phase;
+            // Y comes from this cluster's centre so higher tufts bend a little
+            // farther without deforming any individual crown shell.
+            windAnchor[(vOffset + i) * 3] = treeOrigin.x;
+            windAnchor[(vOffset + i) * 3 + 1] = clusterCenter.y;
+            windAnchor[(vOffset + i) * 3 + 2] = treeOrigin.z;
         }
 
         if (g.index) {
@@ -1488,6 +1573,8 @@ function mergeDecorations(group: any): any | null {
     merged.setAttribute('aDecorLocal', new THREE.BufferAttribute(local, 3));
     merged.setAttribute('color', new THREE.BufferAttribute(color, 3));
     merged.setAttribute('aDecorKind', new THREE.BufferAttribute(kind, 1));
+    merged.setAttribute('aDecorWind', new THREE.BufferAttribute(wind, 1));
+    merged.setAttribute('aDecorWindAnchor', new THREE.BufferAttribute(windAnchor, 3));
     merged.setIndex(new THREE.BufferAttribute(index, 1));
     merged.computeBoundingSphere();
 
