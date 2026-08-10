@@ -107,6 +107,7 @@ export const UNIT_TYPES = {
             },
             usePlayerColor: false,
             teamColorMaterial: 'teamCamo',  // tint only the model's teamCamo material slot
+            rawMaterials: true,
             sounds: {
                 movement: 'engine_heavy',
                 attack: 'rlauncher2'
@@ -151,6 +152,7 @@ export const UNIT_TYPES = {
             },
             usePlayerColor: false,
             teamColorMaterial: 'teamCamo',  // tint only the model's teamCamo material slot
+            rawMaterials: true,
             sounds: {
                 movement: 'engine_light',
                 attack: 'rlauncher2'
@@ -183,6 +185,7 @@ export const UNIT_TYPES = {
             },
             usePlayerColor: false,
             teamColorMaterial: 'teamCamo',  // tint only the model's teamCamo material slot
+            rawMaterials: true,
             sounds: {
                 movement: 'engine_heavy',
                 attack: 'rlauncher2'
@@ -301,6 +304,7 @@ export const UNIT_TYPES = {
             },
             usePlayerColor: false,
             teamColorMaterial: 'teamCamo',
+            rawMaterials: true,
             sounds: {
                 movement: 'engine_heavy',
                 // The burst plays its own rounds -- see showFlakEffect --
@@ -335,6 +339,7 @@ export const UNIT_TYPES = {
             },
             usePlayerColor: false,
             teamColorMaterial: 'teamCamo',
+            rawMaterials: true,
             sounds: {
                 movement: 'engine_light',
                 attack: 'rlauncher1'
@@ -424,7 +429,8 @@ export const UNIT_TYPES = {
                 MOUNTAIN: 1
             },
             usePlayerColor: false,
-            teamColorMaterial: 'teamCamo',
+            teamColorMaterial: 'teamCarbon',
+            rawMaterials: true,
             sounds: {
                 movement: 'jet',
                 attack: 'rlauncher3'

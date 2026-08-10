@@ -58,7 +58,9 @@ const MAP_CONFIG = {
     TILT_ANGLE: 0,
     CAMERA: {
         INITIAL_HEIGHT: 15,
-        MIN_HEIGHT: 5,
+        // Keep the camera clear of units, tall vegetation and near-plane
+        // distortion even when the player keeps scrolling inward.
+        MIN_HEIGHT: 15,
         MAX_HEIGHT: 50,
         ZOOM_SPEED: 1
     },
@@ -111,7 +113,7 @@ const TERRAIN_CONFIG = {
 
 // Player definitions
 const players = [
-    { id: 'human', color: 0x1778FF, units: [] },
+    { id: 'human', color: 0x0A40F2, units: [] },
     { id: 'cpu1', color: 0xFF5000, units: [] }
 ];
 

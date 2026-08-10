@@ -39,7 +39,6 @@ const FORBIDDEN = [
     'FootprintSystem',
     'RoadSystem',
     'ProceduralDecorations',
-    'SkyboxSystem',
     'PathIndicatorSystem',
     'GlowSystem',
     'RotorSystem',

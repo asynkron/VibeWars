@@ -372,9 +372,16 @@ class ModelSystem {
             const already = tinted.get(mat);
             if (already) return already;
             const owned = mat.clone();
-            // WHITE, so the map is what is seen and nothing multiplies it.
-            owned.color.setHex(0xffffff);
-            owned.map = ModelSystem.teamCamoMap(owned.map, playerColor);
+            if (owned.map) {
+                // WHITE, so the repainted map is what is seen and nothing
+                // multiplies it.
+                owned.color.setHex(0xffffff);
+                owned.map = ModelSystem.teamCamoMap(owned.map, playerColor);
+            } else {
+                // Some intentionally unwrapped parts use the same named team
+                // slot without a map. They need the direct team color.
+                owned.color.setHex(playerColor);
+            }
             tinted.set(mat, owned);
             return owned;
         };

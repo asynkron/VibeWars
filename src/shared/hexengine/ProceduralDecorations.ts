@@ -1053,6 +1053,9 @@ function makeDeciduous(rng: () => number, index: number = 0, total: number = 1, 
     return tree;
 }
 
+const BUSH_SCALE = 1.35;
+const BUSH_GROUND_SINK = 0.04;
+
 // Bush: 1-3 low blobs, no trunk.
 function makeBush(rng: () => number): any {
     const bush = new THREE.Group();
@@ -1071,6 +1074,7 @@ function makeBush(rng: () => number): any {
         );
         addFringe(bush, blob);
     }
+    bush.scale.setScalar(BUSH_SCALE);
     return bush;
 }
 
@@ -1330,9 +1334,17 @@ function pickTree(kind: 'conifer' | 'deciduous', rng: () => number): any {
 let currentGroundAt: ((x: number, z: number) => number) | null = null;
 
 // Drop a sub-assembly into the tile group at a scattered position.
-function place(group: any, rng: () => number, piece: any, maxRadius: number, spin: boolean = true): void {
+function place(
+    group: any,
+    rng: () => number,
+    piece: any,
+    maxRadius: number,
+    spin: boolean = true,
+    groundOffset: number = 0,
+): void {
     const { x, z } = scatter(rng, maxRadius);
-    piece.position.set(x, currentGroundAt ? currentGroundAt(x, z) : 0, z);
+    const ground = currentGroundAt ? currentGroundAt(x, z) : 0;
+    piece.position.set(x, ground + groundOffset, z);
     if (spin) piece.rotation.y = rng() * Math.PI * 2;
     group.add(piece);
 }
@@ -1554,7 +1566,7 @@ export function createProceduralDecoration(
                 const bushes = 1 + Math.floor(rng() * 2);
                 for (let i = 0; i < bushes; i++) {
                     const bush = pick('bush', makeBush, rng);
-                    place(group, rng, bush, 0.5, false);
+                    place(group, rng, bush, 0.5, false, -BUSH_GROUND_SINK);
                 }
             } else if (roll < 0.45) {
                 // A lone deciduous tree.
@@ -1592,7 +1604,7 @@ export function createProceduralDecoration(
                 if (rng() < 0.55) place(group, rng, pick('tuft', makeTuft, rng), 0.5);
                 if (rng() < 0.45) {
                     const bush = pick('bush', makeBush, rng);
-                    place(group, rng, bush, 0.5, false);
+                    place(group, rng, bush, 0.5, false, -BUSH_GROUND_SINK);
                 }
             }
             // Uncommon but possible: a lone small conifer on the mountain.

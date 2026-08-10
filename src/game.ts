@@ -16,7 +16,6 @@ import {
     updateCameraZoom, setupMinimap, animate, getCameraHeight, setCameraHeight,
     resizeComposer,
 } from './render';
-import { SkyboxSystem } from './shared/hexengine/SkyboxSystem';
 import { WaterReflectionSystem } from './shared/hexengine/WaterReflectionSystem';
 import { SunSystem } from './shared/hexengine/SunSystem';
 import { GameState } from './systems/GameState';
@@ -536,9 +535,6 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
 
     // Set up lighting
     initializeLighting();
-
-    // Initialize skybox
-    SkyboxSystem.init();
 
     // Create map first and wait for it to be ready
     const { mapCenterX, mapCenterZ } = await GridSystem.createMap(gameState);

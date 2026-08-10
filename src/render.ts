@@ -93,6 +93,7 @@ let outputPass: any = null;
 const BLOOM_STRENGTH = 0.9;
 const BLOOM_RADIUS = 0.5;
 const BLOOM_THRESHOLD = 2.20;
+const BLOOM_MSAA_SAMPLES = 4;
 
 function buildComposer() {
     const size = new THREE.Vector2(window.innerWidth, window.innerHeight);
@@ -101,6 +102,11 @@ function buildComposer() {
         magFilter: THREE.LinearFilter,
         format: THREE.RGBAFormat,
         type: THREE.HalfFloatType,
+        // antialias:true only covers rendering straight to the canvas.
+        // Bloom renders the scene into this HDR target first, so it needs
+        // its own multisampling or every geometry edge becomes jagged as
+        // soon as the post-processing chain is enabled.
+        samples: BLOOM_MSAA_SAMPLES,
     });
 
     composer = new THREE.EffectComposer(renderer, target);

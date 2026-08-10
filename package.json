@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "models:optimize": "./scripts/optimize-unit-models.sh",
     "simulate": "MATCHES=${MATCHES:-10} vitest run --disable-console-intercept src/systems/sim/matchReport.test.ts",
     "tournament": "ROUNDS=${ROUNDS:-20} vitest run --disable-console-intercept src/systems/sim/ai/tournamentReport.test.ts"
   },
