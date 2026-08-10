@@ -19,7 +19,12 @@ import { hexDistance } from '../../shared/hexengine/hexMath';
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
 import { unitTypesRecord } from '../../shared/hexengine/unitStats';
 import type { BuildingSpawn, TileLike } from '../../types';
-import { hqDoorApproach, hqDoorCell, randomBuildingRotationDeg } from './PerlinMapProvider';
+import {
+    hqDoorApproach,
+    hqDoorCell,
+    islandNoiseValue,
+    randomBuildingRotationDeg,
+} from './PerlinMapProvider';
 
 const EXPECTED = {
     // Authored per size: 1/2/3 Pike + 1/2/3 Drover and 1/2/3 AttackBoat.
@@ -39,6 +44,16 @@ describe('random HQ rotation', () => {
         const directions = Array.from({ length: 6 }, (_, index) =>
             randomBuildingRotationDeg(() => (index + 0.5) / 6));
         expect(directions).toEqual([0, 60, 120, 180, 240, 300]);
+    });
+});
+
+describe('random island edge field', () => {
+    it('forces the perimeter to deep water and leaves the interior noise untouched', () => {
+        expect(islandNoiseValue(0.92, 0, 10, 20, 20)).toBe(0.18);
+        expect(islandNoiseValue(0.92, 10, 0, 20, 20)).toBe(0.18);
+        expect(islandNoiseValue(0.92, 19, 10, 20, 20)).toBe(0.18);
+        expect(islandNoiseValue(0.92, 10, 19, 20, 20)).toBe(0.18);
+        expect(islandNoiseValue(0.63, 10, 10, 20, 20)).toBe(0.63);
     });
 });
 
@@ -86,6 +101,31 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
     it('is the size the table promises', () => {
         expect([MAP_SIZES[key].cols, MAP_SIZES[key].rows]).toEqual([cols, rows]);
         expect(tiles).toHaveLength(cols);
+    });
+
+    it('is always surrounded by a complete ring of water', () => {
+        for (let q = 0; q < cols; q++) {
+            expect(tiles[q][0].type, `north edge ${q},0`).toBe('WATER');
+            expect(tiles[q][rows - 1].type, `south edge ${q},${rows - 1}`).toBe('WATER');
+        }
+        for (let r = 0; r < rows; r++) {
+            expect(tiles[0][r].type, `west edge 0,${r}`).toBe('WATER');
+            expect(tiles[cols - 1][r].type, `east edge ${cols - 1},${r}`).toBe('WATER');
+        }
+    });
+
+    it('keeps the complete water ring across fresh Perlin crops', () => {
+        for (let sample = 0; sample < 10; sample++) {
+            const fresh = provider.generate();
+            for (let q = 0; q < cols; q++) {
+                expect(fresh[q][0].type).toBe('WATER');
+                expect(fresh[q][rows - 1].type).toBe('WATER');
+            }
+            for (let r = 0; r < rows; r++) {
+                expect(fresh[0][r].type).toBe('WATER');
+                expect(fresh[cols - 1][r].type).toBe('WATER');
+            }
+        }
     });
 
     it(`fields ${expected.units} units a side, the same on both`, () => {

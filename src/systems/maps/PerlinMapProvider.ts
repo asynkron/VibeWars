@@ -2,10 +2,12 @@
 // random roads added by game.ts.
 //
 // Three sizes, and THE GENERATOR IS THE SAME ONE IN ALL THREE. generate()
-// below is the original body, line for line -- same noise, same scale, same
-// valley offset, same height scale, same lerped colours. The three variants
-// differ only in how big the grid is and how many units each side starts
-// with. There is deliberately no second terrain generator in here.
+// below uses the same noise, scale, valley offset, height scale and lerped
+// colours. A soft negative edge field is applied before the ordinary terrain
+// classification so every random board is one island with open water around
+// its complete perimeter. The three variants differ only in grid size and
+// how many units each side starts with. There is deliberately no second
+// terrain generator in here.
 //
 // What IS new is what stands on it. The old 50x50 map put eleven units on
 // one side and two on the other, all bunched in one corner on whatever the
@@ -413,6 +415,26 @@ function levelBuildingPads(tiles: TileLike[][], buildings: BuildingSpawn[]): voi
     }
 }
 
+// Pull the Perlin field down toward deep-water noise at the map edge, then
+// smoothly release it back to the untouched field toward the interior. The
+// exact outer ring is therefore ALWAYS water, while values crossing 0.4 and
+// 0.45 on the way inward naturally become the existing water/sand shoreline
+// instead of a separately-authored beach band.
+export function islandNoiseValue(
+    noiseValue: number,
+    q: number,
+    r: number,
+    cols: number,
+    rows: number,
+): number {
+    const edgeDistance = Math.min(q, r, cols - 1 - q, rows - 1 - r);
+    const fadeWidth = Math.max(2, Math.round(Math.min(cols, rows) * 0.10));
+    const t = Math.max(0, Math.min(1, edgeDistance / fadeWidth));
+    const smooth = t * t * (3 - 2 * t);
+    const deepWaterNoise = 0.18;
+    return deepWaterNoise + (noiseValue - deepWaterNoise) * smooth;
+}
+
 function createRandomMap(
     key: string, name: string, size: number, roster: readonly string[], baseCount: number,
     attackBoatsPerSide: number
@@ -459,7 +481,14 @@ function createRandomMap(
                 tiles[q] = [];
                 for (let r = 0; r < this.rows; r++) {
                     const rawNoise = perlinNoise((q + offsetQ) / TERRAIN_CONFIG.PERLIN_SCALE, (r + offsetR) / TERRAIN_CONFIG.PERLIN_SCALE);
-                    const noiseValue = (rawNoise + 1) / 2;
+                    const perlinValue = (rawNoise + 1) / 2;
+                    const noiseValue = islandNoiseValue(
+                        perlinValue,
+                        q,
+                        r,
+                        this.cols,
+                        this.rows,
+                    );
 
                     const terrainType = TerrainSystem.getTerrainTypeFromNoise(noiseValue);
                     const baseHeight = TerrainSystem.getTerrainBaseHeight(terrainType);
