@@ -64,6 +64,8 @@ const LARGE_ROSTER = [
     'Drover', 'Drover', 'Drover',
 ];
 
+const ATTACK_BOAT = 'AttackBoat';
+
 const neighbourOffsets = (q: number) => (q % 2 === 0
     ? [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 0], [-1, -1]]
     : [[0, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]]);
@@ -80,6 +82,37 @@ function mainland(tiles: TileLike[][], cols: number, rows: number): Set<string> 
     for (let q = 0; q < cols; q++) {
         for (let r = 0; r < rows; r++) {
             if (!TerrainSystem.isImpassable(tiles[q]?.[r]?.type ?? 'WATER')) unvisited.add(`${q},${r}`);
+        }
+    }
+    let best = new Set<string>();
+    while (unvisited.size) {
+        const start = unvisited.values().next().value as string;
+        const component = new Set<string>([start]);
+        unvisited.delete(start);
+        const queue = [start];
+        for (let head = 0; head < queue.length; head++) {
+            const [cq, cr] = queue[head].split(',').map(Number);
+            for (const [dq, dr] of neighbourOffsets(cq)) {
+                const key = `${cq + dq},${cr + dr}`;
+                if (!unvisited.has(key)) continue;
+                unvisited.delete(key);
+                component.add(key);
+                queue.push(key);
+            }
+        }
+        if (component.size > best.size) best = component;
+    }
+    return best;
+}
+
+// Boats need the same protection from decorative puddles that ground units
+// get from mainland(): both fleets are placed in the largest connected body
+// of water, so every attack boat has an actual opponent it can sail to.
+function mainWaterway(tiles: TileLike[][], cols: number, rows: number): Set<string> {
+    const unvisited = new Set<string>();
+    for (let q = 0; q < cols; q++) {
+        for (let r = 0; r < rows; r++) {
+            if (tiles[q]?.[r]?.type === 'WATER') unvisited.add(`${q},${r}`);
         }
     }
     let best = new Set<string>();
@@ -199,9 +232,11 @@ function baseTargets(cols: number, rows: number, count: number): Array<[number, 
 // Both sides' starting units and the neutral bases between them, placed
 // together because they must not collide and both need the same mainland.
 function placeEverything(
-    tiles: TileLike[][], cols: number, rows: number, roster: readonly string[], baseCount: number
+    tiles: TileLike[][], cols: number, rows: number, roster: readonly string[], baseCount: number,
+    attackBoatsPerSide: number
 ): { spawns: { player: StartingUnit[]; cpu: StartingUnit[] }; buildings: BuildingSpawn[] } {
     const open = tiles.length ? mainland(tiles, cols, rows) : new Set<string>();
+    const waterway = tiles.length ? mainWaterway(tiles, cols, rows) : new Set<string>();
     const taken = new Set<string>();
 
     const free = (q: number, r: number) => open.has(`${q},${r}`) && !taken.has(`${q},${r}`);
@@ -275,6 +310,31 @@ function placeEverything(
         return { type, q, r };
     });
     const spawns = { player: line(rows - 1), cpu: line(0) };
+
+    // Put both fleets into the same connected body of water, approaching it
+    // from their own map edge. This keeps exact 1/2/3-per-side rosters while
+    // preventing a boat from spawning alone in a tiny inland pond.
+    const fleet = (edgeRow: number): StartingUnit[] => Array.from(
+        { length: attackBoatsPerSide },
+        (_, index) => {
+            const column = Math.floor((cols - attackBoatsPerSide) / 2) + index;
+            if (!waterway.size) return { type: ATTACK_BOAT, q: column, r: edgeRow };
+            const position = nearestWhere(
+                cols, rows, column, edgeRow,
+                (q, r) => waterway.has(`${q},${r}`) && !taken.has(`${q},${r}`)
+            );
+            if (!position) {
+                throw new Error(
+                    `Random map ${cols}x${rows} has fewer than ${attackBoatsPerSide * 2} connected water hexes`
+                );
+            }
+            const [q, r] = position;
+            taken.add(`${q},${r}`);
+            return { type: ATTACK_BOAT, q, r };
+        }
+    );
+    spawns.player.push(...fleet(rows - 1));
+    spawns.cpu.push(...fleet(0));
 
     // A depot fits at some HEADING if all four of that heading's hexes are
     // on the mainland, free, and on the board. There is no parity rule any
@@ -354,7 +414,8 @@ function levelBuildingPads(tiles: TileLike[][], buildings: BuildingSpawn[]): voi
 }
 
 function createRandomMap(
-    key: string, name: string, size: number, roster: readonly string[], baseCount: number
+    key: string, name: string, size: number, roster: readonly string[], baseCount: number,
+    attackBoatsPerSide: number
 ): MapProvider {
     // Where everything ended up on the map generate() last produced. Both
     // callers -- GameState and the headless harness -- generate the map and
@@ -365,7 +426,7 @@ function createRandomMap(
     // Before any generate() there is no terrain to consult. The start menu
     // does read spawns then, to show how many units a side gets, and the
     // roster length is right even when the coordinates are placeholders.
-    let placed = placeEverything([], size, size, roster, baseCount);
+    let placed = placeEverything([], size, size, roster, baseCount, attackBoatsPerSide);
 
     return {
         key,
@@ -419,17 +480,17 @@ function createRandomMap(
                     tiles[q][r] = new Tile(height, terrainType, color);
                 }
             }
-            placed = placeEverything(tiles, size, size, roster, baseCount);
+            placed = placeEverything(tiles, size, size, roster, baseCount, attackBoatsPerSide);
             levelBuildingPads(tiles, placed.buildings);
             return tiles;
         },
     };
 }
 
-//                                    key         name               size  units  bases
-export const randomSmallMapProvider = createRandomMap('random20', 'Random — Small', 20, SMALL_ROSTER, 2);
-export const randomMediumMapProvider = createRandomMap('random30', 'Random — Medium', 30, MEDIUM_ROSTER, 3);
-export const randomLargeMapProvider = createRandomMap('random50', 'Random — Large', 50, LARGE_ROSTER, 7);
+//                                    key         name               size  ground roster  bases  boats/side
+export const randomSmallMapProvider = createRandomMap('random20', 'Random — Small', 20, SMALL_ROSTER, 2, 1);
+export const randomMediumMapProvider = createRandomMap('random30', 'Random — Medium', 30, MEDIUM_ROSTER, 3, 2);
+export const randomLargeMapProvider = createRandomMap('random50', 'Random — Large', 50, LARGE_ROSTER, 7, 3);
 
 // The old name, so nothing that imported it has to change. It is the 50x50
 // map that key has always meant.

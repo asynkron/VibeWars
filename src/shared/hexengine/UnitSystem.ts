@@ -213,6 +213,9 @@ class UnitSystem {
         const unitType = this.unitTypesRecord[type];
         if (unitType.model && ModelSystem.getModel(unitType.model)) {
             const baseModel = ModelSystem.getModel(unitType.model);
+            const contrastStrength = unitType.authoredMaterialsOnly
+                ? 0
+                : MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength;
             let modelClone: any;
             if (unitType.rawMaterials) {
                 const teamSlots = unitType.teamColorMaterial
@@ -224,11 +227,11 @@ class UnitSystem {
                         players[playerIndex].color,
                         teamSlots,
                         0,
-                        MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
+                        contrastStrength
                     )
                     : ModelSystem.cloneUntouched(
                         baseModel,
-                        MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
+                        contrastStrength
                     );
                 // Textured units take the authored-material clone path.
                 // Claim animation explicitly after it.
@@ -240,12 +243,12 @@ class UnitSystem {
                     unitType.usePlayerColor,
                     unitType.replaceColor,
                     unitType.teamColorMaterial,
-                    MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
+                    contrastStrength
                 );
             }
             // ModelSystem's clone path owns and tunes imported texture
             // materials. Weathering remains idempotent for the legacy paths.
-            applyDirtyPlateToModel(modelClone);
+            if (!unitType.authoredMaterialsOnly) applyDirtyPlateToModel(modelClone);
 
             // Calculate bounding box for model height
             const bbox = new THREE.Box3().setFromObject(modelClone);

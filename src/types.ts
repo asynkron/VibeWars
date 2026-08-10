@@ -110,6 +110,9 @@ export interface UnitTypeConfig {
   // Preserve every authored texture and repaint only teamColorMaterial
   // through the same texture-aware path used by textured buildings.
   rawMaterials?: boolean;
+  // Render authored materials without the global unit contrast/saturation
+  // curve or procedural grime. Team-material tinting still applies.
+  authoredMaterialsOnly?: boolean;
   sounds: { movement: string | null; attack: string | null };
 }
 

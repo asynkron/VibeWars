@@ -271,6 +271,7 @@ class ModelSystem {
         model: any,
         contrastStrength: number = MODEL_LOADER_MATERIAL_SETTINGS.contrastStrength
     ): void {
+        if (contrastStrength <= 0) return;
         // Object3D.clone shares materials. Own one clone per source material
         // so enhancing a unit cannot leak into the cached base model, a
         // building, or another rendering path that uses the same asset.

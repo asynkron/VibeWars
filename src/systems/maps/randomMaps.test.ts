@@ -22,12 +22,12 @@ import type { BuildingSpawn, TileLike } from '../../types';
 import { hqDoorApproach, hqDoorCell, randomBuildingRotationDeg } from './PerlinMapProvider';
 
 const EXPECTED = {
-    // Authored per size: 1/2/3 Pike + 1/2/3 Drover on top of the rest.
+    // Authored per size: 1/2/3 Pike + 1/2/3 Drover and 1/2/3 AttackBoat.
     // Small fields no AA because it fields no air -- see the roster note
     // in PerlinMapProvider.
-    random20: { units: 3, depots: 2 },
-    random30: { units: 8, depots: 3 },
-    random50: { units: 13, depots: 7 },
+    random20: { units: 4, boats: 1, depots: 2 },
+    random30: { units: 10, boats: 2, depots: 3 },
+    random50: { units: 16, boats: 3, depots: 7 },
 } as const;
 
 const neighbourOffsets = (q: number) => (q % 2 === 0
@@ -93,6 +93,21 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
         expect(spawns.cpu).toHaveLength(expected.units);
         const types = (units: StartingUnit[]) => units.map((u) => u.type).sort();
         expect(types(spawns.cpu)).toEqual(types(spawns.player));
+    });
+
+    it(`fields ${expected.boats} attack boats a side on one connected waterway`, () => {
+        const playerBoats = spawns.player.filter((unit) => unit.type === 'AttackBoat');
+        const cpuBoats = spawns.cpu.filter((unit) => unit.type === 'AttackBoat');
+        expect(playerBoats).toHaveLength(expected.boats);
+        expect(cpuBoats).toHaveLength(expected.boats);
+        for (const boat of [...playerBoats, ...cpuBoats]) {
+            expect(tiles[boat.q][boat.r].type).toBe('WATER');
+        }
+        const first = playerBoats[0];
+        const connected = reachable(tiles, cols, rows, first.type, [first.q, first.r]);
+        for (const boat of [...playerBoats, ...cpuBoats]) {
+            expect(connected.has(`${boat.q},${boat.r}`), `${boat.q},${boat.r} is in another lake`).toBe(true);
+        }
     });
 
     it('gives each side infantry, or the depots are scenery', () => {
@@ -261,14 +276,17 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
         }
     });
 
-    it('lets every unit reach every enemy unit and every depot door', () => {
+    it('lets every unit reach every enemy in its movement domain and every depot door', () => {
         // The whole point of placing on the mainland. A unit on an island is
         // out of the match, and a depot on one can never be captured.
         const doors = buildings.filter((p) => p.type.startsWith('forgeDepot') && p.isEntrance);
         expect(doors).toHaveLength(expected.depots);
         for (const mine of spawns.player) {
             const canReach = reachable(tiles, cols, rows, mine.type, [mine.q, mine.r]);
-            for (const theirs of spawns.cpu) {
+            const mineIsNaval = unitTypesRecord[mine.type].unitClass === 'naval';
+            for (const theirs of spawns.cpu.filter(
+                (unit) => (unitTypesRecord[unit.type].unitClass === 'naval') === mineIsNaval
+            )) {
                 expect(
                     canReach.has(`${theirs.q},${theirs.r}`),
                     `${mine.type} at ${mine.q},${mine.r} cannot reach ${theirs.type} at ${theirs.q},${theirs.r}`

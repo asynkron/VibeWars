@@ -80,6 +80,41 @@ export const UNIT_TYPES = {
                 attack: 'rlauncher1'
             }
         },
+        "AttackBoat": {
+            symbol: "M",
+            name: "Attack Boat",
+            unitClass: 'naval' as const,
+            // Fast, lightly armoured coastal striker. The old Gunboat stays
+            // the slower heavy hull; this is a separate tactical unit.
+            maxHp: 7,
+            hp: 7,
+            move: 4,
+            minRange: 1,
+            maxRange: 2,
+            minDamage: 4,
+            maxDamage: 6,
+            attack: 5,
+            model: "assets/units/manta-attack-boat.glb",
+            scale: 0.18,
+            rotation: 0,
+            attackEffect: 'flak',
+            footprintTexture: null,
+            terrainCosts: {
+                WATER: 1,
+                SAND: null,
+                GRASS: null,
+                CONCRETE: null,
+                FOREST: null,
+                MOUNTAIN: null
+            },
+            usePlayerColor: false,
+            rawMaterials: true,
+            authoredMaterialsOnly: true,
+            sounds: {
+                movement: 'battleship_movement',
+                attack: 'cannon'
+            }
+        },
         "Bulwark": {
             symbol: "O",
             name: "Bulwark",

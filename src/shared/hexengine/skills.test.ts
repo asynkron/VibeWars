@@ -71,6 +71,25 @@ describe('every unit\'s attack is its slot-0 skill', () => {
     });
 });
 
+describe('AttackBoat', () => {
+    it('uses the optimized textured model and only sails on water', () => {
+        const boat = unitTypesRecord.AttackBoat;
+        expect(boat.model).toBe('assets/units/manta-attack-boat.glb');
+        expect(boat.unitClass).toBe('naval');
+        expect(boat.teamColorMaterial).toBeUndefined();
+        expect(boat.rawMaterials).toBe(true);
+        expect(boat.authoredMaterialsOnly).toBe(true);
+        expect(boat.scale).toBe(0.18);
+        expect(boat.attackEffect).toBe(unitTypesRecord.Halberd.attackEffect);
+        expect(boat.sounds.attack).toBe(unitTypesRecord.Halberd.sounds.attack);
+        expect(boat.footprintTexture).toBeNull();
+        expect(boat.terrainCosts.WATER).toBe(1);
+        for (const terrain of ['SAND', 'GRASS', 'CONCRETE', 'FOREST', 'MOUNTAIN']) {
+            expect(boat.terrainCosts[terrain]).toBeNull();
+        }
+    });
+});
+
 describe('cooldowns', () => {
     const rationed: SkillDef = { ...primarySkill('Pike')!, id: 'test:rationed', cooldown: 3 };
     const free: SkillDef = primarySkill('Pike')!;

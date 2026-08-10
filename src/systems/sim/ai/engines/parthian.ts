@@ -177,6 +177,7 @@ export const parthianEngine = createEngine({
                 Pike: 1.2,      // captures; nothing else does
                 Road: 1.1,
                 Gunboat: 0.9,
+                AttackBoat: 1.05, // fast range-2 striker, balanced by water-only movement
                 // The scenario units. The Pyramid's crown-jewel status is
                 // NOT priced here -- it is vital (unitStats), and the
                 // score's vitalWorth term mirrors the hard rule for every

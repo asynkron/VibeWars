@@ -35,6 +35,15 @@ const authoredFallbackColors = {
     armorDark: [0.006512090790025684, 0.007499032040460618, 0.009134058699157796, 1],
     teamCarbon: [0.008568125615105716, 0.1878207722902346, 1, 1],
 };
+const mantaFallbackColors = {
+    // The Manta export assigns these textured materials to five primitives
+    // without UVs. Use the dark authored plate colours those textures show,
+    // not Shrike's blue teamCarbon fallback or glTF's white default.
+    teamCarbon: [0.0356, 0.0545, 0.0723, 1],
+    armorDark: [0.006512090790025684, 0.007499032040460618, 0.009134058699157796, 1],
+    armor: [0.028, 0.038, 0.052, 1],
+};
+const fallbackColors = profile === 'manta' ? mantaFallbackColors : authoredFallbackColors;
 let repairedPrimitiveCount = 0;
 
 for (let materialIndex = 0; materialIndex < document.materials.length; materialIndex++) {
@@ -57,7 +66,7 @@ for (let materialIndex = 0; materialIndex < document.materials.length; materialI
     const untexturedMaterial = structuredClone(material);
     untexturedMaterial.pbrMetallicRoughness = {
         ...pbr,
-        baseColorFactor: authoredFallbackColors[material.name]
+        baseColorFactor: fallbackColors[material.name]
             ?? pbr.baseColorFactor
             ?? [1, 1, 1, 1],
     };

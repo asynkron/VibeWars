@@ -87,11 +87,29 @@ optimize_nightjar() {
     done
 }
 
+optimize_manta() {
+    local source_name="manta-attack-boat (2).glb"
+    local output_name="manta-attack-boat.glb"
+    local stage_dir="$work_dir/manta-attack-boat"
+    mkdir -p "$stage_dir"
+
+    # The Manta's authored textures are part of its look. Preserve their
+    # exact bytes and resolutions: optimize only mesh/storage structure.
+    node "$script_dir/repair-non-uv-materials.mjs" \
+        "$input_dir/$source_name" "$stage_dir/0-material-fixed.glb" manta
+    gltf weld "$stage_dir/0-material-fixed.glb" "$stage_dir/1-welded.glb"
+    gltf join "$stage_dir/1-welded.glb" "$stage_dir/2-joined.glb"
+    gltf dedup "$stage_dir/2-joined.glb" "$stage_dir/3-deduped.glb"
+    gltf prune "$stage_dir/3-deduped.glb" "$work_dir/$output_name"
+    validate_contract "$work_dir/$output_name" "teamCarbon"
+}
+
 expected_sources=(
     "bombard-artillery (4).glb"
     "bulwark-heavy-tank (5).glb"
     "halberd-aa-tank (2).glb"
     "lynx-light-ifv (2).glb"
+    "manta-attack-boat (2).glb"
     "nightjar-attack-helo (5).glb"
     "sabre-medium-tank (3).glb"
     "shrike-attack-jet (4).glb"
@@ -123,6 +141,7 @@ optimize_static "bombard-artillery (4).glb" "kestrel-bombard-artillery.glb"
 optimize_static "bulwark-heavy-tank (5).glb" "bulwark-heavy-tank.glb"
 optimize_static "halberd-aa-tank (2).glb" "halberd-aa-tank.glb"
 optimize_static "lynx-light-ifv (2).glb" "lynx-light-ifv.glb"
+optimize_manta
 optimize_static "sabre-medium-tank (3).glb" "sabre-medium-tank.glb"
 optimize_static "shrike-attack-jet (4).glb" "shrike-attack-jet.glb" "teamCarbon"
 optimize_nightjar
@@ -138,6 +157,7 @@ du -h \
     "$output_dir/bulwark-heavy-tank.glb" \
     "$output_dir/halberd-aa-tank.glb" \
     "$output_dir/lynx-light-ifv.glb" \
+    "$output_dir/manta-attack-boat.glb" \
     "$output_dir/sabre-medium-tank.glb" \
     "$output_dir/shrike-attack-jet.glb" \
     "$output_dir/nightjar-attack-helo.glb"
