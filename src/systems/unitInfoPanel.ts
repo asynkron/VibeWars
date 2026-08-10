@@ -14,7 +14,7 @@
 // picture behind.
 
 import { players } from '../constants';
-import { ModelSystem } from '../shared/hexengine/ModelSystem';
+import { MODEL_LOADER_MATERIAL_SETTINGS, ModelSystem } from '../shared/hexengine/ModelSystem';
 import { UnitSystem } from '../shared/hexengine/UnitSystem';
 import { skillsFor } from '../shared/hexengine/unitStats';
 import { isReady, type SkillDef } from '../shared/hexengine/skills';
@@ -80,17 +80,25 @@ function renderPortrait(type: string, playerIndex: number): string | null {
         : [];
     const model = config.rawMaterials
         ? (teamSlots.length
-            ? ModelSystem.cloneWithTeamTint(source, players[playerIndex].color, teamSlots)
-            : ModelSystem.cloneUntouched(source))
+            ? ModelSystem.cloneWithTeamTint(
+                source,
+                players[playerIndex].color,
+                teamSlots,
+                0,
+                MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
+            )
+            : ModelSystem.cloneUntouched(
+                source,
+                MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
+            ))
         : ModelSystem.createModelWithColor(
             source,
             players[playerIndex].color,
             config.usePlayerColor,
             config.replaceColor,
-            config.teamColorMaterial
+            config.teamColorMaterial,
+            MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
         );
-    ModelSystem.enhanceUnitContrast(model);
-
     const scene = new THREE.Scene();
     scene.add(model);
     scene.add(new THREE.AmbientLight(0xffffff, 0.8));

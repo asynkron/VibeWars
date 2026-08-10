@@ -3,17 +3,30 @@ import { GlowSystem } from './GlowSystem';
 import { RotorSystem } from './RotorSystem';
 import { applyDirtyPlateToModel } from './UnitShader';
 
-// Units occupy little screen space against a deliberately colourful board.
+// Single tuning point for imported, textured models. Raise
+// contrastStrength to deepen dark panels and separate highlights; 0 disables
+// the contrast curve and 1 applies it fully. Saturation is kept separately so
+// contrast can be tuned without accidentally changing team hues.
+export const MODEL_LOADER_MATERIAL_SETTINGS = Object.freeze({
+    // Keep this value fixed: the current building appearance is approved.
+    contrastStrength: 0.68,
+    // Units are much smaller on screen and need deeper separation in their
+    // authored camouflage and dark armour panels.
+    unitContrastStrength: 0.92,
+    saturation: 1.10,
+});
+
+// Imported models occupy little screen space against a deliberately colourful board.
 // A gentle display-space S-curve separates their dark, middle and light
 // panels without crushing them, while a small saturation lift keeps painted
-// details from turning grey. Applied to units only after their authored/team
-// material work; source textures and building materials stay untouched.
-const UNIT_CONTRAST_FRAGMENT = `
+// details from turning grey. Applied after authored/team material work; source
+// textures stay untouched.
+const modelContrastFragment = (contrastStrength: number) => `
 vec3 unitColor = clamp(gl_FragColor.rgb, 0.0, 1.0);
 vec3 unitSCurve = unitColor * unitColor * (3.0 - 2.0 * unitColor);
-unitColor = mix(unitColor, unitSCurve, 0.42);
+unitColor = mix(unitColor, unitSCurve, ${contrastStrength.toFixed(2)});
 float unitLuma = dot(unitColor, vec3(0.2126, 0.7152, 0.0722));
-gl_FragColor.rgb = clamp(mix(vec3(unitLuma), unitColor, 1.10), 0.0, 1.0);
+gl_FragColor.rgb = clamp(mix(vec3(unitLuma), unitColor, ${MODEL_LOADER_MATERIAL_SETTINGS.saturation.toFixed(2)}), 0.0, 1.0);
 `;
 
 class ModelSystem {
@@ -244,19 +257,26 @@ class ModelSystem {
     // a grimed version. That is right for a tank; on a building it repaints
     // the concrete, the trim and the armour panels the artist textured, and
     // the result is nothing like the reference render.
-    static cloneUntouched(model: any): any {
+    static cloneUntouched(
+        model: any,
+        contrastStrength: number = MODEL_LOADER_MATERIAL_SETTINGS.contrastStrength
+    ): any {
         const clone = model.clone();
         this.useAuthoredModelColorEncoding(clone);
+        this.enhanceTexturedModelContrast(clone, contrastStrength);
         return clone;
     }
 
-    static enhanceUnitContrast(model: any): void {
+    static enhanceTexturedModelContrast(
+        model: any,
+        contrastStrength: number = MODEL_LOADER_MATERIAL_SETTINGS.contrastStrength
+    ): void {
         // Object3D.clone shares materials. Own one clone per source material
         // so enhancing a unit cannot leak into the cached base model, a
         // building, or another rendering path that uses the same asset.
         const enhanced = new Map<any, any>();
         const enhance = (material: any) => {
-            if (!material || material.userData?.sharedGlowMaterial) return material;
+            if (!material?.map || material.userData?.sharedGlowMaterial) return material;
             const existing = enhanced.get(material);
             if (existing) return existing;
 
@@ -272,11 +292,11 @@ class ModelSystem {
                 previousCompile?.call(material, shader, renderer);
                 shader.fragmentShader = shader.fragmentShader.replace(
                     '#include <dithering_fragment>',
-                    `${UNIT_CONTRAST_FRAGMENT}\n#include <dithering_fragment>`
+                    `${modelContrastFragment(contrastStrength)}\n#include <dithering_fragment>`
                 );
             };
             owned.customProgramCacheKey = () =>
-                `unit-contrast-v1|${previousKey ? previousKey() : ''}`;
+                `unit-contrast-v2-${contrastStrength}-${MODEL_LOADER_MATERIAL_SETTINGS.saturation}|${previousKey ? previousKey() : ''}`;
             owned.needsUpdate = true;
             enhanced.set(material, owned);
             return owned;
@@ -412,7 +432,8 @@ class ModelSystem {
         model: any,
         playerColor: number,
         materialNames: string[],
-        lighten: number = 0
+        lighten: number = 0,
+        contrastStrength: number = MODEL_LOADER_MATERIAL_SETTINGS.contrastStrength
     ): any {
         const clone = model.clone();
         const names = new Set(materialNames);
@@ -451,10 +472,18 @@ class ModelSystem {
         // PBR paint.
         GlowSystem.claim(clone);
         ModelSystem.useAuthoredModelColorEncoding(clone);
+        ModelSystem.enhanceTexturedModelContrast(clone, contrastStrength);
         return clone;
     }
 
-    static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null, teamColorMaterial: string | string[] | null = null) {
+    static createModelWithColor(
+        model: any,
+        playerColor: number,
+        usePlayerColor: boolean = true,
+        replaceColor: number | null = null,
+        teamColorMaterial: string | string[] | null = null,
+        contrastStrength: number = MODEL_LOADER_MATERIAL_SETTINGS.contrastStrength
+    ) {
         const modelClone = model.clone();
 
         if (teamColorMaterial) {
@@ -496,6 +525,7 @@ class ModelSystem {
             // actually render. Team color stays the base; this lays
             // weathering over it -- see UnitShader.
             applyDirtyPlateToModel(modelClone);
+            ModelSystem.enhanceTexturedModelContrast(modelClone, contrastStrength);
             return modelClone;
         }
 
@@ -562,6 +592,7 @@ class ModelSystem {
         GlowSystem.claim(modelClone);
         RotorSystem.claim(modelClone);
         applyDirtyPlateToModel(modelClone);
+        ModelSystem.enhanceTexturedModelContrast(modelClone, contrastStrength);
         return modelClone;
     }
 

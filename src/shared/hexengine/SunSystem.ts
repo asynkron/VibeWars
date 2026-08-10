@@ -1,11 +1,11 @@
 import { markShadowsDirty } from './ShadowBudget';
 
-// One authoritative, fixed 13:00 sun for the whole renderer. Its direction
+// One authoritative, fixed mid-afternoon sun for the whole renderer. Its direction
 // drives the directional light, the photographed sun in the reflection sky,
-// and the highlight on the water. It does not drift toward evening during a
-// match.
-const ONE_PM_AZIMUTH = THREE.MathUtils.degToRad(110);
-const ONE_PM_ELEVATION = THREE.MathUtils.degToRad(58);
+// and the highlight on the water. Lower than the old 13:00 position for
+// longer shadows, while light intensity stays full daylight.
+const DAYLIGHT_AZIMUTH = THREE.MathUtils.degToRad(118);
+const DAYLIGHT_ELEVATION = THREE.MathUtils.degToRad(53);
 const LIGHT_DISTANCE = 100;
 
 export class SunSystem {
@@ -18,7 +18,7 @@ export class SunSystem {
         this.light = light;
         light.target.position.copy(this.center);
         if (!light.target.parent) scene.add(light.target);
-        this.setOnePmDirection();
+        this.setDaylightDirection();
     }
 
     static setCenter(x: number, y: number, z: number): void {
@@ -53,12 +53,12 @@ export class SunSystem {
         return target.copy(this.direction).multiplyScalar(distance).add(this.center);
     }
 
-    private static setOnePmDirection(): void {
-        const horizontal = Math.cos(ONE_PM_ELEVATION);
+    private static setDaylightDirection(): void {
+        const horizontal = Math.cos(DAYLIGHT_ELEVATION);
         this.direction.set(
-            Math.cos(ONE_PM_AZIMUTH) * horizontal,
-            Math.sin(ONE_PM_ELEVATION),
-            Math.sin(ONE_PM_AZIMUTH) * horizontal,
+            Math.cos(DAYLIGHT_AZIMUTH) * horizontal,
+            Math.sin(DAYLIGHT_ELEVATION),
+            Math.sin(DAYLIGHT_AZIMUTH) * horizontal,
         ).normalize();
         this.updateLightPosition();
         markShadowsDirty();

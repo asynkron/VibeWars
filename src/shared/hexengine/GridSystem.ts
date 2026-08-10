@@ -717,6 +717,10 @@ class GridSystem {
         if (tileNormal.lengthSq() < 1e-12) tileNormal.set(0, 1, 0);
         tileNormal.normalize();
         if (tileNormal.y < 0) tileNormal.negate();
+        // Preserve the geometric slope separately. Once every tile has
+        // reached its final height, smoothTileNormals shares these across
+        // corners without making the result depend on build order.
+        hexGroup.userData.rawTileNormal = tileNormal.clone();
 
         const tileNormals = geometry.attributes.aTileNormal;
         if (tileNormals) {
@@ -758,6 +762,56 @@ class GridSystem {
 
     static smoothTerrain() {
         this.hexGrid.forEach((hexGroup: any) => this.smoothHexTile(hexGroup));
+        this.smoothTileNormals();
+    }
+
+    // Each top corner is shared by three hexes. Give all three copies the
+    // same averaged normal, while retaining the tile's own normal at its
+    // centre. Interpolation across the fan then produces continuous hill
+    // lighting without flattening away the actual terrain shape.
+    static smoothTileNormals() {
+        const buildings = new Set(
+            (selectedMapProvider().buildings ?? []).map((building) => `${building.q},${building.r}`)
+        );
+        const up = new THREE.Vector3(0, 1, 0);
+        const rawNormal = (hex: any) => hex?.userData?.rawTileNormal ?? up;
+
+        for (const hexGroup of this.hexGrid) {
+            const { q, r } = hexGroup.userData;
+            if (buildings.has(`${q},${r}`)) continue;
+            const hexMesh = hexGroup.children.find(
+                (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
+            );
+            const tileNormals = hexMesh?.geometry?.attributes?.aTileNormal;
+            if (!tileNormals || !hexGroup.userData.rawTileNormal) continue;
+
+            const neighbors = this.getHexNeighbors(q, r);
+            const cornerNeighbors = [
+                [neighbors[0], neighbors[5]],
+                [neighbors[5], neighbors[4]],
+                [neighbors[4], neighbors[3]],
+                [neighbors[3], neighbors[2]],
+                [neighbors[2], neighbors[1]],
+                [neighbors[1], neighbors[0]],
+            ];
+            for (let corner = 0; corner < 6; corner++) {
+                const blended = rawNormal(hexGroup).clone();
+                let count = 1;
+                for (const neighbor of cornerNeighbors[corner]) {
+                    if (!neighbor) continue;
+                    blended.add(rawNormal(neighbor));
+                    count++;
+                }
+                blended.divideScalar(count).normalize();
+                tileNormals.setXYZ(corner, blended.x, blended.y, blended.z);
+                tileNormals.setXYZ(corner + 6, blended.x, blended.y, blended.z);
+            }
+
+            const center = rawNormal(hexGroup);
+            tileNormals.setXYZ(12, center.x, center.y, center.z);
+            tileNormals.setXYZ(13, center.x, center.y, center.z);
+            tileNormals.needsUpdate = true;
+        }
     }
 
     // ---------------------------
@@ -891,6 +945,9 @@ class GridSystem {
         this.getHexNeighbors(coord.q, coord.r).forEach((neighbor: any) => {
             if (neighbor) this.smoothHexTile(neighbor);
         });
+        // The hit and its six neighbors have new raw slopes. Re-share their
+        // corner normals so crater deformation cannot reopen lighting seams.
+        this.smoothTileNormals();
         return true;
     }
 

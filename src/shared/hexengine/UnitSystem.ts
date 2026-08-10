@@ -7,7 +7,7 @@ import { PathfindingSystem } from './PathfindingSystem';
 import { setSelectedUnit } from '../../game';
 import { AudioSystem } from './AudioSystem';
 import { BuildingSystem } from './BuildingSystem';
-import { ModelSystem } from './ModelSystem';
+import { MODEL_LOADER_MATERIAL_SETTINGS, ModelSystem } from './ModelSystem';
 import { RotorSystem } from './RotorSystem';
 import { GridSystem } from './GridSystem';
 import { HexCoord } from './HexCoord';
@@ -219,8 +219,17 @@ class UnitSystem {
                     ? [unitType.teamColorMaterial]
                     : [];
                 modelClone = teamSlots.length
-                    ? ModelSystem.cloneWithTeamTint(baseModel, players[playerIndex].color, teamSlots)
-                    : ModelSystem.cloneUntouched(baseModel);
+                    ? ModelSystem.cloneWithTeamTint(
+                        baseModel,
+                        players[playerIndex].color,
+                        teamSlots,
+                        0,
+                        MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
+                    )
+                    : ModelSystem.cloneUntouched(
+                        baseModel,
+                        MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
+                    );
                 // Textured units take the authored-material clone path.
                 // Claim animation explicitly after it.
                 RotorSystem.claim(modelClone);
@@ -230,13 +239,12 @@ class UnitSystem {
                     players[playerIndex].color,
                     unitType.usePlayerColor,
                     unitType.replaceColor,
-                    unitType.teamColorMaterial
+                    unitType.teamColorMaterial,
+                    MODEL_LOADER_MATERIAL_SETTINGS.unitContrastStrength
                 );
             }
-            ModelSystem.enhanceUnitContrast(modelClone);
-            // Contrast takes ownership of every material first. Weathering
-            // then stays local to this unit instead of mutating a material
-            // shared with the cached source model.
+            // ModelSystem's clone path owns and tunes imported texture
+            // materials. Weathering remains idempotent for the legacy paths.
             applyDirtyPlateToModel(modelClone);
 
             // Calculate bounding box for model height

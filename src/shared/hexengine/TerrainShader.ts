@@ -25,6 +25,7 @@
 import { TerrainSystem } from './TerrainSystem';
 import { MAP_CONFIG } from '../../constants';
 import { VIEW_UNIFORMS } from './ViewOptions';
+import { SunSystem } from './SunSystem';
 import {
     createGerstnerUniforms,
     GERSTNER_WAVE_GLSL,
@@ -350,6 +351,13 @@ const GROUND_FRAGMENT = /* glsl */ `
                 grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
                              uGrassColor * vec3(1.55, 1.45, 1.00), meadow);
                 grassC *= 0.90 + 0.20 * blades;
+                // Amplify the rounded TERRAIN slope's relation to the sun,
+                // independent of GrassSystem's individual blade shader.
+                // Flat ground is neutral; faces leaning toward the sun
+                // brighten, while faces leaning away deepen in shade.
+                vec3 grassWorldNormal = inverseTransformDirection(normalize(vTileNormal), viewMatrix);
+                float grassSunDelta = dot(grassWorldNormal, uSunDirection) - uSunDirection.y;
+                grassC *= clamp(1.0 + grassSunDelta * 0.90, 0.68, 1.22);
                 grassH = meadow * 0.30 + blades * 0.10;
             }
 
@@ -740,6 +748,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uRockColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('MOUNTAIN')) };
         shader.uniforms.uConcreteColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('CONCRETE')) };
         shader.uniforms.uIsConcrete = { value: terrainType === 'CONCRETE' ? 1 : 0 };
+        shader.uniforms.uSunDirection = { value: SunSystem.getDirection() };
         // Same source as the water material's own color, so the film
         // running up the beach is the sea, not a blue of its own.
         shader.uniforms.uWaterColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('WATER')) };
@@ -759,7 +768,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
                 ' uniform vec3 uRockColor;\n uniform vec3 uConcreteColor;\n uniform vec3 uWaterColor;\n' +
-                ' uniform float uIsConcrete;\n' +
+                ' uniform float uIsConcrete;\n uniform vec3 uSunDirection;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
                 ' float gBumpH;\n float gWaterFilm;\n float gSandSheen;\n float gRockSheen;\n' +

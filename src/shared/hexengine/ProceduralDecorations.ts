@@ -685,6 +685,14 @@ const DECOR_FRAGMENT = /* glsl */ `
     }
 `;
 
+// Foliage catches a restrained broad highlight from the directional sun.
+// Bark and stone (kind <= 0) retain the material's authored matte response;
+// needles, inner leaves and fringe leaves are only a little less rough.
+const DECOR_ROUGHNESS_FRAGMENT = /* glsl */ `
+    roughnessFactor = mix(roughnessFactor, 0.76, step(0.5, vDecorKind));
+    roughnessFactor = mix(roughnessFactor, 0.64, step(1.5, vDecorKind));
+`;
+
 // kind: 0 = generic surface (bark, rock), 1 = conifer foliage,
 // 2 = deciduous/bush leaves.
 // Burning a tile down to bare stems.
@@ -733,6 +741,10 @@ function applyOrganicDetail(material: any): void {
             // pass -- a GLSL global, same wiring as the terrain's gBumpH.
             .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n uniform float uBurn;\n float dBumpH;\n' + DECOR_NOISE_GLSL + PERTURB_GLSL)
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT + DECOR_BURN_GLSL)
+            .replace(
+                '#include <roughnessmap_fragment>',
+                '#include <roughnessmap_fragment>\n' + DECOR_ROUGHNESS_FRAGMENT
+            )
             .replace(
                 '#include <normal_fragment_begin>',
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
