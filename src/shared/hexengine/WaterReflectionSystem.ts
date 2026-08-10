@@ -32,6 +32,8 @@ const SKY_PLANE_HEIGHT = 80;
 const SKY_PLANE_WIDTH = 800;
 const SKY_PLANE_DEPTH = 535;
 const LANDSCAPE_REFLECTION_EXPOSURE = 0.32;
+const GERSTNER_REFLECTION_WEIGHT = 8.0;
+const MICRO_REFLECTION_WEIGHT = 0.12;
 
 const WATER_REFLECTION_SHADER: any = {
     name: 'VibeWarsWaterReflection',
@@ -66,8 +68,6 @@ const WATER_REFLECTION_SHADER: any = {
 
         void main() {
             vec4 localPosition = vec4(position, 1.0);
-            vReflectionCoord = textureMatrix * localPosition;
-            vWaterWorldPos = (modelMatrix * localPosition).xyz;
             vWaterLocalPos = position.xyz;
             vTileLocal = aTileLocal;
             vWaterPin = aWaterPin;
@@ -78,6 +78,9 @@ const WATER_REFLECTION_SHADER: any = {
             gerstnerOffset += GerstnerWave(waveB, position.xyz);
             gerstnerOffset += GerstnerWave(waveC, position.xyz);
             p += gerstnerOffset * ${GERSTNER_DISPLACEMENT_SCALE.toFixed(2)} * (1.0 - aWaterPin);
+            vec4 displacedPosition = vec4(p, 1.0);
+            vReflectionCoord = textureMatrix * displacedPosition;
+            vWaterWorldPos = (modelMatrix * displacedPosition).xyz;
             gl_Position = projectionMatrix * modelViewMatrix * vec4(p.x, p.y, p.z, 1.0);
         }
     `,
@@ -136,6 +139,20 @@ const WATER_REFLECTION_SHADER: any = {
         void main() {
             vec4 noise = getNoise(vWaterWorldPos.xz * size);
             vec3 surfaceNormal = normalize(noise.xzy * vec3(1.5, 1.0, 1.5));
+            vec3 localFaceNormal = GerstnerNormal(
+                vWaterLocalPos,
+                ${GERSTNER_DISPLACEMENT_SCALE.toFixed(2)}
+            );
+            vec3 faceNormal = normalize(vec3(
+                localFaceNormal.x,
+                localFaceNormal.z,
+                -localFaceNormal.y
+            ));
+            faceNormal = normalize(mix(
+                vec3(0.0, 1.0, 0.0),
+                faceNormal,
+                1.0 - vWaterPin
+            ));
 
             vec3 diffuseLight = vec3(0.0);
             vec3 specularLight = vec3(0.0);
@@ -144,7 +161,16 @@ const WATER_REFLECTION_SHADER: any = {
             sunLight(surfaceNormal, eyeDirection, 100.0, 2.0, 0.5, diffuseLight, specularLight);
 
             float distance = length(worldToEye);
-            vec2 distortion = surfaceNormal.xz * (0.001 + 1.0 / distance) * distortionScale;
+            // The displaced Gerstner surface owns the broad reflection bend.
+            // The scrolling normal texture remains only as fine ripple detail.
+            vec2 gerstnerSlope = faceNormal.xz / max(faceNormal.y, 0.25);
+            vec2 microSlope = surfaceNormal.xz / max(surfaceNormal.y, 0.25);
+            vec2 reflectionSlope =
+                gerstnerSlope * ${GERSTNER_REFLECTION_WEIGHT.toFixed(1)}
+                + microSlope * ${MICRO_REFLECTION_WEIGHT.toFixed(2)};
+            vec2 distortion = reflectionSlope
+                * (0.001 + 1.0 / distance)
+                * distortionScale;
 
             vec2 reflectionUv = vReflectionCoord.xy / vReflectionCoord.w;
             reflectionUv += distortion;
@@ -178,20 +204,6 @@ const WATER_REFLECTION_SHADER: any = {
             // Gerstner face normal then redistributes brightness symmetrically:
             // a face turned away from the sun loses the same amount that the
             // corresponding sun-facing face gains.
-            vec3 localFaceNormal = GerstnerNormal(
-                vWaterLocalPos,
-                ${GERSTNER_DISPLACEMENT_SCALE.toFixed(2)}
-            );
-            vec3 faceNormal = normalize(vec3(
-                localFaceNormal.x,
-                localFaceNormal.z,
-                -localFaceNormal.y
-            ));
-            faceNormal = normalize(mix(
-                vec3(0.0, 1.0, 0.0),
-                faceNormal,
-                1.0 - vWaterPin
-            ));
             float flatSun = dot(vec3(0.0, 1.0, 0.0), sunDirection);
             float faceSun = dot(faceNormal, sunDirection);
             float faceDelta = clamp((faceSun - flatSun) * 8.0, -0.45, 0.45);
@@ -202,6 +214,19 @@ const WATER_REFLECTION_SHADER: any = {
             // blue reflection channels into cyan clipping.
             albedo *= 1.0 + min(faceDelta, 0.0);
             albedo += sunColor * baseLuminance * max(faceDelta, 0.0);
+
+            // Give the water real depth without dulling its highlights. Dark
+            // and mid-blue reflection values sink toward blue-black, while a
+            // separate highlight curve takes the brightest wave faces to white.
+            float gradedLuminance = dot(albedo, luminanceWeights);
+            float deepWater = 1.0 - smoothstep(0.18, 0.62, gradedLuminance);
+            albedo = mix(
+                albedo,
+                albedo * vec3(0.28, 0.34, 0.42),
+                deepWater
+            );
+            float whiteHighlight = smoothstep(0.38, 0.78, gradedLuminance);
+            albedo = mix(albedo, vec3(1.0), whiteHighlight);
 
             albedo = mix(
                 albedo,

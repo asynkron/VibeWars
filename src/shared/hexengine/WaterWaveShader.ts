@@ -8,8 +8,10 @@
 const WATER_NORMAL_TEXTURE = 'assets/textures/waternormals.jpg';
 
 // Preserve every relative Gerstner/normal-map speed from the reference while
-// running its whole water clock more slowly at the scale of this board.
-export const WATER_TIME_SCALE = 0.05;
+// running its whole water clock more slowly at the scale of this board. This
+// only controls motion; wavelength, displacement and normal strength remain
+// independent settings below.
+export const WATER_TIME_SCALE = 0.25;
 
 // Gerstner phase speed is independent from the scrolling normal texture.
 // Raising the shared clock made the reflection detail rush too; this moves

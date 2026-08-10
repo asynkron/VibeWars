@@ -11,7 +11,7 @@ import {
 
 describe('water animation clocks', () => {
     it('speeds Gerstner topology without changing the normal-map clock', () => {
-        expect(WATER_TIME_SCALE).toBe(0.05);
+        expect(WATER_TIME_SCALE).toBe(0.25);
         expect(GERSTNER_PHASE_SPEED).toBe(4);
         expect(GERSTNER_WAVE_GLSL).toContain('c * time * 4.0');
         expect(GERSTNER_NORMAL_GLSL).toContain('c * time * 4.0');
