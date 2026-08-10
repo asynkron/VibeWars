@@ -21,6 +21,9 @@ export const GERSTNER_WAVELENGTHS = Object.freeze({
 // normal-map repetition across a VibeWars map; 32 gives ripples a few world
 // units wide while retaining the reference shader's four-octave composition.
 export const WATER_NORMAL_SIZE = 32;
+// Strength of the fine normal-map ripples layered over the Gerstner surface.
+// 1.0 is the original full-strength normal map; 0.0 leaves only Gerstner normals.
+export const WATER_NORMAL_STRENGTH = 0.64;
 
 let waterNormalTexture: any = null;
 

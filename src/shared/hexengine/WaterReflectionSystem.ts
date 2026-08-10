@@ -12,6 +12,7 @@ import {
     getWaterNormalTexture,
     WATER_NORMAL_GLSL,
     WATER_NORMAL_SIZE,
+    WATER_NORMAL_STRENGTH,
     WATER_TIME_SCALE,
 } from './WaterWaveShader';
 
@@ -140,7 +141,12 @@ const WATER_REFLECTION_SHADER: any = {
 
         void main() {
             vec4 noise = getNoise(vWaterWorldPos.xz * size);
-            vec3 rippleNormal = normalize(noise.xzy * vec3(1.5, 1.0, 1.5));
+            vec3 fullRippleNormal = normalize(noise.xzy * vec3(1.5, 1.0, 1.5));
+            vec3 rippleNormal = normalize(mix(
+                vec3(0.0, 1.0, 0.0),
+                fullRippleNormal,
+                ${WATER_NORMAL_STRENGTH.toFixed(2)}
+            ));
 
             vec3 localTangent;
             vec3 localBinormal;
@@ -221,13 +227,15 @@ const WATER_REFLECTION_SHADER: any = {
             );
 
             // Give the water real depth without dulling its highlights. Dark
-            // and mid-blue reflection values sink toward blue-black, while a
-            // separate highlight curve takes the brightest wave faces to white.
+            // and mid-blue reflection values settle on a dark grey-blue floor
+            // instead of collapsing toward black, while a separate highlight
+            // curve takes the brightest wave faces to white.
             float gradedLuminance = dot(albedo, luminanceWeights);
             float deepWater = 1.0 - smoothstep(0.18, 0.62, gradedLuminance);
             albedo = mix(
                 albedo,
-                albedo * vec3(0.28, 0.34, 0.42),
+                vec3(0.075, 0.080, 0.090)
+                    + albedo * vec3(0.22, 0.25, 0.30),
                 deepWater
             );
             float whiteHighlight = smoothstep(0.38, 0.78, gradedLuminance);

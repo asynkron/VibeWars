@@ -7,6 +7,7 @@ import {
     GERSTNER_WAVE_GLSL,
     GERSTNER_WAVELENGTHS,
     WATER_NORMAL_GLSL,
+    WATER_NORMAL_STRENGTH,
     WATER_TIME_SCALE,
     WATER_NORMAL_SIZE,
 } from './WaterWaveShader';
@@ -22,6 +23,7 @@ describe('water animation clocks', () => {
 describe('board-scale water ripples', () => {
     it('layers dense normal detail over small geometric waves', () => {
         expect(WATER_NORMAL_SIZE).toBe(32);
+        expect(WATER_NORMAL_STRENGTH).toBe(0.64);
         expect(GERSTNER_DISPLACEMENT_SCALE).toBe(0.08);
         expect(GERSTNER_PHASE_SPEED).toBe(4);
         expect(GERSTNER_STEEPNESS).toBe(0.4);
