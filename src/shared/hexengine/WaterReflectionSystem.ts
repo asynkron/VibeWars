@@ -5,6 +5,10 @@ import { SunSystem } from './SunSystem';
 import { getTerrainColor } from './terrainStats';
 import { VIEW_UNIFORMS } from './ViewOptions';
 import {
+    createGerstnerUniforms,
+    GERSTNER_BASIS_GLSL,
+    GERSTNER_DISPLACEMENT_SCALE,
+    GERSTNER_WAVE_GLSL,
     getWaterNormalTexture,
     WATER_NORMAL_GLSL,
     WATER_NORMAL_SIZE,
@@ -28,6 +32,7 @@ const SKY_PLANE_HEIGHT = 80;
 const SKY_PLANE_WIDTH = 800;
 const SKY_PLANE_DEPTH = 535;
 const LANDSCAPE_REFLECTION_EXPOSURE = 0.32;
+const WATER_SURFACE_SUBDIVISIONS = 2;
 
 const WATER_REFLECTION_SHADER: any = {
     name: 'VibeWarsWaterReflection',
@@ -35,7 +40,7 @@ const WATER_REFLECTION_SHADER: any = {
         color: { value: null },
         tDiffuse: { value: null },
         textureMatrix: { value: null },
-        time: { value: 0 },
+        ...createGerstnerUniforms(),
         alpha: { value: 1 },
         size: { value: WATER_NORMAL_SIZE },
         uHexRadius: { value: MAP_CONFIG.HEX_RADIUS },
@@ -49,18 +54,36 @@ const WATER_REFLECTION_SHADER: any = {
     },
     vertexShader: /* glsl */ `
         uniform mat4 textureMatrix;
+        attribute float aWaterPin;
         attribute vec2 aTileLocal;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
+        varying vec3 vWaterLocalPos;
         varying vec2 vTileLocal;
+        varying float vWaterPin;
 
         #include <common>
+        ${GERSTNER_WAVE_GLSL}
+
         void main() {
             vec4 localPosition = vec4(position, 1.0);
-            vReflectionCoord = textureMatrix * localPosition;
-            vWaterWorldPos = (modelMatrix * localPosition).xyz;
+            vWaterLocalPos = position.xyz;
             vTileLocal = aTileLocal;
-            gl_Position = projectionMatrix * modelViewMatrix * localPosition;
+            vWaterPin = aWaterPin;
+
+            vec3 p = position.xyz;
+            vec3 gerstnerOffset = vec3(0.0);
+            gerstnerOffset += GerstnerWave(waveA, position.xyz);
+            gerstnerOffset += GerstnerWave(waveB, position.xyz);
+            gerstnerOffset += GerstnerWave(waveC, position.xyz);
+            p += gerstnerOffset
+                * ${GERSTNER_DISPLACEMENT_SCALE.toFixed(5)}
+                * (1.0 - aWaterPin);
+
+            vec4 displacedPosition = vec4(p, 1.0);
+            vReflectionCoord = textureMatrix * displacedPosition;
+            vWaterWorldPos = (modelMatrix * displacedPosition).xyz;
+            gl_Position = projectionMatrix * modelViewMatrix * displacedPosition;
         }
     `,
     fragmentShader: /* glsl */ `
@@ -71,14 +94,20 @@ const WATER_REFLECTION_SHADER: any = {
         uniform vec3 sunDirection;
         uniform vec3 eye;
         uniform vec3 waterColor;
+        uniform vec4 waveA;
+        uniform vec4 waveB;
+        uniform vec4 waveC;
         uniform float uHexRadius;
         uniform float uShowGrid;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
+        varying vec3 vWaterLocalPos;
         varying vec2 vTileLocal;
+        varying float vWaterPin;
 
         #include <common>
         ${WATER_NORMAL_GLSL}
+        ${GERSTNER_BASIS_GLSL}
 
         float hexEdgeDistance(vec2 local) {
             float d = 10.0;
@@ -111,7 +140,46 @@ const WATER_REFLECTION_SHADER: any = {
 
         void main() {
             vec4 noise = getNoise(vWaterWorldPos.xz * size);
-            vec3 surfaceNormal = normalize(noise.xzy * vec3(1.5, 1.0, 1.5));
+            vec3 rippleNormal = normalize(noise.xzy * vec3(1.5, 1.0, 1.5));
+
+            vec3 localTangent;
+            vec3 localBinormal;
+            vec3 localWaveNormal;
+            GerstnerBasis(
+                vWaterLocalPos,
+                ${GERSTNER_DISPLACEMENT_SCALE.toFixed(5)},
+                localTangent,
+                localBinormal,
+                localWaveNormal
+            );
+
+            float waveAmount = 1.0 - vWaterPin;
+            localTangent = normalize(mix(vec3(1.0, 0.0, 0.0), localTangent, waveAmount));
+            localBinormal = normalize(mix(vec3(0.0, 1.0, 0.0), localBinormal, waveAmount));
+            localWaveNormal = normalize(cross(localTangent, localBinormal));
+
+            // Reflector local XY maps to world X,-Z and local Z maps to world Y.
+            // Build an orthonormal world frame whose tangent axes match the XZ
+            // coordinates used to sample waternormals.jpg.
+            vec3 waveNormal = normalize(vec3(
+                localWaveNormal.x,
+                localWaveNormal.z,
+                -localWaveNormal.y
+            ));
+            vec3 waveTangent = normalize(vec3(
+                localTangent.x,
+                localTangent.z,
+                -localTangent.y
+            ));
+            waveTangent = normalize(
+                waveTangent - waveNormal * dot(waveTangent, waveNormal)
+            );
+            vec3 waveBitangent = normalize(cross(waveTangent, waveNormal));
+            vec3 surfaceNormal = normalize(
+                waveTangent * rippleNormal.x
+                + waveNormal * rippleNormal.y
+                + waveBitangent * rippleNormal.z
+            );
 
             vec3 diffuseLight = vec3(0.0);
             vec3 specularLight = vec3(0.0);
@@ -393,20 +461,58 @@ export class WaterReflectionSystem {
 
             const px = mesh.position.x;
             const pz = mesh.position.z;
-            const pushVertex = (index: number) => {
+            const pushVertex = (
+                center: number,
+                cornerA: number,
+                cornerB: number,
+                cornerAWeight: number,
+                cornerBWeight: number,
+            ) => {
+                const centerWeight = 1 - cornerAWeight - cornerBWeight;
+                const x = source.getX(center) * centerWeight
+                    + source.getX(cornerA) * cornerAWeight
+                    + source.getX(cornerB) * cornerBWeight;
+                const z = source.getZ(center) * centerWeight
+                    + source.getZ(cornerA) * cornerAWeight
+                    + source.getZ(cornerB) * cornerBWeight;
                 positions.push(
-                    source.getX(index) + px,
-                    -(source.getZ(index) + pz),
+                    x + px,
+                    -(z + pz),
                     0,
                 );
-                waterPins.push(sourcePins?.getX(index) ?? 0);
-                tileLocals.push(source.getX(index), source.getZ(index));
+                waterPins.push(
+                    (sourcePins?.getX(center) ?? 0) * centerWeight
+                    + (sourcePins?.getX(cornerA) ?? 0) * cornerAWeight
+                    + (sourcePins?.getX(cornerB) ?? 0) * cornerBWeight,
+                );
+                tileLocals.push(x, z);
             };
 
             for (let i = 0; i < 6; i++) {
-                pushVertex(13);
-                pushVertex(6 + ((i + 1) % 6));
-                pushVertex(6 + i);
+                const center = 13;
+                const cornerA = 6 + ((i + 1) % 6);
+                const cornerB = 6 + i;
+                const steps = WATER_SURFACE_SUBDIVISIONS;
+                const emit = (a: number, b: number) => pushVertex(
+                    center,
+                    cornerA,
+                    cornerB,
+                    a / steps,
+                    b / steps,
+                );
+
+                for (let a = 0; a < steps; a++) {
+                    for (let b = 0; b < steps - a; b++) {
+                        emit(a, b);
+                        emit(a + 1, b);
+                        emit(a, b + 1);
+                        if (a + b < steps - 1) {
+                            emit(a + 1, b);
+                            emit(a + 1, b + 1);
+                            emit(a, b + 1);
+                        }
+                    }
+                }
             }
             count++;
         }
