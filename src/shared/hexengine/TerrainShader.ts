@@ -27,9 +27,6 @@ import { MAP_CONFIG } from '../../constants';
 import { VIEW_UNIFORMS } from './ViewOptions';
 import { SunSystem } from './SunSystem';
 import {
-    createGerstnerUniforms,
-    GERSTNER_DISPLACEMENT_SCALE,
-    GERSTNER_WAVE_GLSL,
     getWaterNormalTexture,
     WATER_NORMAL_GLSL,
     WATER_NORMAL_SIZE,
@@ -613,22 +610,6 @@ const SHORE_VERTEX_BODY =
     // Into view space, where the fragment shader's own normal lives.
     ' vTileNormal = normalize(normalMatrix * aTileNormal);';
 
-// Sean Bradley's reference plane is authored in XY and then rotated onto the
-// water. Our tile meshes are authored directly in XZ, so map world XZ into the
-// reference plane, run its three calls unchanged, and map the displacement
-// back. The minus sign matches the merged Reflector plane's -90 degree X
-// rotation, keeping both surfaces coincident.
-const WATER_GERSTNER_VERTEX_BODY = /* glsl */ `
-    vec3 waterWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
-    vec3 gerstnerPosition = vec3(waterWorldPosition.x, -waterWorldPosition.z, waterWorldPosition.y);
-    vec3 gerstnerOffset = vec3(0.0);
-    gerstnerOffset += GerstnerWave(waveA, gerstnerPosition);
-    gerstnerOffset += GerstnerWave(waveB, gerstnerPosition);
-    gerstnerOffset += GerstnerWave(waveC, gerstnerPosition);
-    gerstnerOffset *= ${GERSTNER_DISPLACEMENT_SCALE.toFixed(2)} * (1.0 - aWaterPin);
-    transformed += vec3(gerstnerOffset.x, gerstnerOffset.z, -gerstnerOffset.y);
-`;
-
 const SHORE_FRAGMENT_DECL =
     ' varying vec3 vGroundWorldPos;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
     ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;\n uniform float uHexRadius;\n' +
@@ -684,8 +665,8 @@ const GROUND_WATER_METALNESS_FRAGMENT = /* glsl */ `
 `;
 
 // The reference shader derives its small-scale surface normal from the same
-// four waternormals.jpg samples used by three.js Water. Geometry displacement
-// comes from the exact Gerstner vertex function above.
+// four waternormals.jpg samples used by three.js Water. The water mesh itself
+// stays planar; all visible ripple detail comes from this normal field.
 const WATER_NORMAL_FRAGMENT = /* glsl */ `
     {
         vec4 noise = getNoise(vGroundWorldPos.xz * size);
@@ -702,7 +683,7 @@ export function applyWaterSurface(material: any): void {
     material.depthWrite = false;
 
     material.onBeforeCompile = (shader: any) => {
-        Object.assign(shader.uniforms, createGerstnerUniforms());
+        shader.uniforms.time = { value: 0 };
         shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         shader.uniforms.size = { value: WATER_NORMAL_SIZE };
@@ -714,11 +695,11 @@ export function applyWaterSurface(material: any): void {
         shader.vertexShader = shader.vertexShader
             .replace(
                 '#include <common>',
-                '#include <common>\n' + SHORE_VERTEX_DECL + '\n' + GERSTNER_WAVE_GLSL
+                '#include <common>\n' + SHORE_VERTEX_DECL
             )
             .replace(
                 '#include <begin_vertex>',
-                '#include <begin_vertex>\n' + SHORE_VERTEX_BODY + '\n' + WATER_GERSTNER_VERTEX_BODY
+                '#include <begin_vertex>\n' + SHORE_VERTEX_BODY
             );
         shader.fragmentShader = shader.fragmentShader
             .replace(
@@ -734,7 +715,7 @@ export function applyWaterSurface(material: any): void {
         // Expose the shader so animateWater can drive uTime each frame.
         material.userData.shader = shader;
     };
-    material.customProgramCacheKey = () => 'water-surface-small-gerstner-v2';
+    material.customProgramCacheKey = () => 'water-surface-flat-proxy-v3';
 }
 
 // Inject the height-banded procedural ground into a terrain

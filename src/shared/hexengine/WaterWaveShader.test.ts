@@ -1,31 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
-    GERSTNER_DISPLACEMENT_SCALE,
-    GERSTNER_NORMAL_GLSL,
-    GERSTNER_PHASE_SPEED,
-    GERSTNER_WAVE_GLSL,
-    GERSTNER_WAVELENGTHS,
+    WATER_NORMAL_GLSL,
     WATER_TIME_SCALE,
     WATER_NORMAL_SIZE,
 } from './WaterWaveShader';
 
 describe('water animation clocks', () => {
-    it('speeds Gerstner topology without changing the normal-map clock', () => {
+    it('drives the scrolling normal-map water', () => {
         expect(WATER_TIME_SCALE).toBe(0.25);
-        expect(GERSTNER_PHASE_SPEED).toBe(4);
-        expect(GERSTNER_WAVE_GLSL).toContain('c * time * 4.0');
-        expect(GERSTNER_NORMAL_GLSL).toContain('c * time * 4.0');
+        expect(WATER_NORMAL_GLSL).toContain('time / 17.0');
+        expect(WATER_NORMAL_GLSL).toContain('time / -113.0');
     });
 });
 
-describe('board-scale water waves', () => {
-    it('uses short, low Gerstner waves and dense normal detail', () => {
-        expect(GERSTNER_DISPLACEMENT_SCALE).toBe(0.18);
+describe('board-scale water ripples', () => {
+    it('uses dense normal detail', () => {
         expect(WATER_NORMAL_SIZE).toBe(32);
-        expect(GERSTNER_WAVELENGTHS).toEqual({
-            large: 10,
-            medium: 5,
-            small: 2.5,
-        });
     });
 });
