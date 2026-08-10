@@ -383,6 +383,7 @@ class ModelSystem {
         const targetHsl = { h: 0, s: 0, l: 0 };
         sourceTeam.getHSL(sourceHsl);
         targetTeam.getHSL(targetHsl);
+        const achromaticTarget = targetHsl.s < 0.08;
         const hueShift = targetHsl.h - sourceHsl.h;
 
         const image = map.image;
@@ -401,7 +402,17 @@ class ModelSystem {
             // Neutral steel and black shapes are part of the texture, not
             // team paint; leave them neutral.
             if (pixelHsl.s < 0.08) continue;
-            pixel.setHSL((pixelHsl.h + hueShift + 1) % 1, pixelHsl.s, pixelHsl.l);
+            // HSL assigns hue 0 (red) to an achromatic colour even though
+            // hue has no meaning when saturation is zero. Rotating the blue
+            // camo toward that placeholder hue while retaining its source
+            // saturation is exactly how neutral grey became bright red.
+            // Neutral team paint must instead preserve the texture's light
+            // pattern and remove its chroma.
+            if (achromaticTarget) {
+                pixel.setHSL(0, 0, pixelHsl.l);
+            } else {
+                pixel.setHSL((pixelHsl.h + hueShift + 1) % 1, pixelHsl.s, pixelHsl.l);
+            }
             pixels[i] = Math.round(pixel.r * 255);
             pixels[i + 1] = Math.round(pixel.g * 255);
             pixels[i + 2] = Math.round(pixel.b * 255);

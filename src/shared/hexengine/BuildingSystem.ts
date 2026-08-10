@@ -28,10 +28,10 @@ import { PRODUCTION_INTERVAL } from './production';
 import { markShadowsDirty } from './ShadowBudget';
 import type { Building, GameUnit } from '../../types';
 
-// Neutral structures use military-green camouflage. Only their named
-// teamCamo material receives this colour; authored concrete, trim and energy
-// materials remain untouched.
-const NEUTRAL_TINT = 0x3f8f46;
+// Neutral structures use grey camouflage. Only their named teamCamo material
+// receives this colour; authored concrete, trim and energy materials remain
+// untouched.
+const NEUTRAL_TINT = 0x888888;
 
 // Model is ~14.4 units wide; scale 0.12 gives a ~1.73 footprint on our
 // radius-1 hexes -- that is the hex's own width across the flats, so the
@@ -56,7 +56,7 @@ const DEPOT_SCALE = 1 / 7.2;
 // sits half a row south of the northern tile it hangs from.
 // rawMaterials keeps every texture the model was authored with -- no grime
 // pass. teamTint then names the slots that take the owner's colour (or the
-// neutral military green) and nothing else. See
+// neutral grey) and nothing else. See
 // ModelSystem.cloneWithTeamTint.
 const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number; zOffset?: number; keepOrigin?: boolean; drawnByAnchor?: boolean; rawMaterials?: boolean; teamTint?: string[] }> = {
     factory: { model: 'assets/buildings/factory-building.glb', scale: 0.12, yOffset: 0 },
