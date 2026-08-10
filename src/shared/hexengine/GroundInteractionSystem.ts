@@ -7,7 +7,49 @@ interface DustCloud {
     duration: number;
     baseSize: number;
     baseOpacity: number;
-    rotorWash: boolean;
+    growth: number;
+}
+
+interface GroundParticleStyle {
+    count: number;
+    radius: number;
+    opacity: number;
+    color: number;
+    size: number;
+    duration: number;
+    horizontalSpeed: number;
+    upwardSpeed: number;
+    growth: number;
+    backwardBias: number;
+    sideOffset: number;
+    sideSpeed: number;
+}
+
+const TRACKED_GROUND_CLASSES = new Set(['tank', 'artillery', 'aa']);
+
+// Kept as data rather than buried in the emitter so sand dust and grass mud
+// can be art-directed independently without touching movement code.
+export function movementGroundStyle(unitClass: string, terrainType: string): GroundParticleStyle | null {
+    if (!TRACKED_GROUND_CLASSES.has(unitClass)) return null;
+    switch (terrainType.toUpperCase()) {
+        case 'SAND':
+            return {
+                count: 12, radius: 0.26, opacity: 0.72, color: 0xaaa59d,
+                size: 0.62, duration: 1.35, horizontalSpeed: 0.38,
+                upwardSpeed: 0.19, growth: 0.95, backwardBias: 0.40,
+                sideOffset: 0.20, sideSpeed: 0.10,
+            };
+        case 'GRASS':
+        case 'FOREST':
+            return {
+                count: 14, radius: 0.10, opacity: 0.92, color: 0x865b38,
+                size: 0.46, duration: 1.15, horizontalSpeed: 0.20,
+                upwardSpeed: 0.56, growth: 0.20, backwardBias: 0.68,
+                sideOffset: 0.30, sideSpeed: 0.52,
+            };
+        default:
+            return null;
+    }
 }
 
 // Short-lived, low particle-count ground interaction. One render-loop
@@ -25,41 +67,71 @@ class GroundInteractionSystem {
         return this.texture;
     }
 
-    static emitMovementDust(position: any, unitClass: string): void {
-        const heavy = unitClass === 'tank' || unitClass === 'artillery' || unitClass === 'aa';
-        this.emit(position, heavy ? 11 : 7, heavy ? 0.42 : 0.29, heavy ? 0.56 : 0.38, false);
+    static emitMovementSurface(
+        position: any,
+        unitClass: string,
+        terrainType: string,
+        travelDirection: any,
+        intensity: number = 1
+    ): void {
+        const style = movementGroundStyle(unitClass, terrainType);
+        if (!style) return;
+        this.emit(position, {
+            ...style,
+            count: Math.max(2, Math.round(style.count * intensity)),
+            size: style.size * Math.sqrt(intensity),
+        }, travelDirection);
     }
 
     static emitRotorWash(position: any): void {
-        this.emit(position, 16, 0.72, 0.34, true);
+        this.emit(position, {
+            count: 16, radius: 0.72, opacity: 0.34, color: 0x8b806f,
+            size: 0.48, duration: 0.62, horizontalSpeed: 0.95,
+            upwardSpeed: 0.10, growth: 1.0, backwardBias: 0,
+            sideOffset: 0, sideSpeed: 0,
+        }, null);
     }
 
-    private static emit(position: any, count: number, radius: number, opacity: number, rotorWash: boolean): void {
-        const positions = new Float32Array(count * 3);
+    private static emit(position: any, style: GroundParticleStyle, travelDirection: any): void {
+        const positions = new Float32Array(style.count * 3);
         const velocities: any[] = [];
-        for (let i = 0; i < count; i++) {
+        const backward = travelDirection
+            ? new THREE.Vector3(-travelDirection.x, 0, -travelDirection.z).normalize()
+            : new THREE.Vector3();
+        const sideways = travelDirection
+            ? new THREE.Vector3(travelDirection.z, 0, -travelDirection.x).normalize()
+            : new THREE.Vector3();
+        for (let i = 0; i < style.count; i++) {
             const angle = Math.random() * Math.PI * 2;
-            const startRadius = rotorWash ? radius * (0.35 + Math.random() * 0.35) : Math.random() * radius * 0.25;
-            positions[i * 3] = position.x + Math.cos(angle) * startRadius;
-            positions[i * 3 + 1] = position.y + Math.random() * 0.05;
-            positions[i * 3 + 2] = position.z + Math.sin(angle) * startRadius;
-            const speed = (rotorWash ? 0.95 : 0.42) * (0.65 + Math.random() * 0.55);
+            // Alternate particles between the left and right track. Mud gets
+            // two distinct motocross-like fans rather than one centre puff.
+            const side = i % 2 === 0 ? -1 : 1;
+            const trackOffset = style.sideOffset * (0.82 + Math.random() * 0.18);
+            const startRadius = Math.random() * style.radius;
+            positions[i * 3] = position.x + Math.cos(angle) * startRadius
+                + sideways.x * side * trackOffset;
+            positions[i * 3 + 1] = position.y + 0.06 + Math.random() * 0.07;
+            positions[i * 3 + 2] = position.z + Math.sin(angle) * startRadius
+                + sideways.z * side * trackOffset;
+            const speed = style.horizontalSpeed * (0.65 + Math.random() * 0.55);
             velocities.push(new THREE.Vector3(
-                Math.cos(angle) * speed,
-                rotorWash ? 0.08 + Math.random() * 0.06 : 0.18 + Math.random() * 0.12,
-                Math.sin(angle) * speed,
+                Math.cos(angle) * speed + backward.x * style.backwardBias,
+                style.upwardSpeed * (0.72 + Math.random() * 0.56),
+                Math.sin(angle) * speed + backward.z * style.backwardBias
+                    + sideways.z * side * style.sideSpeed,
             ));
+            velocities[i].x += sideways.x * side * style.sideSpeed;
         }
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         const material = new THREE.PointsMaterial({
-            color: rotorWash ? 0x8b806f : 0x705d46,
+            color: style.color,
             map: this.getTexture(),
             transparent: true,
             depthWrite: false,
-            opacity,
-            size: rotorWash ? 0.48 : 0.36,
+            opacity: style.opacity,
+            size: style.size,
             sizeAttenuation: true,
             blending: THREE.NormalBlending,
         });
@@ -71,10 +143,10 @@ class GroundInteractionSystem {
             points,
             velocities,
             start: performance.now() / 1000,
-            duration: rotorWash ? 0.62 : 0.48,
+            duration: style.duration,
             baseSize: material.size,
-            baseOpacity: opacity,
-            rotorWash,
+            baseOpacity: style.opacity,
+            growth: style.growth,
         });
     }
 
@@ -102,7 +174,7 @@ class GroundInteractionSystem {
             }
             positions.needsUpdate = true;
             cloud.points.material.opacity = cloud.baseOpacity * (1 - progress) * (1 - progress);
-            cloud.points.material.size = cloud.baseSize * (1 + progress * (cloud.rotorWash ? 1.0 : 0.65));
+            cloud.points.material.size = cloud.baseSize * (1 + progress * cloud.growth);
         }
     }
 

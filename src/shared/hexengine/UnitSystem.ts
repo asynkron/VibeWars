@@ -481,6 +481,8 @@ class UnitSystem {
                 const startHex = HexCoord.findHex(oldQ, oldR);
                 const startPos = new HexCoord(oldQ, oldR).getWorldPosition();
                 const endPos = coord.getWorldPosition();
+                const arrivedTile = getGameState().map.getTile(newQ, newR);
+                const movementTerrainType = arrivedTile?.type ?? '';
 
                 // Adjust Y positions based on terrain height plus this unit's
                 // flightAltitude, so mid-flight interpolation (below) doesn't
@@ -490,6 +492,15 @@ class UnitSystem {
                     + (unit.visualUnit.userData.groundSink || 0);
                 startPos.y = TerrainSystem.getHeight(startHex) + flightAltitude;
                 endPos.y = TerrainSystem.getHeight(hex) + flightAltitude;
+                const groundStartY = TerrainSystem.getHeight(startHex);
+                const groundEndY = TerrainSystem.getHeight(hex);
+                const travelDirection = endPos.clone().sub(startPos);
+                travelDirection.y = 0;
+                travelDirection.normalize();
+                const emitsTrackSurface = movingUnitType.unitClass !== 'air'
+                    && movementTerrainType !== 'WATER'
+                    && !arrivedTile?.hasRoad;
+                let nextGroundEmission = 0.12;
 
                 // Create a temporary position vector for interpolation
                 const currentPos = new THREE.Vector3();
@@ -518,17 +529,22 @@ class UnitSystem {
                     // Ensure final position and rotation are exact and create footprints
                     this.setPosition(unit.visualUnit, coord, hex, targetRotation);
 
-                    const arrivedTile = getGameState().map.getTile(newQ, newR);
                     if (movingUnitType.unitClass === 'air') {
                         if (unit.visualUnit.userData.airGlyph === 'helo' && arrivedTile?.type !== 'WATER') {
                             const washPosition = endPos.clone();
                             washPosition.y = TerrainSystem.getHeight(hex) + 0.08;
                             GroundInteractionSystem.emitRotorWash(washPosition);
                         }
-                    } else if (arrivedTile?.type !== 'WATER' && !arrivedTile?.hasRoad) {
-                        const dustPosition = endPos.clone();
-                        dustPosition.y = TerrainSystem.getHeight(hex) + 0.06;
-                        GroundInteractionSystem.emitMovementDust(dustPosition, movingUnitType.unitClass);
+                    } else if (emitsTrackSurface && nextGroundEmission <= 1) {
+                        const surfacePosition = endPos.clone();
+                        surfacePosition.y = groundEndY + 0.05;
+                        GroundInteractionSystem.emitMovementSurface(
+                            surfacePosition,
+                            movingUnitType.unitClass,
+                            movementTerrainType,
+                            travelDirection,
+                            1.65
+                        );
                     }
 
                     // CARGO RIDES ALONG. SimState.apply does this for the
@@ -595,6 +611,26 @@ class UnitSystem {
 
                     // Interpolate position
                     currentPos.lerpVectors(startPos, endPos, easedProgress);
+
+                    // Emit along the travelled line instead of one arrival
+                    // puff. A progress interval keeps particle cost stable
+                    // regardless of display frame rate.
+                    if (emitsTrackSurface && easedProgress >= nextGroundEmission) {
+                        const surfacePosition = currentPos.clone();
+                        surfacePosition.y = THREE.MathUtils.lerp(
+                            groundStartY,
+                            groundEndY,
+                            easedProgress
+                        ) + 0.05;
+                        GroundInteractionSystem.emitMovementSurface(
+                            surfacePosition,
+                            movingUnitType.unitClass,
+                            movementTerrainType,
+                            travelDirection,
+                            0.72
+                        );
+                        nextGroundEmission = easedProgress + 0.18;
+                    }
 
                     // Interpolate rotation using the shortest path
                     const currentRotation = startRotation + rotationDiff * easedProgress;
