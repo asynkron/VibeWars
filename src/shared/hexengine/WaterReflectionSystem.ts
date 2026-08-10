@@ -34,6 +34,7 @@ const SKY_PLANE_WIDTH = 800;
 const SKY_PLANE_DEPTH = 535;
 const LANDSCAPE_REFLECTION_EXPOSURE = 0.32;
 const WATER_SURFACE_SUBDIVISIONS = 2;
+const WATER_SKY_SHEEN_STRENGTH = 0.58;
 
 const WATER_REFLECTION_SHADER: any = {
     name: 'VibeWarsWaterReflection',
@@ -225,6 +226,30 @@ const WATER_REFLECTION_SHADER: any = {
                     + specularLight * reflectionLuminance,
                 reflectance
             );
+
+            // A broad sky dome illuminates water from every azimuth. Compare
+            // the final combined-normal reflection with flat water so only
+            // slopes catching the brighter horizon gain a silver-grey sheen.
+            // This remains independent of the directional sun-glint path.
+            vec3 skyReflection = reflect(-eyeDirection, surfaceNormal);
+            vec3 flatSkyReflection = reflect(
+                -eyeDirection,
+                vec3(0.0, 1.0, 0.0)
+            );
+            float skyBrightness = mix(
+                0.72,
+                0.20,
+                smoothstep(0.0, 1.0, max(skyReflection.y, 0.0))
+            );
+            float flatSkyBrightness = mix(
+                0.72,
+                0.20,
+                smoothstep(0.0, 1.0, max(flatSkyReflection.y, 0.0))
+            );
+            float skySheen = max(skyBrightness - flatSkyBrightness, 0.0);
+            albedo += vec3(0.72, 0.78, 0.88)
+                * skySheen
+                * ${WATER_SKY_SHEEN_STRENGTH.toFixed(2)};
 
             // Give the water real depth without dulling its highlights. Dark
             // and mid-blue reflection values settle on a dark grey-blue floor
