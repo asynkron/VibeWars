@@ -218,6 +218,7 @@ const GROUND_FRAGMENT = /* glsl */ `
         float y = vGroundWorldPos.y;
         gWaterFilm = 0.0;
         gSandSheen = 0.0;
+        gRockSheen = 0.0;
         // Shared border wobble so the band lines meander organically
         // instead of tracing flat contour lines.
         float wob = groundFbm(gp * 2.2) - 0.5;
@@ -398,6 +399,10 @@ const GROUND_FRAGMENT = /* glsl */ `
             float crackZone = smoothstep(0.62, 0.86, groundFbm(gp * 1.3 + warp * 1.6));
             float crack = (1.0 - smoothstep(0.02, 0.14, plate.y - plate.x)) * crackZone;
             float ridge = 1.0 - abs(2.0 * groundFbm(gp * 5.0) - 1.0);
+            // Mossy foothill stone stays mostly matte; clean high rock can
+            // catch a broad sun glint. The perturbed ridge/crack normal
+            // decides exactly which rough faces align with the light.
+            gRockSheen = wRock * mix(0.10, 0.48, rockAltitude) * uShowTextures;
             vec3 rockBase = mix(foothillRock, summitRock, rockAltitude);
             rockC = rockBase * (0.88 + 0.22 * plate.z) * (0.86 + 0.22 * ridge)
                 * (0.90 + 0.20 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6)));
@@ -447,6 +452,7 @@ const GROUND_FRAGMENT = /* glsl */ `
         // grid code below so a concrete quay meets water exactly like land.
         if (uIsConcrete > 0.5) {
             gSandSheen = 0.0;
+            gRockSheen = 0.0;
             float concreteMottle = groundFbm(gp * 2.6);
             float poreFade = groundDetailFade(gp * 38.0);
             float pores = mix(0.5, groundNoise(gp * 38.0), poreFade);
@@ -657,6 +663,9 @@ const GROUND_SURFACE_ROUGHNESS_FRAGMENT = /* glsl */ `
     // Lowering roughness only for the procedural sand band lets the normal
     // perturbation place a soft glint on dune faces aligned with the sun.
     roughnessFactor = mix(roughnessFactor, 0.52, gSandSheen);
+    // Rock uses the same light-driven response, weighted toward clean
+    // higher-altitude stone. Cracks and ridges supply its changing normal.
+    roughnessFactor = mix(roughnessFactor, 0.56, gRockSheen);
     roughnessFactor = mix(roughnessFactor, 0.68, gWaterFilm);
 `;
 
@@ -753,7 +762,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 ' uniform float uIsConcrete;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
-                ' float gBumpH;\n float gWaterFilm;\n float gSandSheen;\n' +
+                ' float gBumpH;\n float gWaterFilm;\n float gSandSheen;\n float gRockSheen;\n' +
                 NOISE_GLSL_CORE + PERTURB_GLSL + SHORE_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT)

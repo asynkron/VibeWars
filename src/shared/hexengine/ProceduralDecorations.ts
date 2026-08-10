@@ -623,10 +623,12 @@ const DECOR_FRAGMENT = /* glsl */ `
             // its own shade -- which is also what pushes the fringe
             // forward and gives the canopy depth.
             diffuseColor.rgb = dotC * (0.88 + 0.24 * leafTexA) * 0.74;
-            // ...and per-dot ALPHA: some leaf clusters sit denser than
-            // others, so the canopy breathes instead of being one evenly
-            // frosted pane.
-            diffuseColor.a *= 0.85 + 0.15 * decorHash(vec2(crown.y * 47.3, 5.9));
+            // ...and per-dot ALPHA: most clusters remain dense, while a
+            // scattered minority lets noticeably more of the crown behind
+            // it show through. This is real partial transparency, not a
+            // binary cutout, and every winning leaf-dot owns one density.
+            float leafDensity = decorHash(vec2(crown.y * 47.3, 5.9));
+            diffuseColor.a *= mix(0.38, 0.88, smoothstep(0.08, 0.92, leafDensity));
             // Crown self-shadowing: the underside of a canopy is where
             // the light does not reach. This cheap vertical AO does more
             // for "tree, not gumdrop" than any amount of surface noise.
