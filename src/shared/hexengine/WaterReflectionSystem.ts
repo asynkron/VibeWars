@@ -13,6 +13,7 @@ import {
     WATER_NORMAL_GLSL,
     WATER_NORMAL_SIZE,
     WATER_NORMAL_STRENGTH,
+    WATER_SURFACE_LIFT,
     WATER_TIME_SCALE,
 } from './WaterWaveShader';
 
@@ -28,7 +29,6 @@ import {
 
 const CLOUD_TEXTURE = 'assets/textures/sky/clouds.webp';
 const REFLECTION_SIZE = 512;
-const SURFACE_LIFT = 0.018;
 const SKY_PLANE_HEIGHT = 80;
 const SKY_PLANE_WIDTH = 800;
 const SKY_PLANE_DEPTH = 535;
@@ -306,7 +306,7 @@ export class WaterReflectionSystem {
             shader: WATER_REFLECTION_SHADER as any,
         });
         reflector.name = 'waterReflectionSurface';
-        reflector.position.y = SURFACE_LIFT;
+        reflector.position.y = WATER_SURFACE_LIFT;
         // Reflector defines its mirror normal as local +Z. Author the merged
         // water in local XY, then rotate it onto world XZ. Drawing XZ
         // vertices directly made the surface look horizontal while its

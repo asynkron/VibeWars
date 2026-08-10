@@ -6,10 +6,12 @@ import {
     GERSTNER_STEEPNESS,
     GERSTNER_WAVE_GLSL,
     GERSTNER_WAVELENGTHS,
+    sampleGerstnerHeight,
     WATER_NORMAL_GLSL,
     WATER_NORMAL_STRENGTH,
     WATER_TIME_SCALE,
     WATER_NORMAL_SIZE,
+    WATER_SURFACE_LIFT,
 } from './WaterWaveShader';
 
 describe('water animation clocks', () => {
@@ -28,6 +30,8 @@ describe('board-scale water ripples', () => {
         expect(GERSTNER_PHASE_SPEED).toBe(4);
         expect(GERSTNER_STEEPNESS).toBe(0.4);
         expect(GERSTNER_WAVELENGTHS).toEqual({ large: 10, medium: 5, small: 2.5 });
+        expect(WATER_SURFACE_LIFT).toBe(0.018);
+        expect(Number.isFinite(sampleGerstnerHeight(2.5, -4.25, 3.75))).toBe(true);
         expect(GERSTNER_WAVE_GLSL).toContain('c * time * 4.0');
         expect(GERSTNER_BASIS_GLSL).toContain('surfaceNormal = normalize(cross(tangent, binormal))');
     });

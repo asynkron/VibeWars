@@ -16,6 +16,13 @@ export const GERSTNER_WAVELENGTHS = Object.freeze({
     medium: 5,
     small: 2.5,
 });
+export const WATER_SURFACE_LIFT = 0.018;
+
+export const GERSTNER_WAVES = Object.freeze([
+    Object.freeze({ x: 0, y: 1, wavelength: GERSTNER_WAVELENGTHS.large }),
+    Object.freeze({ x: 0.5, y: 0.8660254037844386, wavelength: GERSTNER_WAVELENGTHS.medium }),
+    Object.freeze({ x: 0.8660254037844386, y: 0.5, wavelength: GERSTNER_WAVELENGTHS.small }),
+]);
 
 // getNoise divides these coordinates by ~100. At size 1 that means almost no
 // normal-map repetition across a VibeWars map; 32 gives ripples a few world
@@ -38,10 +45,33 @@ export function getWaterNormalTexture(): any {
 export function createGerstnerUniforms(): Record<string, any> {
     return {
         time: { value: 0 },
-        waveA: { value: new THREE.Vector4(0, 1, GERSTNER_STEEPNESS, GERSTNER_WAVELENGTHS.large) },
-        waveB: { value: new THREE.Vector4(0.5, 0.8660254037844386, GERSTNER_STEEPNESS, GERSTNER_WAVELENGTHS.medium) },
-        waveC: { value: new THREE.Vector4(0.8660254037844386, 0.5, GERSTNER_STEEPNESS, GERSTNER_WAVELENGTHS.small) },
+        waveA: { value: new THREE.Vector4(GERSTNER_WAVES[0].x, GERSTNER_WAVES[0].y, GERSTNER_STEEPNESS, GERSTNER_WAVES[0].wavelength) },
+        waveB: { value: new THREE.Vector4(GERSTNER_WAVES[1].x, GERSTNER_WAVES[1].y, GERSTNER_STEEPNESS, GERSTNER_WAVES[1].wavelength) },
+        waveC: { value: new THREE.Vector4(GERSTNER_WAVES[2].x, GERSTNER_WAVES[2].y, GERSTNER_STEEPNESS, GERSTNER_WAVES[2].wavelength) },
     };
+}
+
+// CPU twin of GerstnerWave's vertical component. The reflector is authored
+// in local XY and rotated onto world XZ, so its shader Y coordinate is
+// -worldZ. Watercraft must use that same mapping or their bounce drifts away
+// from the visible crests.
+export function sampleGerstnerHeight(worldX: number, worldZ: number, seconds: number): number {
+    const time = seconds * WATER_TIME_SCALE;
+    let height = 0;
+    for (const wave of GERSTNER_WAVES) {
+        const directionLength = Math.hypot(wave.x, wave.y);
+        const dx = wave.x / directionLength;
+        const dy = wave.y / directionLength;
+        const k = 2 * Math.PI / wave.wavelength;
+        const c = Math.sqrt(9.8 / k);
+        const phase = k * (
+            dx * worldX
+                + dy * -worldZ
+                - c * time * GERSTNER_PHASE_SPEED
+        );
+        height += (GERSTNER_STEEPNESS / k) * Math.sin(phase);
+    }
+    return height * GERSTNER_DISPLACEMENT_SCALE;
 }
 
 export const GERSTNER_WAVE_GLSL = /* glsl */ `

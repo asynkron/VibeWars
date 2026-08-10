@@ -8,6 +8,7 @@ import { GlowSystem } from './shared/hexengine/GlowSystem';
 import { RotorSystem } from './shared/hexengine/RotorSystem';
 import { WaterReflectionSystem } from './shared/hexengine/WaterReflectionSystem';
 import { SunSystem } from './shared/hexengine/SunSystem';
+import { WaterUnitMotionSystem } from './shared/hexengine/WaterUnitMotionSystem';
 import { viewOptions } from './shared/hexengine/ViewOptions';
 import { consumeShadowsDirty, markShadowsDirty } from './shared/hexengine/ShadowBudget';
 import { FrameStats } from './systems/frameStats';
@@ -355,6 +356,7 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
 
     GroundInteractionSystem.animate(seconds);
     MechanicalMotionSystem.animate(seconds);
+    WaterUnitMotionSystem.animate(seconds);
 
     // Spin the helicopters' rotors. Blades move every frame, so their
     // shadow is stale every frame -- but only while a helicopter is alive.

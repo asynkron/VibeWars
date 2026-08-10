@@ -17,6 +17,7 @@
 // ownership/tint.
 
 import { GridSystem } from './GridSystem';
+import { applyBuildingWeathering } from './BuildingWeatheringShader';
 import { HexCoord } from './HexCoord';
 import { ModelSystem } from './ModelSystem';
 import { TerrainSystem } from './TerrainSystem';
@@ -27,8 +28,10 @@ import { PRODUCTION_INTERVAL } from './production';
 import { markShadowsDirty } from './ShadowBudget';
 import type { Building, GameUnit } from '../../types';
 
-// Neutral (unowned) buildings render in gray; owned ones in player color.
-const NEUTRAL_TINT = 0x888888;
+// Neutral structures use military-green camouflage. Only their named
+// teamCamo material receives this colour; authored concrete, trim and energy
+// materials remain untouched.
+const NEUTRAL_TINT = 0x3f8f46;
 
 // Model is ~14.4 units wide; scale 0.12 gives a ~1.73 footprint on our
 // radius-1 hexes -- that is the hex's own width across the flats, so the
@@ -52,8 +55,8 @@ const DEPOT_SCALE = 1 / 7.2;
 // anchored to -- apex-hall spans three columns by two rows, so its centre
 // sits half a row south of the northern tile it hangs from.
 // rawMaterials keeps every texture the model was authored with -- no grime
-// pass. teamTint then names the slots that take the owner's colour and
-// nothing else; an unowned building takes none. See
+// pass. teamTint then names the slots that take the owner's colour (or the
+// neutral military green) and nothing else. See
 // ModelSystem.cloneWithTeamTint.
 const BUILDING_TYPES: Record<string, { model: string; scale: number; yOffset: number; zOffset?: number; keepOrigin?: boolean; drawnByAnchor?: boolean; rawMaterials?: boolean; teamTint?: string[] }> = {
     factory: { model: 'assets/buildings/factory-building.glb', scale: 0.12, yOffset: 0 },
@@ -125,11 +128,10 @@ class BuildingSystem {
             hex.userData.decorator = null;
         }
         // An OWNED building also flies the colour on its lit strips; an
-        // unowned one keeps the glow the model was authored with, because
-        // tinting that to the neutral grey would put out the light rather
-        // than neutralise it.
+        // unowned one recolours only teamCamo and keeps the glow the model
+        // was authored with.
         const visual = spec.rawMaterials
-            ? (spec.teamTint && building.ownerIndex !== null
+            ? (spec.teamTint
                 ? ModelSystem.cloneWithTeamTint(
                     base, this.tintFor(building.ownerIndex), spec.teamTint)
                 : ModelSystem.cloneUntouched(base))
@@ -138,7 +140,9 @@ class BuildingSystem {
                 this.tintFor(building.ownerIndex),
                 false,
                 null,
-                building.ownerIndex === null ? 'teamCamo' : ['teamCamo', 'energy']
+                building.ownerIndex === null ? 'teamCamo' : ['teamCamo', 'energy'],
+                undefined,
+                false
             );
         const groundY = TerrainSystem.getHeight(hex) + BUILDING_TYPES[building.type].yOffset;
         visual.position.set(hex.userData.x, groundY, hex.userData.z);
@@ -150,6 +154,11 @@ class BuildingSystem {
         // Offsetting the world position instead would leave a rotated
         // building sitting off its own tiles.
         if (spec.zOffset) visual.translateZ(spec.zOffset);
+        applyBuildingWeathering(
+            visual,
+            groundY,
+            building.q * 12.9898 + building.r * 78.233
+        );
         hex.userData.decorator = visual;
         hex.add(visual);
         building.visual = visual;

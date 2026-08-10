@@ -483,7 +483,8 @@ class ModelSystem {
         usePlayerColor: boolean = true,
         replaceColor: number | null = null,
         teamColorMaterial: string | string[] | null = null,
-        contrastStrength: number = MODEL_LOADER_MATERIAL_SETTINGS.contrastStrength
+        contrastStrength: number = MODEL_LOADER_MATERIAL_SETTINGS.contrastStrength,
+        applyPlateWeathering: boolean = true
     ) {
         const modelClone = model.clone();
 
@@ -525,7 +526,7 @@ class ModelSystem {
             // After the claims, so the grime lands on the materials that
             // actually render. Team color stays the base; this lays
             // weathering over it -- see UnitShader.
-            applyDirtyPlateToModel(modelClone);
+            if (applyPlateWeathering) applyDirtyPlateToModel(modelClone);
             ModelSystem.enhanceTexturedModelContrast(modelClone, contrastStrength);
             return modelClone;
         }
@@ -592,7 +593,7 @@ class ModelSystem {
         // that actually end up in the scene rather than ones replaced later.
         GlowSystem.claim(modelClone);
         RotorSystem.claim(modelClone);
-        applyDirtyPlateToModel(modelClone);
+        if (applyPlateWeathering) applyDirtyPlateToModel(modelClone);
         ModelSystem.enhanceTexturedModelContrast(modelClone, contrastStrength);
         return modelClone;
     }

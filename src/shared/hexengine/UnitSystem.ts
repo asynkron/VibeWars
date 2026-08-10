@@ -278,6 +278,7 @@ class UnitSystem {
                 sprite: unitSprite,  // Store reference to sprite
                 modelHeight: modelHeight,  // Store model height for positioning
                 flightAltitude: this.unitTypesRecord[type].flightAltitude || 0,
+                unitClass: unitType.unitClass,
                 // Which silhouette the tile marker draws -- see
                 // AirMarkerSystem. Declared per type rather than sniffed
                 // from the model path, which is one rename from wrong.
@@ -286,6 +287,14 @@ class UnitSystem {
                 groundSink,
                 terrainCosts: this.unitTypesRecord[type].terrainCosts
             };
+            if (unitType.unitClass === 'naval') {
+                const modelLength = Math.max(0, bbox.max.z - bbox.min.z);
+                modelClone.userData.waterSampleHalfLength = THREE.MathUtils.clamp(
+                    modelLength * 0.38,
+                    0.35,
+                    0.85
+                );
+            }
             MechanicalMotionSystem.claim(modelClone, unitType.unitClass);
 
             const miniUnit = new THREE.Mesh(
@@ -333,6 +342,9 @@ class UnitSystem {
 
         // Set model position
         unit.position.copy(finalPosition);
+        if (unit.userData.unitClass === 'naval') {
+            unit.userData.waterBaseY = height;
+        }
         // The one write path for a unit's transform, interpolation frames
         // included -- so hooking it here catches every way a shadow caster
         // can move without chasing individual animation call sites.
