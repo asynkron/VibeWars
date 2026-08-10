@@ -19,11 +19,8 @@ import { players, VISUAL_OFFSETS } from '../../constants';
 //   A SYMBOL lying on the tile itself, so the tile is marked even when the
 //   aircraft is off screen, behind terrain, or overlapping another unit.
 //
-// VisualizationSystem.updateOwnUnitMarkers already outlines the hexes under
-// a human player's units, and its comment names this exact problem -- but
-// it only runs for the side whose turn it is, and only for a human. The
-// question "which tile is that thing on" is just as pressing when it is the
-// enemy's helicopter about to shoot you.
+// This marker is positional rather than a turn highlight, so it stays visible
+// for aircraft on both sides.
 
 // Drawn once, tinted per team through material.color.
 const GLYPH_SIZE = 128;

@@ -21,7 +21,6 @@ import { HexCoord } from './HexCoord';
 import { ModelSystem } from './ModelSystem';
 import { TerrainSystem } from './TerrainSystem';
 import { UnitSystem } from './UnitSystem';
-import { VisualizationSystem } from './VisualizationSystem';
 import { getGameState } from '../../systems/gameStateStore';
 import { selectedMapProvider } from '../../systems/maps/mapRegistry';
 import { PRODUCTION_INTERVAL } from './production';
@@ -268,9 +267,6 @@ class BuildingSystem {
             if (gameState.getUnitAt(c.q, c.r)) continue;
             if (this.getBuildingAt(c.q, c.r)) continue; // don't spawn on the other factory
             gameState.spawnUnit(type, c.q, c.r, playerIndex);
-            // Same off-by-one resync as initGame: the marker update during
-            // creation ran before the unit was in gameState.units.
-            VisualizationSystem.updateOwnUnitMarkers(gameState.units);
             return;
         }
         console.warn(`Factory at (${building.q},${building.r}): no free tile to yield ${type} -- unit lost`);

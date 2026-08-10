@@ -39,9 +39,6 @@ function installState(buildings: Building[]) {
         players: [{ color: 0x3366ff }, { color: 0xff5533 }],
         map: { getTile: () => ({ type: 'GRASS' }) },
         getUnitAt: () => undefined,
-        // yieldHiddenUnit resyncs the own-unit markers afterwards, which
-        // reads the current player and bails for anything but a human.
-        getCurrentPlayer: () => ({ controller: 'cpu' }),
         spawnUnit: (type: string, q: number, r: number, playerIndex: number) =>
             spawned.push({ type, q, r, playerIndex }),
         checkHeadquartersDefeat: () => { defeatChecks++; return false; },

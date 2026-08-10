@@ -23,9 +23,10 @@ class TerrainSystem {
     static isImpassable = isImpassable;
 
     static getMoveCost(hex: any, unit: any): number {
-        // Check if the tile has a road first
+        // Roads speed up ground movement only. Aircraft keep their uniform
+        // terrain cost when crossing a road tile.
         const tile = getGameState().map.getTile(hex.userData.q, hex.userData.r);
-        if (tile && tile.hasRoad) {
+        if (tile?.hasRoad && UnitSystem.unitTypesRecord[unit.type]?.unitClass !== 'air') {
             return 0.5;
         }
 

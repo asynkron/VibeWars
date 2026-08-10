@@ -227,7 +227,7 @@ export function startTurn(state: SimState, playerIndex: number, rng: () => numbe
     state.record({ type: 'fireTicked', ignited: tick.ignited, burnedOut: tick.burnedOut, aged: burning });
 }
 
-// The cheapest a tile can cost to enter: a road, for every unit.
+// The cheapest a tile can cost to enter: a road for ground units.
 const MIN_TILE_COST = 0.5;
 
 // A destroyed machine leaves a burning wreck half the time.

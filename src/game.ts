@@ -400,9 +400,6 @@ function setupEventListeners(matrices: CameraMatrices) {
         updateEndTurnButton();
         updateNextUnitButton();  // Update next unit button state
         currentUnitIndex = -1;   // Reset unit index on turn change
-        // Markers follow the turn: shown only for a human player's own
-        // units during their turn (hotseat swaps sides; AI turns show none).
-        VisualizationSystem.updateOwnUnitMarkers(this.units);
     };
 
     // Next Unit button handler
@@ -581,11 +578,6 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
         // Place the map's buildings (factories) once the map + models exist
         BuildingSystem.initializeBuildings(gameState);
 
-        // Full resync: UnitSystem.setPosition() updates the own-unit markers as
-        // each unit is created, but GameState.initializeUnits() only pushes a
-        // unit into gameState.units *after* creating it, so the very last unit
-        // created is missing from that list during its own update -- this catches it.
-        VisualizationSystem.updateOwnUnitMarkers(gameState.units);
     }
 
     // Update decorator transparency for all hexes
@@ -1081,16 +1073,21 @@ function configureDirectionalLight() {
     // not visible at this camera height over hexes this size.
     directionalLight.shadow.mapSize.width = 2048;
     directionalLight.shadow.mapSize.height = 2048;
+    // Terrain normals vary rapidly across the displaced mountain surface.
+    // Smaller offsets self-shadowed adjacent samples and produced diagonal
+    // striping (shadow acne), especially on bright rock and sand slopes.
     directionalLight.shadow.bias = -0.001;
     directionalLight.shadow.normalBias = 0.04;
+    directionalLight.shadow.radius = 2.2;
+    directionalLight.shadow.blurSamples = 8;
     directionalLight.shadow.camera.near = 1;
     directionalLight.shadow.camera.far = 200;
 
     // Adjust shadow camera frustum to cover the entire map
-    directionalLight.shadow.camera.left = -mapWidth * 1.2;
-    directionalLight.shadow.camera.right = mapWidth * 1.2;
-    directionalLight.shadow.camera.top = mapHeight * 1.2;
-    directionalLight.shadow.camera.bottom = -mapHeight * 1.2;
+    directionalLight.shadow.camera.left = -mapWidth * 1.05;
+    directionalLight.shadow.camera.right = mapWidth * 1.05;
+    directionalLight.shadow.camera.top = mapHeight * 1.05;
+    directionalLight.shadow.camera.bottom = -mapHeight * 1.05;
 
     // Add light helpers for debugging
     const helper = new THREE.DirectionalLightHelper(directionalLight, 5);

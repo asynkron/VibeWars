@@ -7,7 +7,6 @@ import { HexCoord } from './HexCoord';
 import { TerrainSystem } from './TerrainSystem';
 import { LightPool } from './LightPool';
 import { MAP_CONFIG, HIGHLIGHT_COLORS, VISUAL_OFFSETS } from '../../constants';
-import { getGameStateOrNull } from '../../systems/gameStateStore';
 
 /*
 Render Order Hierarchy (from top to bottom):
@@ -197,39 +196,6 @@ class VisualizationSystem {
         if (highlights) {
             group.remove(highlights);
         }
-    }
-
-    // Ground-tile markers for the player's own units, kept separate from
-    // "highlights" (move/attack range, cursor hover) so the frequent
-    // clearHighlights() calls elsewhere don't wipe them. Flying units
-    // (helicopters/jets) render well above their actual hex due to
-    // flightAltitude, and the camera's angle then visually shifts them away
-    // from the tile they're really parked on -- these markers show which
-    // ground tile to click.
-    static clearOwnUnitMarkers() {
-        const markers = group.getObjectByName("ownUnitMarkers");
-        if (markers) {
-            group.remove(markers);
-        }
-    }
-
-    // Rule: only a HUMAN player gets their own units marked, only during
-    // their own turn, and in their own player color. AI sides never show
-    // markers (in AI vs AI there is no "own" side to assist).
-    static updateOwnUnitMarkers(units: any[]) {
-        this.clearOwnUnitMarkers();
-        const gameState = getGameStateOrNull();
-        if (!gameState) return;
-        const current = gameState.getCurrentPlayer();
-        if (current.controller !== 'human') return;
-        units
-            .filter((unit) => unit.playerIndex === current.id)
-            .forEach((unit) => {
-                const hex = HexCoord.findHex(unit.q, unit.r);
-                if (hex) {
-                    this.highlightHex(hex, current.color, true, "ownUnitMarkers");
-                }
-            });
     }
 
     static highlightHex(hex: any, color: number = HIGHLIGHT_COLORS.MOVE_RANGE, showOutline: boolean = false, groupName: string = "highlights") {

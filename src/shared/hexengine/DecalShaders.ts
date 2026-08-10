@@ -183,6 +183,11 @@ const TRACK_FRAGMENT = /* glsl */ `
         float bars = 0.5 + 0.5 * sin(along * 28.0 + groundNoise(wp * 5.0) * 3.0);
         rut *= 0.55 + 0.45 * smoothstep(0.25, 0.75, bars);
 
+        // A narrow dark floor and a faint churned shoulder make the print
+        // read as pressed into the soil instead of painted onto it.
+        float rutCore = smoothstep(0.045, 0.005, abs(across - 0.20 + wob));
+        float churn = smoothstep(0.15, 0.07, abs(across - 0.20 + wob));
+
         // The half: from the tile centre outward, then easing off at the
         // rim so it does not cut off squarely on the hex border.
         rut *= smoothstep(-0.02, 0.08, along) * smoothstep(1.12, 0.85, along);
@@ -190,6 +195,8 @@ const TRACK_FRAGMENT = /* glsl */ `
         // Dark turned earth. Raising the alpha alone only washes the grass
         // out; the mark has to be darker than the ground to read as a rut.
         diffuseColor.rgb = mix(vec3(0.09, 0.05, 0.02), vec3(0.20, 0.11, 0.05), groundNoise(wp * 20.0));
+        diffuseColor.rgb *= 1.0 - rutCore * 0.30;
+        diffuseColor.rgb += vec3(0.035, 0.020, 0.010) * churn * (1.0 - rutCore);
         // diffuseColor.a already carries the material's opacity, which
         // FootprintSystem winds down each turn -- so the print fades.
         diffuseColor.a *= rut;

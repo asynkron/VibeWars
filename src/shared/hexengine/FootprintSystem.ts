@@ -8,7 +8,7 @@ import { getGameState } from '../../systems/gameStateStore';
 
 // How strong a fresh print is, and the value its per-turn fade counts down
 // from. Shared by createFootprint and update() so the two cannot drift.
-const TRACK_STRENGTH = 0.75;
+const TRACK_STRENGTH = 0.86;
 const TRACK_LIFESPAN = 3;
 
 class FootprintSystem {

@@ -31,6 +31,7 @@ const FORBIDDEN = [
     'game',
     'GridSystem',
     'ModelSystem',
+    'EnvironmentLightingSystem',
     'VisualizationSystem',
     'AudioSystem',
     'UnitSystem',

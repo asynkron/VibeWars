@@ -2,6 +2,20 @@
 import { GlowSystem } from './GlowSystem';
 import { RotorSystem } from './RotorSystem';
 import { applyDirtyPlateToModel } from './UnitShader';
+
+// Units occupy little screen space against a deliberately colourful board.
+// A gentle display-space S-curve separates their dark, middle and light
+// panels without crushing them, while a small saturation lift keeps painted
+// details from turning grey. Applied to units only after their authored/team
+// material work; source textures and building materials stay untouched.
+const UNIT_CONTRAST_FRAGMENT = `
+vec3 unitColor = clamp(gl_FragColor.rgb, 0.0, 1.0);
+vec3 unitSCurve = unitColor * unitColor * (3.0 - 2.0 * unitColor);
+unitColor = mix(unitColor, unitSCurve, 0.42);
+float unitLuma = dot(unitColor, vec3(0.2126, 0.7152, 0.0722));
+gl_FragColor.rgb = clamp(mix(vec3(unitLuma), unitColor, 1.10), 0.0, 1.0);
+`;
+
 class ModelSystem {
     static models: Record<string, any> = {};  // Cache for loaded 3D models
 
@@ -234,6 +248,46 @@ class ModelSystem {
         const clone = model.clone();
         this.useAuthoredModelColorEncoding(clone);
         return clone;
+    }
+
+    static enhanceUnitContrast(model: any): void {
+        // Object3D.clone shares materials. Own one clone per source material
+        // so enhancing a unit cannot leak into the cached base model, a
+        // building, or another rendering path that uses the same asset.
+        const enhanced = new Map<any, any>();
+        const enhance = (material: any) => {
+            if (!material || material.userData?.sharedGlowMaterial) return material;
+            const existing = enhanced.get(material);
+            if (existing) return existing;
+
+            // Three's Material.clone() copies values, but not custom shader
+            // callbacks. Capture those from the source explicitly or this
+            // pass would silently erase authored sRGB encoding / plate grime.
+            const previousCompile = material.onBeforeCompile;
+            const previousKey = typeof material.customProgramCacheKey === 'function'
+                ? material.customProgramCacheKey.bind(material)
+                : null;
+            const owned = material.clone();
+            owned.onBeforeCompile = (shader: any, renderer: any) => {
+                previousCompile?.call(material, shader, renderer);
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <dithering_fragment>',
+                    `${UNIT_CONTRAST_FRAGMENT}\n#include <dithering_fragment>`
+                );
+            };
+            owned.customProgramCacheKey = () =>
+                `unit-contrast-v1|${previousKey ? previousKey() : ''}`;
+            owned.needsUpdate = true;
+            enhanced.set(material, owned);
+            return owned;
+        };
+
+        model.traverse((child: any) => {
+            if (!child.isMesh) return;
+            child.material = Array.isArray(child.material)
+                ? child.material.map(enhance)
+                : enhance(child.material);
+        });
     }
 
     // The procedural battlefield intentionally keeps its old linear-output

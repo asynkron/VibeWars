@@ -89,6 +89,7 @@ function renderPortrait(type: string, playerIndex: number): string | null {
             config.replaceColor,
             config.teamColorMaterial
         );
+    ModelSystem.enhanceUnitContrast(model);
 
     const scene = new THREE.Scene();
     scene.add(model);

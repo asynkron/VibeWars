@@ -4,7 +4,7 @@
 //
 // The movement rules deliberately mirror the live ones exactly
 // (TerrainSystem.getMoveCost + PathfindingSystem.dijkstra):
-//   - a tile with a road always costs 0.5, bypassing unit/terrain rules
+//   - a tile with a road costs ground units 0.5; aircraft ignore roads
 //   - otherwise cost = unitTypesRecord[unit.type].terrainCosts[TYPE];
 //     falsy (null/0/undefined) means impassable
 //   - occupied hexes are skipped entirely, including as destinations
@@ -71,7 +71,7 @@ function terrainKey(type: string): string {
 export function simMoveCost(state: SimState, unitType: string, q: number, r: number): number | null {
     const tile = state.getTile(q, r);
     if (!tile) return null;
-    if (tile.hasRoad) return 0.5;
+    if (tile.hasRoad && UnitSystem.unitTypesRecord[unitType]?.unitClass !== 'air') return 0.5;
     const cost = UnitSystem.getMovementCost(unitType, terrainKey(tile.type));
     return cost ? cost : null;
 }
@@ -169,7 +169,7 @@ function simDijkstraUncached(
             // mover will enter. Give that final edge zero cost so even an air
             // target over impassable ground can be routed TOWARD; callers
             // deliberately stop before this final step.
-            const terrainCost = tile.hasRoad ? 0.5 : costs[terrainKey(tile.type)];
+            const terrainCost = tile.hasRoad && !isAir ? 0.5 : costs[terrainKey(tile.type)];
             if (!isDestination && !terrainCost) continue;
             const cost = isDestination ? 0 : terrainCost!;
 
@@ -320,7 +320,7 @@ export function simCostFieldFrom(
             )) continue;
             const tile = state.getTile(nq, nr);
             if (!tile) continue;
-            const step = tile.hasRoad ? 0.5 : costs[terrainKey(tile.type)];
+            const step = tile.hasRoad && !isAir ? 0.5 : costs[terrainKey(tile.type)];
             if (!step) continue;
             const nextKey = nr * cols + nq;
             const next = currentCost + step;

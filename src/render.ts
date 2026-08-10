@@ -11,6 +11,8 @@ import { SunSystem } from './shared/hexengine/SunSystem';
 import { viewOptions } from './shared/hexengine/ViewOptions';
 import { consumeShadowsDirty, markShadowsDirty } from './shared/hexengine/ShadowBudget';
 import { FrameStats } from './systems/frameStats';
+import { GroundInteractionSystem } from './shared/hexengine/GroundInteractionSystem';
+import { MechanicalMotionSystem } from './shared/hexengine/MechanicalMotionSystem';
 import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
 import type { CameraMatrices } from './types';
 
@@ -94,6 +96,7 @@ const BLOOM_STRENGTH = 0.9;
 const BLOOM_RADIUS = 0.5;
 const BLOOM_THRESHOLD = 2.20;
 const BLOOM_MSAA_SAMPLES = 4;
+
 
 function buildComposer() {
     const size = new THREE.Vector2(window.innerWidth, window.innerHeight);
@@ -347,6 +350,9 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
     // per fire the way the one-shot effects do.
 
     FireSystem.animate(seconds);
+
+    GroundInteractionSystem.animate(seconds);
+    MechanicalMotionSystem.animate(seconds);
 
     // Spin the helicopters' rotors. Blades move every frame, so their
     // shadow is stale every frame -- but only while a helicopter is alive.

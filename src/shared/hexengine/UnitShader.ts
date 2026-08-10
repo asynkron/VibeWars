@@ -29,10 +29,10 @@ const UNIT_FRAGMENT = /* glsl */ `
         vec3 on = normalize(vUnitObjNormal);
 
         // Broad panel mottling: plate that has seen weather, not one even
-        // coat of team paint. Strong on purpose -- a unit covers few
-        // pixels at gameplay zoom, and a subtle treatment reads as none.
+        // coat of team paint. Kept restrained because textured models
+        // already carry authored surface variation.
         float mottle = groundFbm(lp.xz * 2.6 + lp.y * 1.9);
-        diffuseColor.rgb *= 0.72 + 0.42 * mottle;
+        diffuseColor.rgb *= 0.84 + 0.24 * mottle;
 
         // Grime: streaks running DOWN the vertical surfaces (gated off the
         // tops by the object normal), and dust collecting low on the hull.
@@ -43,13 +43,13 @@ const UNIT_FRAGMENT = /* glsl */ `
         float low = smoothstep(0.95, 0.10, lp.y);
         float dust = groundFbm(lp.xz * 4.0 + lp.y * 2.5);
         gPlateGrime = clamp(streaks * side * 0.8 + dust * low * 1.1, 0.0, 1.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.17, 0.15, 0.11), gPlateGrime * 0.72);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.17, 0.15, 0.11), gPlateGrime * 0.44);
 
         // Chips and scratches: sparse bare metal through the paint,
         // band-limited so distant units do not sparkle.
         float scratch = smoothstep(0.90, 0.98, groundNoise(lp.xy * 19.0 + lp.z * 11.0))
             * groundDetailFade(lp.xy * 19.0);
-        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.60, 0.63, 0.66), scratch * 0.55);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.60, 0.63, 0.66), scratch * 0.32);
         // Bare metal is not dusty.
         gPlateGrime = clamp(gPlateGrime - scratch, 0.0, 1.0);
     }
@@ -86,14 +86,26 @@ export function applyDirtyPlate(material: any): void {
     material.customProgramCacheKey = () => 'unit-dirty-plate|' + (previousKey ? previousKey() : '');
 }
 
-// Every material on a model clone, arrays included.
+function acceptsWeathering(material: any): boolean {
+    if (!material?.name) return true;
+    const name = material.name.toLowerCase();
+    // Transparent/emissive parts are functional surfaces, not painted
+    // armour. In particular, keeping canopies out of this pass preserves
+    // the Nightjar's solid authored cockpit colour.
+    return !['canopy', 'glass', 'window', 'rotor', 'energy', 'emissive', 'light', 'glow']
+        .some((token) => name.includes(token));
+}
+
+// Every paintable material on a model clone, arrays included.
 export function applyDirtyPlateToModel(model: any): void {
     model.traverse((child: any) => {
-        if (!(child instanceof THREE.Mesh)) return;
+        if (!child.isMesh) return;
         if (Array.isArray(child.material)) {
-            child.material.forEach((mat: any) => applyDirtyPlate(mat));
+            child.material.forEach((mat: any) => {
+                if (acceptsWeathering(mat)) applyDirtyPlate(mat);
+            });
         } else {
-            applyDirtyPlate(child.material);
+            if (acceptsWeathering(child.material)) applyDirtyPlate(child.material);
         }
     });
 }

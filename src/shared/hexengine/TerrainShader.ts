@@ -217,6 +217,7 @@ const GROUND_FRAGMENT = /* glsl */ `
         vec2 gp = vGroundWorldPos.xz;
         float y = vGroundWorldPos.y;
         gWaterFilm = 0.0;
+        gSandSheen = 0.0;
         // Shared border wobble so the band lines meander organically
         // instead of tracing flat contour lines.
         float wob = groundFbm(gp * 2.2) - 0.5;
@@ -304,6 +305,10 @@ const GROUND_FRAGMENT = /* glsl */ `
             float clump = groundFbm(gp * 4.5 + warp * 3.5);
             float front = trans * 0.75 + clump * 0.45;
             float grassMask = smoothstep(0.52, 0.72, front);
+            // Only textured, exposed sand gets the lower roughness below.
+            // Its actual highlight direction comes from the ripple height
+            // field's perturbed normal, so dune faces glint selectively.
+            gSandSheen = (1.0 - grassMask) * wLow * uShowTextures;
 
             // The strip where the front actually is -- 0 < grassMask < 1 --
             // runs both halves and blends them, exactly as before. Most of
@@ -441,6 +446,7 @@ const GROUND_FRAGMENT = /* glsl */ `
         // continue through the shared vertex-darkening, shoreline wash and
         // grid code below so a concrete quay meets water exactly like land.
         if (uIsConcrete > 0.5) {
+            gSandSheen = 0.0;
             float concreteMottle = groundFbm(gp * 2.6);
             float poreFade = groundDetailFade(gp * 38.0);
             float pores = mix(0.5, groundNoise(gp * 38.0), poreFade);
@@ -646,7 +652,11 @@ const GROUND_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
 // Match the film to the water material's surface response as well as its
 // colour. These run after GROUND_FRAGMENT has written gWaterFilm and before
 // lighting consumes roughnessFactor / metalnessFactor.
-const GROUND_WATER_ROUGHNESS_FRAGMENT = /* glsl */ `
+const GROUND_SURFACE_ROUGHNESS_FRAGMENT = /* glsl */ `
+    // Dry dune sand is still broadly rough, but not perfectly chalk-matte.
+    // Lowering roughness only for the procedural sand band lets the normal
+    // perturbation place a soft glint on dune faces aligned with the sun.
+    roughnessFactor = mix(roughnessFactor, 0.52, gSandSheen);
     roughnessFactor = mix(roughnessFactor, 0.68, gWaterFilm);
 `;
 
@@ -743,13 +753,13 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 ' uniform float uIsConcrete;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
-                ' float gBumpH;\n float gWaterFilm;\n' +
+                ' float gBumpH;\n float gWaterFilm;\n float gSandSheen;\n' +
                 NOISE_GLSL_CORE + PERTURB_GLSL + SHORE_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT)
             .replace(
                 '#include <roughnessmap_fragment>',
-                '#include <roughnessmap_fragment>\n' + GROUND_WATER_ROUGHNESS_FRAGMENT
+                '#include <roughnessmap_fragment>\n' + GROUND_SURFACE_ROUGHNESS_FRAGMENT
             )
             .replace(
                 '#include <metalnessmap_fragment>',

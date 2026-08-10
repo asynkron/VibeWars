@@ -208,7 +208,6 @@ class GameState {
             if (!unit) return;
             unit.move = 0;
             UnitSystem.setHasAttacked(unit, true);
-            VisualizationSystem.updateOwnUnitMarkers(this.units);
             building.productionCountdown = PRODUCTION_INTERVAL;
         });
 

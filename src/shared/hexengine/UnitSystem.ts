@@ -33,6 +33,10 @@ import { showSkillsFor } from '../../systems/skillBar';
 import { canIgnite, firePathDamage, ignite, WRECK_FIRE_CHANCE } from './fire';
 import { inSkillRange, skillAccepts } from './skills';
 import { FireSystem } from './FireSystem';
+import { ContactShadowSystem } from './ContactShadowSystem';
+import { applyDirtyPlateToModel } from './UnitShader';
+import { GroundInteractionSystem } from './GroundInteractionSystem';
+import { MechanicalMotionSystem } from './MechanicalMotionSystem';
 import { isMechanical, skillById, primarySkill, UNIT_TYPES, unitTypesRecord, CLASS_COUNTERS, canTarget, getClassModifier, getMovementCost } from './unitStats';
 
 class UnitSystem {
@@ -217,9 +221,8 @@ class UnitSystem {
                 modelClone = teamSlots.length
                     ? ModelSystem.cloneWithTeamTint(baseModel, players[playerIndex].color, teamSlots)
                     : ModelSystem.cloneUntouched(baseModel);
-                // Textured units bypass createModelWithColor, whose dirty
-                // plate pass replaces every authored map. Claim animation
-                // explicitly after taking the building-style clone path.
+                // Textured units take the authored-material clone path.
+                // Claim animation explicitly after it.
                 RotorSystem.claim(modelClone);
             } else {
                 modelClone = ModelSystem.createModelWithColor(
@@ -230,10 +233,23 @@ class UnitSystem {
                     unitType.teamColorMaterial
                 );
             }
+            ModelSystem.enhanceUnitContrast(modelClone);
+            // Contrast takes ownership of every material first. Weathering
+            // then stays local to this unit instead of mutating a material
+            // shared with the cached source model.
+            applyDirtyPlateToModel(modelClone);
 
             // Calculate bounding box for model height
             const bbox = new THREE.Box3().setFromObject(modelClone);
             const modelHeight = bbox.max.y - bbox.min.y;
+            const heavyGroundUnit = unitType.unitClass === 'tank'
+                || unitType.unitClass === 'artillery'
+                || unitType.unitClass === 'aa';
+            const groundSink = heavyGroundUnit ? -0.025
+                : unitType.unitClass === 'naval' ? -0.012 : 0;
+            if (unitType.unitClass !== 'air') {
+                ContactShadowSystem.attach(modelClone, bbox, groundSink);
+            }
 
             // Store references and data in model's userData
             modelClone.userData = {
@@ -256,8 +272,10 @@ class UnitSystem {
                 // from the model path, which is one rename from wrong.
                 airGlyph: this.unitTypesRecord[type].airGlyph,
                 yOffset: this.unitTypesRecord[type].yOffset || 0,
+                groundSink,
                 terrainCosts: this.unitTypesRecord[type].terrainCosts
             };
+            MechanicalMotionSystem.claim(modelClone, unitType.unitClass);
 
             const miniUnit = new THREE.Mesh(
                 new THREE.BoxGeometry(1, 1, 1),
@@ -292,7 +310,8 @@ class UnitSystem {
         // this unit's flightAltitude -- see move()'s startPos.y/endPos.y.
         const height = customPosition
             ? customPosition.y
-            : TerrainSystem.getHeight(hex) + (unit.userData.flightAltitude || 0) + (unit.userData.yOffset || 0);
+            : TerrainSystem.getHeight(hex) + (unit.userData.flightAltitude || 0)
+                + (unit.userData.yOffset || 0) + (unit.userData.groundSink || 0);
 
         // Transform position in world space
         const finalPosition = new THREE.Vector3(
@@ -325,6 +344,7 @@ class UnitSystem {
         // removed quaternion-based attempt if terrain alignment is revisited.
         if (rotation !== undefined) {
             unit.rotation.y = rotation;
+            MechanicalMotionSystem.headingChanged(unit, rotation);
         }
 
         // Set sprite position - above the model using actual bounding box
@@ -366,12 +386,6 @@ class UnitSystem {
                 FootprintSystem.createFootprint(hex, rotation + Math.PI, unit.userData.type);
             }
 
-            // Keep the "which ground tile is my unit on" markers in sync --
-            // see VisualizationSystem.updateOwnUnitMarkers. Runs on initial
-            // placement too, so it stays outside the moved guard.
-            if (unit.userData.playerIndex === 0) {
-                VisualizationSystem.updateOwnUnitMarkers(getGameState().units);
-            }
         }
     }
 
@@ -424,12 +438,14 @@ class UnitSystem {
     // sequence its actions. Fire-and-forget callers can ignore the promise.
     static move(unit: GameUnit, path: any[]): Promise<void> {
         if (path.length === 0) return Promise.resolve();
+        const movingUnitType = this.unitTypesRecord[unit.type];
 
         let movementDone!: () => void;
         const donePromise = new Promise<void>((resolve) => { movementDone = resolve; });
 
         // Start engine sound when movement begins
         AudioSystem.playEngineSound(unit);
+        MechanicalMotionSystem.setMoving(unit.visualUnit, true);
 
         // Clear highlights at the start of movement
         VisualizationSystem.clearHighlights();
@@ -461,7 +477,9 @@ class UnitSystem {
                 // Adjust Y positions based on terrain height plus this unit's
                 // flightAltitude, so mid-flight interpolation (below) doesn't
                 // dip back down to ground level for helicopters/jets.
-                const flightAltitude = (unit.visualUnit.userData.flightAltitude || 0) + (unit.visualUnit.userData.yOffset || 0);
+                const flightAltitude = (unit.visualUnit.userData.flightAltitude || 0)
+                    + (unit.visualUnit.userData.yOffset || 0)
+                    + (unit.visualUnit.userData.groundSink || 0);
                 startPos.y = TerrainSystem.getHeight(startHex) + flightAltitude;
                 endPos.y = TerrainSystem.getHeight(hex) + flightAltitude;
 
@@ -491,6 +509,19 @@ class UnitSystem {
                     stepFinalized = true;
                     // Ensure final position and rotation are exact and create footprints
                     this.setPosition(unit.visualUnit, coord, hex, targetRotation);
+
+                    const arrivedTile = getGameState().map.getTile(newQ, newR);
+                    if (movingUnitType.unitClass === 'air') {
+                        if (unit.visualUnit.userData.airGlyph === 'helo' && arrivedTile?.type !== 'WATER') {
+                            const washPosition = endPos.clone();
+                            washPosition.y = TerrainSystem.getHeight(hex) + 0.08;
+                            GroundInteractionSystem.emitRotorWash(washPosition);
+                        }
+                    } else if (arrivedTile?.type !== 'WATER' && !arrivedTile?.hasRoad) {
+                        const dustPosition = endPos.clone();
+                        dustPosition.y = TerrainSystem.getHeight(hex) + 0.06;
+                        GroundInteractionSystem.emitMovementDust(dustPosition, movingUnitType.unitClass);
+                    }
 
                     // CARGO RIDES ALONG. SimState.apply does this for the
                     // simulation's unitMoved; without the same loop here, a
@@ -538,6 +569,7 @@ class UnitSystem {
                             this.highlightAttackRange(unit);
                             // Stop engine sound when movement is complete
                             AudioSystem.stopEngineSound(unit);
+                            MechanicalMotionSystem.setMoving(unit.visualUnit, false);
                             movementDone();
                         }, 50);
                     }
@@ -981,6 +1013,10 @@ class UnitSystem {
 
         const outcome = resolved ?? this.resolveLiveAttack(attacker, defender, attackerStats, skill);
 
+        if (effect && effect !== 'laser') {
+            MechanicalMotionSystem.recoil(attacker.visualUnit, effect);
+        }
+
         // Show attack effect based on unit type, then execute the outcome.
         if (effect === 'projectile') {
             VisualizationSystem.showAttackEffect(attackerHex, defenderHex);
@@ -1256,8 +1292,6 @@ class UnitSystem {
         // Show death effect at unit's last position
         VisualizationSystem.showDeathEffect(unit.visualUnit.position);
 
-        // Keep the own-unit ground markers in sync now that this unit is gone
-        VisualizationSystem.updateOwnUnitMarkers(getGameState().units);
     }
 }
 

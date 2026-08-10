@@ -1,7 +1,7 @@
 import '../../test/threeStub';
 import { describe, it, expect } from 'vitest';
 import { SimState } from './SimState';
-import { simDijkstra, simPath, simMoveCost, simPathToTarget } from './SimPathfinding';
+import { simCostFieldFrom, simDijkstra, simPath, simMoveCost, simPathToTarget } from './SimPathfinding';
 import { HexCoord } from '../../shared/hexengine/HexCoord';
 
 // Tile factories. Types must exist in UnitSystem terrainCosts (upper-cased).
@@ -32,9 +32,10 @@ function makeState(tileAt: (q: number, r: number) => any, units: any[], building
 const key = (q: number, r: number) => r * 6 + q;
 
 describe('simMoveCost', () => {
-    it('roads cost 0.5 regardless of terrain and unit type', () => {
+    it('roads cost 0.5 for ground units but do not boost aircraft', () => {
         const state = makeState((q, r) => (q === 3 && r === 2 ? { ...water(), hasRoad: true } : grass()), [makeUnit()]);
         expect(simMoveCost(state, 'Bulwark', 3, 2)).toBe(0.5);
+        expect(simMoveCost(state, 'Nightjar', 3, 2)).toBe(1);
     });
 
     it('uses the unit type terrain costs, null when impassable', () => {
@@ -47,6 +48,22 @@ describe('simMoveCost', () => {
 });
 
 describe('simDijkstra', () => {
+    it('does not extend aircraft movement along roads', () => {
+        const state = makeState(
+            (q, r) => ({ ...grass(), hasRoad: !(q === 2 && r === 2) }),
+            [makeUnit({ type: 'Nightjar', move: 1 })]
+        );
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+        const beyond = HexCoord.getNeighbors(neighbor.q, neighbor.r).find(
+            (candidate) => !(candidate.q === 2 && candidate.r === 2)
+        )!;
+
+        const { reachable, distances } = simDijkstra(state, 0, 1);
+
+        expect(distances.get(key(neighbor.q, neighbor.r))).toBe(1);
+        expect(reachable.has(key(beyond.q, beyond.r))).toBe(false);
+    });
+
     it('reaches all hexes within the movement budget on open grass', () => {
         const state = makeState(() => grass(), [makeUnit({ move: 2 })]);
         const { reachable, distances } = simDijkstra(state, 0, 2);
@@ -136,6 +153,20 @@ describe('simDijkstra', () => {
         expect(after.reachable.has(key(beyond.q, beyond.r))).toBe(false);
         // The original branch is untouched.
         expect(simDijkstra(base, 0, 3).reachable.has(key(beyond.q, beyond.r))).toBe(true);
+    });
+});
+
+describe('simCostFieldFrom', () => {
+    it('uses aircraft terrain cost on road tiles', () => {
+        const state = makeState(
+            (q, r) => ({ ...grass(), hasRoad: !(q === 2 && r === 2) }),
+            [makeUnit({ type: 'Nightjar' })]
+        );
+        const neighbor = HexCoord.getNeighbors(2, 2)[0];
+
+        const field = simCostFieldFrom(state, 'Nightjar', 2, 2, 1);
+
+        expect(field.get(key(neighbor.q, neighbor.r))).toBe(1);
     });
 });
 
