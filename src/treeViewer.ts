@@ -3,8 +3,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
     animateDecorationWind,
     createDeciduousTreeModel,
+    setDecorationCrownOpacity,
+    setDecorationLeafGloss,
+    setDecorationLeafScale,
     type DeciduousTreeParameters,
 } from './shared/hexengine/ProceduralDecorations';
+import { SunSystem } from './shared/hexengine/SunSystem';
 
 const host = document.querySelector<HTMLElement>('#viewer');
 if (!host) throw new Error('Tree viewer host is missing');
@@ -21,9 +25,10 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'hi
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.type = THREE.VSMShadowMap;
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.toneMappingExposure = 1;
 host.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -37,22 +42,26 @@ controls.maxPolarAngle = Math.PI * 0.94;
 controls.zoomToCursor = true;
 controls.update();
 
-scene.add(new THREE.HemisphereLight(0xc9d5bf, 0x252018, 1.65));
+// Match the game renderer exactly: its assets were authored against the
+// legacy r128 light equation, compensated by π in modern Three.js.
+scene.add(new THREE.AmbientLight(0xffffff, 0.5 * Math.PI));
 
-const sun = new THREE.DirectionalLight(0xffe5be, 3.6);
-sun.position.set(-3.5, 6, 4.2);
+const sun = new THREE.DirectionalLight(0xffffff, 1.2 * Math.PI);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 sun.shadow.camera.left = -4;
 sun.shadow.camera.right = 4;
 sun.shadow.camera.top = 5;
 sun.shadow.camera.bottom = -2;
-sun.shadow.bias = -0.0004;
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 200;
+sun.shadow.bias = -0.001;
+sun.shadow.normalBias = 0.04;
+sun.shadow.radius = 2.2;
+sun.shadow.blurSamples = 8;
 scene.add(sun);
-
-const rim = new THREE.DirectionalLight(0x93b9b0, 1.1);
-rim.position.set(4, 2.5, -5);
-scene.add(rim);
+SunSystem.init(scene, sun);
+SunSystem.setCenter(0, 0, 0);
 
 let tree: any = null;
 
@@ -104,11 +113,21 @@ const rotateToggle = document.querySelector<HTMLButtonElement>('#rotate-toggle')
 const resetButton = document.querySelector<HTMLButtonElement>('#reset-view');
 
 const crownSize = document.querySelector<HTMLInputElement>('#crown-size');
+const leafSize = document.querySelector<HTMLInputElement>('#leaf-size');
+const leafGloss = document.querySelector<HTMLInputElement>('#leaf-gloss');
+const innerCrownOpacity = document.querySelector<HTMLInputElement>('#inner-crown-opacity');
+const outerCrownOpacity = document.querySelector<HTMLInputElement>('#outer-crown-opacity');
+const branchGravity = document.querySelector<HTMLInputElement>('#branch-gravity');
 const branchCount = document.querySelector<HTMLInputElement>('#branch-count');
 const recursion = document.querySelector<HTMLInputElement>('#recursion');
 const branchLength = document.querySelector<HTMLInputElement>('#branch-length');
 const trunkSize = document.querySelector<HTMLInputElement>('#trunk-size');
 const crownSizeValue = document.querySelector<HTMLOutputElement>('#crown-size-value');
+const leafSizeValue = document.querySelector<HTMLOutputElement>('#leaf-size-value');
+const leafGlossValue = document.querySelector<HTMLOutputElement>('#leaf-gloss-value');
+const innerCrownOpacityValue = document.querySelector<HTMLOutputElement>('#inner-crown-opacity-value');
+const outerCrownOpacityValue = document.querySelector<HTMLOutputElement>('#outer-crown-opacity-value');
+const branchGravityValue = document.querySelector<HTMLOutputElement>('#branch-gravity-value');
 const branchCountValue = document.querySelector<HTMLOutputElement>('#branch-count-value');
 const recursionValue = document.querySelector<HTMLOutputElement>('#recursion-value');
 const branchLengthValue = document.querySelector<HTMLOutputElement>('#branch-length-value');
@@ -149,11 +168,16 @@ function updateTreeStats(model: any, bounds: any): void {
 
 function readParameters(): DeciduousTreeParameters {
     return {
-        crownScale: Number(crownSize?.value ?? 1),
-        maxBranchesPerFork: Number(branchCount?.value ?? 4),
-        recursionDepth: Number(recursion?.value ?? 2),
-        branchLengthRatio: Number(branchLength?.value ?? 65) / 100,
-        trunkScale: Number(trunkSize?.value ?? 1),
+        crownScale: Number(crownSize?.value ?? 2.15),
+        leafScale: Number(leafSize?.value ?? 0.45),
+        leafGloss: Number(leafGloss?.value ?? 46) / 100,
+        innerCrownOpacity: Number(innerCrownOpacity?.value ?? 79) / 100,
+        outerCrownOpacity: Number(outerCrownOpacity?.value ?? 49) / 100,
+        branchGravity: Number(branchGravity?.value ?? 138) / 100,
+        maxBranchesPerFork: Number(branchCount?.value ?? 2),
+        recursionDepth: Number(recursion?.value ?? 3),
+        branchLengthRatio: Number(branchLength?.value ?? 60) / 100,
+        trunkScale: Number(trunkSize?.value ?? 1.5),
     };
 }
 
@@ -161,6 +185,11 @@ let rebuildTimer: number | undefined;
 function parametersChanged(): void {
     const parameters = readParameters();
     if (crownSizeValue) crownSizeValue.value = `${parameters.crownScale.toFixed(2)}×`;
+    if (leafSizeValue) leafSizeValue.value = `${parameters.leafScale.toFixed(2)}×`;
+    if (leafGlossValue) leafGlossValue.value = `${Math.round(parameters.leafGloss * 100)}%`;
+    if (innerCrownOpacityValue) innerCrownOpacityValue.value = `${Math.round(parameters.innerCrownOpacity * 100)}%`;
+    if (outerCrownOpacityValue) outerCrownOpacityValue.value = `${Math.round(parameters.outerCrownOpacity * 100)}%`;
+    if (branchGravityValue) branchGravityValue.value = `${Math.round(parameters.branchGravity * 100)}%`;
     if (branchCountValue) branchCountValue.value = String(parameters.maxBranchesPerFork);
     if (recursionValue) recursionValue.value = String(parameters.recursionDepth);
     if (branchLengthValue) branchLengthValue.value = `${Math.round(parameters.branchLengthRatio * 100)}%`;
@@ -170,10 +199,33 @@ function parametersChanged(): void {
     rebuildTimer = window.setTimeout(() => replaceTree(parameters), 80);
 }
 
-for (const input of [crownSize, branchCount, recursion, branchLength, trunkSize]) {
+for (const input of [crownSize, branchGravity, branchCount, recursion, branchLength, trunkSize]) {
     input?.addEventListener('input', parametersChanged);
 }
 parametersChanged();
+
+leafSize?.addEventListener('input', () => {
+    const scale = Number(leafSize.value);
+    if (leafSizeValue) leafSizeValue.value = `${scale.toFixed(2)}×`;
+    setDecorationLeafScale(tree, scale);
+});
+
+leafGloss?.addEventListener('input', () => {
+    const gloss = Number(leafGloss.value) / 100;
+    if (leafGlossValue) leafGlossValue.value = `${Math.round(gloss * 100)}%`;
+    setDecorationLeafGloss(tree, gloss);
+});
+
+function crownOpacityChanged(): void {
+    const inner = Number(innerCrownOpacity?.value ?? 100) / 100;
+    const outer = Number(outerCrownOpacity?.value ?? 100) / 100;
+    if (innerCrownOpacityValue) innerCrownOpacityValue.value = `${Math.round(inner * 100)}%`;
+    if (outerCrownOpacityValue) outerCrownOpacityValue.value = `${Math.round(outer * 100)}%`;
+    setDecorationCrownOpacity(tree, inner, outer);
+}
+
+innerCrownOpacity?.addEventListener('input', crownOpacityChanged);
+outerCrownOpacity?.addEventListener('input', crownOpacityChanged);
 
 function setPressed(button: HTMLButtonElement | null, pressed: boolean): void {
     button?.classList.toggle('is-on', pressed);

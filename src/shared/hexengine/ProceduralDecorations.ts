@@ -337,6 +337,10 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     // the define is written from it.
     uniform sampler2D uLeafInner;
     uniform sampler2D uLeafFringe;
+    uniform float uDecorLeafScale;
+    uniform float uDecorLeafGloss;
+    uniform float uDecorInnerCrownOpacity;
+    uniform float uDecorOuterCrownOpacity;
     #define DECOR_LEAF_INV_CELLS ${(1 / LEAF_CELLS).toFixed(6)}
 
     float decorHash(vec2 p) {
@@ -638,6 +642,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // reads texture without embossing the whole tree.
             dBumpH = (1.0 - abs(2.0 * band - 1.0)) * 0.22 + needleField * 0.30;
         } else if (vDecorKind < 2.5) {
+            if (uDecorInnerCrownOpacity < 0.001) discard;
             // DECIDUOUS leaves: the SAME leaf-dot field the fringe shell
             // uses, as a color pattern -- the solid crown cannot discard,
             // so the gaps between dots become the dark shadowed interior
@@ -650,7 +655,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // its NEAREST dot -- the whole crown surface is leaves, tiled
             // edge to edge in different greens. (Clipping was tried here
             // and rolled back in favor of full coverage.)
-            vec2 crown = decorCrownDots(uLeafInner, vDecorLocalPos, vec3(0.0), 17.0, 1.10, 0.25, ${LEAF_DIST_INNER.toFixed(2)});
+            vec2 crown = decorCrownDots(uLeafInner, vDecorLocalPos, vec3(0.0), 17.0 / uDecorLeafScale, 1.10, 0.25, ${LEAF_DIST_INNER.toFixed(2)});
             // Same two-axis palette as the fringe: HUE walks cool
             // blue-green -> mid -> warm sunlit yellow, and a separate
             // brightness jitter keeps two dots of similar hue apart.
@@ -678,7 +683,8 @@ const DECOR_FRAGMENT = /* glsl */ `
             // it show through. This is real partial transparency, not a
             // binary cutout, and every winning leaf-dot owns one density.
             float leafDensity = decorHash(vec2(crown.y * 47.3, 5.9));
-            diffuseColor.a *= mix(0.38, 0.88, smoothstep(0.08, 0.92, leafDensity));
+            diffuseColor.a *= mix(0.38, 0.88, smoothstep(0.08, 0.92, leafDensity))
+                * uDecorInnerCrownOpacity;
             // Crown self-shadowing: the underside of a canopy is where
             // the light does not reach. This cheap vertical AO does more
             // for "tree, not gumdrop" than any amount of surface noise.
@@ -687,6 +693,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // shadow gaps.
             dBumpH = crown.x * 0.5;
         } else {
+            if (uDecorOuterCrownOpacity < 0.001) discard;
             // FOLIAGE FRINGE (kind 3): the oversized crown shell. Keep
             // only a scattered fraction of its fragments -- a dithered
             // cutout, no transparency involved -- so the crown's hard
@@ -702,7 +709,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // Sparse and small against the sky, sampling a SHIFTED copy
             // of the field so the fringe leaves sit between the crown's
             // own rather than exactly on top of them.
-            vec2 dot1 = decorCrownDots(uLeafFringe, vDecorLocalPos, vec3(4.3, 8.9, 2.7), 9.0, 0.40, 0.20, ${LEAF_DIST_FRINGE.toFixed(2)});
+            vec2 dot1 = decorCrownDots(uLeafFringe, vDecorLocalPos, vec3(4.3, 8.9, 2.7), 9.0 / uDecorLeafScale, 0.40, 0.20, ${LEAF_DIST_FRINGE.toFixed(2)});
             // Soft rims with REAL alpha now that the material is
             // transparent: each fringe leaf fades smoothly from solid
             // core to nothing -- the blurry edge the dither could only
@@ -711,7 +718,8 @@ const DECOR_FRAGMENT = /* glsl */ `
             // Rim fade times a PER-DOT opacity: every outer leaf has its
             // own density, from nearly solid to a thin translucent one.
             diffuseColor.a *= smoothstep(0.04, 0.45, dot1.x)
-                * (0.55 + 0.45 * decorHash(vec2(dot1.y * 57.3, 7.7)));
+                * (0.55 + 0.45 * decorHash(vec2(dot1.y * 57.3, 7.7)))
+                * uDecorOuterCrownOpacity;
             // EVERY DOT ITS OWN GREEN -- same palette the inner crown
             // walks (cool -> mid -> warm plus brightness jitter), so the
             // fringe leaves belong to the same tree. No bloom: a glint
@@ -736,11 +744,27 @@ const DECOR_FRAGMENT = /* glsl */ `
 `;
 
 // Foliage catches a restrained broad highlight from the directional sun.
-// Bark and stone (kind <= 0) retain the material's authored matte response;
-// needles, inner leaves and fringe leaves are only a little less rough.
+// Bark is still matte, but less chalk-flat than stone: a broad, soft
+// response across the cylinder is what lets its roundness survive the
+// game's strong ambient light.
 const DECOR_ROUGHNESS_FRAGMENT = /* glsl */ `
+    float barkMask = 1.0 - step(0.5, abs(vDecorKind));
+    roughnessFactor = mix(roughnessFactor, 0.66, barkMask);
     roughnessFactor = mix(roughnessFactor, 0.76, step(0.5, vDecorKind));
-    roughnessFactor = mix(roughnessFactor, 0.64, step(1.5, vDecorKind));
+    float leafRoughness = mix(0.86, 0.08, uDecorLeafGloss);
+    roughnessFactor = mix(roughnessFactor, leafRoughness, step(1.5, vDecorKind));
+`;
+
+// The game's ambient light is deliberately strong and directionless. On the
+// side opposite the sun that can flatten a dark trunk into one brown value.
+// A restrained grazing-angle sky response restores the cylinder silhouette
+// without adding a viewer-only lamp or turning bark into polished wood.
+const DECOR_BARK_VOLUME_FRAGMENT = /* glsl */ `
+    float barkVolumeMask = 1.0 - step(0.5, abs(vDecorKind));
+    float barkFacing = saturate(dot(normalize(normal), normalize(vViewPosition)));
+    float barkSkySheen = pow(1.0 - barkFacing, 1.65);
+    reflectedLight.indirectDiffuse += diffuseColor.rgb
+        * barkVolumeMask * barkSkySheen * 0.34;
 `;
 
 // Every tile material points at this one uniform object, so wind costs one
@@ -802,6 +826,46 @@ export function animateDecorationWind(time: number): void {
     DECOR_WIND_TIME.value = time;
 }
 
+export function setDecorationLeafScale(model: any, scale: number): void {
+    const value = Math.max(0.35, Math.min(2.5, scale));
+    model?.traverse?.((child: any) => {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+            if (material?.userData?.leafScaleUniform) {
+                material.userData.leafScaleUniform.value = value;
+            }
+        }
+    });
+}
+
+export function setDecorationLeafGloss(model: any, gloss: number): void {
+    const value = Math.max(0, Math.min(1, gloss));
+    model?.traverse?.((child: any) => {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+            if (material?.userData?.leafGlossUniform) {
+                material.userData.leafGlossUniform.value = value;
+            }
+        }
+    });
+}
+
+export function setDecorationCrownOpacity(model: any, inner: number, outer: number): void {
+    const innerValue = Math.max(0, Math.min(1, inner));
+    const outerValue = Math.max(0, Math.min(1, outer));
+    model?.traverse?.((child: any) => {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+            if (material?.userData?.innerCrownOpacityUniform) {
+                material.userData.innerCrownOpacityUniform.value = innerValue;
+            }
+            if (material?.userData?.outerCrownOpacityUniform) {
+                material.userData.outerCrownOpacityUniform.value = outerValue;
+            }
+        }
+    });
+}
+
 // kind: 0 = generic surface (bark, rock), 1 = conifer foliage,
 // 2 = deciduous/bush leaves.
 // Burning a tile down to bare stems.
@@ -827,9 +891,17 @@ function applyOrganicDetail(material: any): void {
     // per TILE (see mergeDecorations), so this blackens one hex and not the
     // map.
     material.userData.burnUniform = { value: 0 };
+    material.userData.leafScaleUniform = { value: 0.45 };
+    material.userData.leafGlossUniform = { value: 0.46 };
+    material.userData.innerCrownOpacityUniform = { value: 0.79 };
+    material.userData.outerCrownOpacityUniform = { value: 0.49 };
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uBurn = material.userData.burnUniform;
         shader.uniforms.uDecorWindTime = DECOR_WIND_TIME;
+        shader.uniforms.uDecorLeafScale = material.userData.leafScaleUniform;
+        shader.uniforms.uDecorLeafGloss = material.userData.leafGlossUniform;
+        shader.uniforms.uDecorInnerCrownOpacity = material.userData.innerCrownOpacityUniform;
+        shader.uniforms.uDecorOuterCrownOpacity = material.userData.outerCrownOpacityUniform;
         // Two textures shared by every decoration material on the map --
         // baked once, referenced here, never per tile.
         const fields = getLeafFields();
@@ -860,11 +932,15 @@ function applyOrganicDetail(material: any): void {
                 '#include <roughnessmap_fragment>\n' + DECOR_ROUGHNESS_FRAGMENT
             )
             .replace(
+                '#include <lights_fragment_end>',
+                '#include <lights_fragment_end>\n' + DECOR_BARK_VOLUME_FRAGMENT
+            )
+            .replace(
                 '#include <normal_fragment_begin>',
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v5';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v10';
 }
 
 function mat(color: number, kind: number = 0) {
@@ -1098,6 +1174,11 @@ const DECIDUOUS_CROWN_SCALE = 1.25;
 
 export interface DeciduousTreeParameters {
     crownScale: number;
+    leafScale: number;
+    leafGloss: number;
+    innerCrownOpacity: number;
+    outerCrownOpacity: number;
+    branchGravity: number;
     maxBranchesPerFork: number;
     recursionDepth: number;
     branchLengthRatio: number;
@@ -1112,11 +1193,16 @@ export interface DeciduousTreeStats {
 }
 
 const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
-    crownScale: 1,
-    maxBranchesPerFork: 4,
-    recursionDepth: 2,
-    branchLengthRatio: 0.65,
-    trunkScale: 1,
+    crownScale: 2.15,
+    leafScale: 0.45,
+    leafGloss: 0.46,
+    innerCrownOpacity: 0.79,
+    outerCrownOpacity: 0.49,
+    branchGravity: 1.38,
+    maxBranchesPerFork: 2,
+    recursionDepth: 3,
+    branchLengthRatio: 0.60,
+    trunkScale: 1.50,
 };
 
 function makeDeciduous(
@@ -1137,7 +1223,7 @@ function makeDeciduous(
     const seed = Math.floor(height * 4096);
     // Weathered grey once the tree is dead -- live bark under a bare crown
     // reads as a tree that has merely lost its leaves for the season.
-    const barkColor = dead ? vary(0x6e6257, rng, 0.15) : vary(0x594a3a, rng, 0.12);
+    const barkColor = dead ? vary(0x6e6257, rng, 0.15) : vary(0x66513f, rng, 0.12);
     // Deep forest green to yellowish light green, per TREE -- the low end
     // dips into the conifer range on purpose.
     //
@@ -1168,7 +1254,7 @@ function makeDeciduous(
     const boleH = height * (0.44 + rng() * 0.12);
     const rTrunk = (0.05 + rng() * 0.022) * girth * parameters.trunkScale;
     const lean = new THREE.Vector3((rng() - 0.5) * 0.10, 1, (rng() - 0.5) * 0.10);
-    const bole = growLimb(tree, rng, new THREE.Vector3(0, 0, 0), lean, boleH, rTrunk * 1.35, rTrunk * 0.62, 3, 10, 0, 0.06, barkColor);
+    const bole = growLimb(tree, rng, new THREE.Vector3(0, 0, 0), lean, boleH, rTrunk * 1.35, rTrunk * 0.62, 3, 16, 0, 0.06, barkColor);
 
     const maxBranches = Math.max(2, Math.min(5, Math.round(parameters.maxBranchesPerFork)));
     let cluster = 0;
@@ -1220,7 +1306,8 @@ function makeDeciduous(
                 .normalize();
             const child = growLimb(
                 tree, rng, from, direction, branchLength,
-                childBaseRadius, childTipRadius, 2, 7, 0.045, 0.30, barkColor
+                childBaseRadius, childTipRadius, 2, 10,
+                parameters.branchGravity * 0.12, 0.30, barkColor
             );
 
             if (level + 1 < parameters.recursionDepth) {
@@ -1253,11 +1340,16 @@ function makeDeciduous(
 // so parameter changes can rebuild one tree immediately.
 export function createDeciduousTreeModel(parameters: Partial<DeciduousTreeParameters> = {}): any {
     const resolved: DeciduousTreeParameters = {
-        crownScale: Math.max(0.45, Math.min(3, parameters.crownScale ?? 1)),
-        maxBranchesPerFork: Math.max(2, Math.min(5, Math.round(parameters.maxBranchesPerFork ?? 4))),
-        recursionDepth: Math.max(1, Math.min(4, Math.round(parameters.recursionDepth ?? 2))),
-        branchLengthRatio: Math.max(0.35, Math.min(0.85, parameters.branchLengthRatio ?? 0.65)),
-        trunkScale: Math.max(0.5, Math.min(2, parameters.trunkScale ?? 1)),
+        crownScale: Math.max(0.45, Math.min(3, parameters.crownScale ?? DEFAULT_DECIDUOUS_PARAMETERS.crownScale)),
+        leafScale: Math.max(0.35, Math.min(2.5, parameters.leafScale ?? DEFAULT_DECIDUOUS_PARAMETERS.leafScale)),
+        leafGloss: Math.max(0, Math.min(1, parameters.leafGloss ?? DEFAULT_DECIDUOUS_PARAMETERS.leafGloss)),
+        innerCrownOpacity: Math.max(0, Math.min(1, parameters.innerCrownOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.innerCrownOpacity)),
+        outerCrownOpacity: Math.max(0, Math.min(1, parameters.outerCrownOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.outerCrownOpacity)),
+        branchGravity: Math.max(0, Math.min(3, parameters.branchGravity ?? DEFAULT_DECIDUOUS_PARAMETERS.branchGravity)),
+        maxBranchesPerFork: Math.max(2, Math.min(5, Math.round(parameters.maxBranchesPerFork ?? DEFAULT_DECIDUOUS_PARAMETERS.maxBranchesPerFork))),
+        recursionDepth: Math.max(1, Math.min(4, Math.round(parameters.recursionDepth ?? DEFAULT_DECIDUOUS_PARAMETERS.recursionDepth))),
+        branchLengthRatio: Math.max(0.35, Math.min(0.85, parameters.branchLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branchLengthRatio)),
+        trunkScale: Math.max(0.5, Math.min(2, parameters.trunkScale ?? DEFAULT_DECIDUOUS_PARAMETERS.trunkScale)),
     };
     const rng = variantRng('deciduous', 4);
     const tree = makeDeciduous(rng, 4, VARIANTS_PER_KIND, false, false, resolved);
@@ -1267,7 +1359,16 @@ export function createDeciduousTreeModel(parameters: Partial<DeciduousTreeParame
     const group = new THREE.Group();
     group.add(tree);
     const merged = mergeDecorations(group);
-    if (merged) merged.userData.treeStats = treeStats;
+    if (merged) {
+        merged.userData.treeStats = treeStats;
+        setDecorationLeafScale(merged, resolved.leafScale);
+        setDecorationLeafGloss(merged, resolved.leafGloss);
+        setDecorationCrownOpacity(
+            merged,
+            resolved.innerCrownOpacity,
+            resolved.outerCrownOpacity,
+        );
+    }
     return merged;
 }
 
