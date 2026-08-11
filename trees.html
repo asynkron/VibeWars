@@ -133,6 +133,18 @@
         }
         .parameter-head output { color: var(--moss); font-weight: 500; }
         .generator-note { margin-top: -9px; color: var(--muted); font-size: 9px; }
+        .parameter select {
+            width: 100%;
+            height: 30px;
+            padding: 0 9px;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            color: #d4d8cc;
+            background: #172019;
+            font: 500 10px/1 "DM Mono", monospace;
+            cursor: pointer;
+        }
+        .parameter select:focus-visible { outline: 1px solid var(--moss); outline-offset: 2px; }
         .parameter input[type="range"] {
             width: 100%;
             height: 14px;
@@ -241,6 +253,15 @@
         <section class="parameters" aria-label="Trädparametrar">
             <span class="label">Generator</span>
             <span class="generator-note">Stammen är gren 1</span>
+            <label class="parameter">
+                <span class="parameter-head"><span>Kronform</span></span>
+                <select id="crown-shape">
+                    <option value="ball" selected>Boll</option>
+                    <option value="disk">Disk</option>
+                    <option value="dome">Kupa · öppen undertill</option>
+                    <option value="drop">Droppe · spets nedåt</option>
+                </select>
+            </label>
             <label class="parameter">
                 <span class="parameter-head"><span>Storlek på kronor</span><output id="crown-size-value">2.15×</output></span>
                 <input id="crown-size" type="range" min="0.5" max="3" step="0.05" value="2.15">

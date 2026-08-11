@@ -711,13 +711,16 @@ const DECOR_FRAGMENT = /* glsl */ `
             // own rather than exactly on top of them.
             vec2 dot1 = decorCrownDots(uLeafFringe, vDecorLocalPos, vec3(4.3, 8.9, 2.7), 9.0 / uDecorLeafScale, 0.40, 0.20, ${LEAF_DIST_FRINGE.toFixed(2)});
             // Soft rims with REAL alpha now that the material is
-            // transparent: each fringe leaf fades smoothly from solid
-            // core to nothing -- the blurry edge the dither could only
-            // approximate.
-            if (dot1.x < 0.04) discard;
+            // transparent. Keep even the faint outer part of the mask so
+            // the fringe feathers into the background instead of ending in
+            // another crisp contour around the crown.
+            if (dot1.x < 0.002) discard;
             // Rim fade times a PER-DOT opacity: every outer leaf has its
             // own density, from nearly solid to a thin translucent one.
-            diffuseColor.a *= smoothstep(0.04, 0.45, dot1.x)
+            // The deliberately wide ramp is our screen-door-free blur: it
+            // cannot blur the background like a post-process pass, but it
+            // produces the same soft optical edge through alpha coverage.
+            diffuseColor.a *= smoothstep(0.00, 0.62, dot1.x)
                 * (0.55 + 0.45 * decorHash(vec2(dot1.y * 57.3, 7.7)))
                 * uDecorOuterCrownOpacity;
             // EVERY DOT ITS OWN GREEN -- same palette the inner crown
@@ -765,6 +768,32 @@ const DECOR_BARK_VOLUME_FRAGMENT = /* glsl */ `
     float barkSkySheen = pow(1.0 - barkFacing, 1.65);
     reflectedLight.indirectDiffuse += diffuseColor.rgb
         * barkVolumeMask * barkSkySheen * 0.34;
+`;
+
+// MeshStandard's dielectric highlight is intentionally restrained. Leaves
+// need an additional very narrow white response so a few fluttering faces
+// flash when their normal, the sun and the camera align -- never a general
+// brightening of the crown.
+const DECOR_LEAF_GLINT_FRAGMENT = /* glsl */ `
+    #if NUM_DIR_LIGHTS > 0
+        float leafGlintMask = step(1.5, vDecorKind);
+        vec3 leafLightDir = normalize(directionalLights[0].direction);
+        vec3 leafViewDir = normalize(vViewPosition);
+        vec3 leafHalfDir = normalize(leafLightDir + leafViewDir);
+        float leafAlignment = saturate(dot(normalize(normal), leafHalfDir));
+        float leafGlintPower = mix(72.0, 220.0, uDecorLeafGloss);
+        float leafGlint = pow(leafAlignment, leafGlintPower);
+        float leafSparkle = mix(0.30, 1.0, smoothstep(
+            0.35,
+            0.80,
+            decorNoise(vDecorLocalPos.xz * 42.0 + vDecorLocalPos.y * 27.0)
+        ));
+        reflectedLight.directSpecular += vec3(1.0)
+            * leafGlintMask
+            * leafGlint
+            * leafSparkle
+            * mix(0.08, 0.78, uDecorLeafGloss);
+    #endif
 `;
 
 // Every tile material points at this one uniform object, so wind costs one
@@ -891,10 +920,12 @@ function applyOrganicDetail(material: any): void {
     // per TILE (see mergeDecorations), so this blackens one hex and not the
     // map.
     material.userData.burnUniform = { value: 0 };
-    material.userData.leafScaleUniform = { value: 0.45 };
+    // Map defaults match the approved broadleaf interval. The tree viewer
+    // replaces these immediately with its current controls after merging.
+    material.userData.leafScaleUniform = { value: 0.60 };
     material.userData.leafGlossUniform = { value: 0.46 };
-    material.userData.innerCrownOpacityUniform = { value: 0.79 };
-    material.userData.outerCrownOpacityUniform = { value: 0.49 };
+    material.userData.innerCrownOpacityUniform = { value: 0.95 };
+    material.userData.outerCrownOpacityUniform = { value: 1.00 };
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uBurn = material.userData.burnUniform;
         shader.uniforms.uDecorWindTime = DECOR_WIND_TIME;
@@ -933,14 +964,16 @@ function applyOrganicDetail(material: any): void {
             )
             .replace(
                 '#include <lights_fragment_end>',
-                '#include <lights_fragment_end>\n' + DECOR_BARK_VOLUME_FRAGMENT
+                '#include <lights_fragment_end>\n'
+                    + DECOR_BARK_VOLUME_FRAGMENT
+                    + DECOR_LEAF_GLINT_FRAGMENT
             )
             .replace(
                 '#include <normal_fragment_begin>',
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v10';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v12';
 }
 
 function mat(color: number, kind: number = 0) {
@@ -966,8 +999,8 @@ function mat(color: number, kind: number = 0) {
 // gets a ragged fringe of leaf specks instead of a hard shell edge, and
 // the sunlit specks on top glint into the bloom pass. Geometry and
 // material are shared/cloned, no rng is drawn.
-function addFringe(parent: any, source: any): void {
-    const shell = new THREE.Mesh(source.geometry, source.material.clone());
+function addFringe(parent: any, source: any, geometry: any = source.geometry): void {
+    const shell = new THREE.Mesh(geometry, source.material.clone());
     shell.userData.decorKind = 3;
     // Exactly the same displacement as the inner crown. A larger wind weight
     // moved the shell relative to its core and read as rhythmic scaling.
@@ -1123,37 +1156,136 @@ function growLimb(
     return { tip: cursor, heading };
 }
 
+export type DeciduousCrownShape = 'ball' | 'disk' | 'dome' | 'drop';
+
+function crownGeometry(shape: DeciduousCrownShape, radius: number, seed: number): any {
+    if (shape === 'dome') {
+        // Top hemisphere only. SphereGeometry leaves the equator open, so
+        // branches remain visible through the missing underside.
+        const geometry = new THREE.SphereGeometry(
+            radius,
+            10,
+            2,
+            0,
+            Math.PI * 2,
+            0,
+            Math.PI / 2,
+        );
+        const position = geometry.attributes.position;
+        for (let i = 0; i < position.count; i++) {
+            const y = position.getY(i);
+            if (y > radius * 0.08) continue;
+
+            // Turn the perfectly straight equator into loose, hanging leaf
+            // clusters. Position-based hashing keeps the duplicated seam
+            // vertices together while giving every section a different drop.
+            const x = position.getX(i);
+            const z = position.getZ(i);
+            const edgeKey = Math.imul(Math.round(x * 1024), 73856093)
+                ^ Math.imul(Math.round(z * 1024), 19349663)
+                ^ Math.imul(seed + 1, 83492791);
+            const edgeNoise = (hash(edgeKey) & 1023) / 1023;
+            // Most of the rim stays close to the dome, but a few high-noise
+            // sections fall dramatically farther and read as separate,
+            // hanging foliage clusters instead of one trimmed horizontal rim.
+            const hangingDrop = radius * (0.04 + Math.pow(edgeNoise, 2.15) * 0.82);
+            position.setY(i, y - hangingDrop);
+        }
+        position.needsUpdate = true;
+        geometry.computeVertexNormals();
+        return roughen(
+            geometry,
+            seed,
+            radius * 0.12,
+        );
+    }
+
+    if (shape === 'drop') {
+        const geometry = new THREE.SphereGeometry(radius, 8, 6);
+        const position = geometry.attributes.position;
+        for (let i = 0; i < position.count; i++) {
+            const y = position.getY(i);
+            if (y < 0) {
+                // Preserve the round upper hemisphere, then pull the lower
+                // one longer while collapsing its rings toward the bottom.
+                const normalizedY = Math.max(-1, y / radius);
+                const taper = Math.pow(normalizedY + 1, 0.58);
+                position.setX(i, position.getX(i) * taper);
+                position.setZ(i, position.getZ(i) * taper);
+                position.setY(i, y * 1.28);
+            } else {
+                position.setY(i, y * 0.88);
+            }
+        }
+        position.needsUpdate = true;
+        geometry.computeVertexNormals();
+        return roughen(geometry, seed, radius * 0.10);
+    }
+
+    // Ball and disk keep a twenty-face inner volume: eight faces made the
+    // dense crown visibly diamond-shaped. The transparent fringe gets its
+    // own cheaper geometry in addCluster below, where the sparse leaf field
+    // hides the coarser shell. Disk gets its profile from Y scale below.
+    return roughen(
+        new THREE.IcosahedronGeometry(radius, 0),
+        seed,
+        radius * 0.20,
+    );
+}
+
 // A leaf cluster: the crown blob the old tree had, shrunk and hung on a
 // branch tip. Same kind-2 leaf-dot shading and the same fringe shell, so
 // nothing about the canopy material changes -- only where the mass sits.
 //
-// TWENTY FACES, not eighty. A tuft this size covers a handful of pixels at
-// gameplay zoom, and the crown is 7-9 of them plus a shell each, so the
-// subdivision was most of the tree's triangle budget buying detail below
-// the resolution it would ever be seen at. A bare icosahedron is the
-// cheapest solid that still reads as round -- and it only reads as round
-// because roughen's smooth path replaces the normals with radial ones, so
-// the shading curves over a faceted silhouette.
-function addCluster(parent: any, rng: () => number, at: any, radius: number, color: number, seed: number): void {
+// TWENTY FACES for the dense volume, eight for its transparent fringe. The
+// inner silhouette stays round while the sparse outer leaves use cheaper
+// geometry where its facets are much harder to perceive.
+function addCluster(
+    parent: any,
+    rng: () => number,
+    at: any,
+    radius: number,
+    color: number,
+    seed: number,
+    shape: DeciduousCrownShape,
+): void {
     const blob = addMesh(
         parent,
-        // Gentler displacement than the subdivided blob wanted: at detail
-        // 0 there are twelve vertices to push around, so the old amount
-        // pulled them into a caltrop instead of lumping a surface.
-        roughen(new THREE.IcosahedronGeometry(radius, 0), seed, radius * 0.20),
+        crownGeometry(shape, radius, seed),
         vary(color, rng, 0.2),
         at.x, at.y, at.z,
         2
     );
     blob.userData.decorWind = 1;
-    // Squashed, because a canopy spreads wider than it is tall...
-    blob.scale.set(1, 0.74 + rng() * 0.22, 1);
+    const yScale = shape === 'disk'
+        ? 0.34 + rng() * 0.14
+        : shape === 'drop'
+            ? 0.92 + rng() * 0.14
+            : 0.74 + rng() * 0.22;
+    blob.scale.set(1, yScale, 1);
     // ...and turned, which matters far more at twenty faces than at
     // eighty: a d20 has a recognisable outline, and every cluster on the
     // map sharing it would tile the forest with one repeated silhouette.
-    blob.rotation.set(rng() * Math.PI, rng() * Math.PI, rng() * Math.PI);
-    // Both set BEFORE the fringe, which copies scale and rotation.
-    addFringe(parent, blob);
+    // Always consume the same three rotation draws. Otherwise switching from
+    // ball to a directional crown changes the rng position and accidentally
+    // rewrites the branch counts and angles generated after this cluster.
+    const rotationX = rng() * Math.PI;
+    const rotationY = rng() * Math.PI;
+    const rotationZ = rng() * Math.PI;
+    if (shape === 'ball') {
+        blob.rotation.set(rotationX, rotationY, rotationZ);
+    } else {
+        // Directional profiles must keep their open side or point downward.
+        // Yaw still varies their irregular outline without tilting the form.
+        blob.rotation.set(0, rotationY * 2, 0);
+    }
+    // Both set BEFORE the fringe, which copies scale and rotation. Ball and
+    // disk can use a coarse shell behind their sparse outer leaf field while
+    // their twenty-face inner volume preserves the visible roundness.
+    const fringeGeometry = shape === 'ball' || shape === 'disk'
+        ? roughen(new THREE.OctahedronGeometry(radius, 0), seed ^ 0x51ed270b, radius * 0.12)
+        : undefined;
+    addFringe(parent, blob, fringeGeometry);
 }
 
 // Deciduous: a trunk-and-branch skeleton carrying its foliage in separate
@@ -1173,6 +1305,7 @@ function addCluster(parent: any, rng: () => number, at: any, radius: number, col
 const DECIDUOUS_CROWN_SCALE = 1.25;
 
 export interface DeciduousTreeParameters {
+    crownShape: DeciduousCrownShape;
     crownScale: number;
     leafScale: number;
     leafGloss: number;
@@ -1193,6 +1326,7 @@ export interface DeciduousTreeStats {
 }
 
 const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
+    crownShape: 'ball',
     crownScale: 2.15,
     leafScale: 0.45,
     leafGloss: 0.46,
@@ -1205,16 +1339,44 @@ const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
     trunkScale: 1.50,
 };
 
+// Current in-game broadleaf trial profile. Keep this fixed across the eight
+// seeded prototypes while evaluating it from the game camera; their height,
+// fork angles, branch counts and placement still provide natural variation.
+function gameDeciduousParameters(): DeciduousTreeParameters {
+    return {
+        crownShape: 'dome',
+        crownScale: 1.40,
+        leafScale: 0.60,
+        leafGloss: 0.46,
+        innerCrownOpacity: 0.95,
+        outerCrownOpacity: 1.00,
+        branchGravity: 0,
+        maxBranchesPerFork: 3,
+        recursionDepth: 2,
+        branchLengthRatio: 0.60,
+        trunkScale: 1.15,
+    };
+}
+
 function makeDeciduous(
     rng: () => number,
     index: number = 0,
     total: number = 1,
     dead: boolean = false,
     autumn: boolean = false,
-    parameters: DeciduousTreeParameters = DEFAULT_DECIDUOUS_PARAMETERS,
+    parameters?: DeciduousTreeParameters,
 ): any {
+    const resolvedParameters = parameters ?? gameDeciduousParameters();
     const tree = new THREE.Group();
-    const height = 1.15 + rng() * 0.75;
+    // The workbench keeps its familiar #05 scale. In the game, spread the
+    // eight cached prototypes over a taller, bottom-heavy range: most stay
+    // ordinary, while the last couple become unmistakable canopy trees.
+    // Placement picks among these prototypes randomly, so not every tree is
+    // raised and the tall end cannot disappear through eight unlucky rolls.
+    const gameRung = total > 1 ? index / (total - 1) : 0.5;
+    const height = parameters
+        ? 1.15 + rng() * 0.75
+        : 1.35 + Math.pow(gameRung, 1.7) * 2.10 + (rng() - 0.5) * 0.12;
     // Trunk thickness and crown blobs are absolute sizes, unlike everything
     // else here which is a fraction of `height` -- so raising the height
     // alone would have grown a tall tree on the same thin stick with the
@@ -1252,11 +1414,11 @@ function makeDeciduous(
 
     // The bole: kept bare, so the crown sits ON something visible.
     const boleH = height * (0.44 + rng() * 0.12);
-    const rTrunk = (0.05 + rng() * 0.022) * girth * parameters.trunkScale;
+    const rTrunk = (0.05 + rng() * 0.022) * girth * resolvedParameters.trunkScale;
     const lean = new THREE.Vector3((rng() - 0.5) * 0.10, 1, (rng() - 0.5) * 0.10);
     const bole = growLimb(tree, rng, new THREE.Vector3(0, 0, 0), lean, boleH, rTrunk * 1.35, rTrunk * 0.62, 3, 16, 0, 0.06, barkColor);
 
-    const maxBranches = Math.max(2, Math.min(5, Math.round(parameters.maxBranchesPerFork)));
+    const maxBranches = Math.max(2, Math.min(5, Math.round(resolvedParameters.maxBranchesPerFork)));
     let cluster = 0;
     let branches = 1; // The trunk is branch generation 1.
     let forks = 0;
@@ -1271,7 +1433,7 @@ function makeDeciduous(
         // The percentage applies to the actual parent segment. With the
         // trunk as generation 1, generation N is exactly
         // trunkLength * ratio^(N - 1), never another height estimate.
-        const branchLength = childBranchLength(parentLength, parameters.branchLengthRatio);
+        const branchLength = childBranchLength(parentLength, resolvedParameters.branchLengthRatio);
 
         // Build an orthonormal frame around the parent. Children are points
         // around a cone mantle in THIS 3D frame, not rotations around one
@@ -1306,18 +1468,29 @@ function makeDeciduous(
                 .normalize();
             const child = growLimb(
                 tree, rng, from, direction, branchLength,
-                childBaseRadius, childTipRadius, 2, 10,
-                parameters.branchGravity * 0.12, 0.30, barkColor
+                // At gameplay scale a branch only needs a solid silhouette.
+                // A triangular prism is six side triangles per piece instead
+                // of twenty, while the bole remains rounder at 16 sides.
+                childBaseRadius, childTipRadius, 2, 3,
+                resolvedParameters.branchGravity * 0.12, 0.30, barkColor
             );
 
-            if (level + 1 < parameters.recursionDepth) {
+            if (level + 1 < resolvedParameters.recursionDepth) {
                 growFork(child.tip, child.heading, branchLength, childTipRadius, level + 1);
             } else if (!dead) {
-                const depthScale = Math.pow(0.78, parameters.recursionDepth - 1);
+                const depthScale = Math.pow(0.78, resolvedParameters.recursionDepth - 1);
                 const densityScale = Math.sqrt(3 / branchCount);
                 const crownRadius = (0.14 + rng() * 0.05) * girth * DECIDUOUS_CROWN_SCALE
-                    * parameters.crownScale * depthScale * densityScale;
-                addCluster(tree, rng, child.tip, crownRadius, leafColor, seed + cluster++);
+                    * resolvedParameters.crownScale * depthScale * densityScale;
+                addCluster(
+                    tree,
+                    rng,
+                    child.tip,
+                    crownRadius,
+                    leafColor,
+                    seed + cluster++,
+                    resolvedParameters.crownShape,
+                );
             }
         }
     };
@@ -1330,7 +1503,7 @@ function makeDeciduous(
         branches,
         forks,
         crownClusters: cluster,
-        generations: parameters.recursionDepth + 1,
+        generations: resolvedParameters.recursionDepth + 1,
     } satisfies DeciduousTreeStats;
     return tree;
 }
@@ -1340,6 +1513,11 @@ function makeDeciduous(
 // so parameter changes can rebuild one tree immediately.
 export function createDeciduousTreeModel(parameters: Partial<DeciduousTreeParameters> = {}): any {
     const resolved: DeciduousTreeParameters = {
+        crownShape: parameters.crownShape === 'disk'
+            || parameters.crownShape === 'dome'
+            || parameters.crownShape === 'drop'
+            ? parameters.crownShape
+            : DEFAULT_DECIDUOUS_PARAMETERS.crownShape,
         crownScale: Math.max(0.45, Math.min(3, parameters.crownScale ?? DEFAULT_DECIDUOUS_PARAMETERS.crownScale)),
         leafScale: Math.max(0.35, Math.min(2.5, parameters.leafScale ?? DEFAULT_DECIDUOUS_PARAMETERS.leafScale)),
         leafGloss: Math.max(0, Math.min(1, parameters.leafGloss ?? DEFAULT_DECIDUOUS_PARAMETERS.leafGloss)),

@@ -6,6 +6,7 @@ import {
     setDecorationCrownOpacity,
     setDecorationLeafGloss,
     setDecorationLeafScale,
+    type DeciduousCrownShape,
     type DeciduousTreeParameters,
 } from './shared/hexengine/ProceduralDecorations';
 import { SunSystem } from './shared/hexengine/SunSystem';
@@ -113,6 +114,7 @@ const rotateToggle = document.querySelector<HTMLButtonElement>('#rotate-toggle')
 const resetButton = document.querySelector<HTMLButtonElement>('#reset-view');
 
 const crownSize = document.querySelector<HTMLInputElement>('#crown-size');
+const crownShape = document.querySelector<HTMLSelectElement>('#crown-shape');
 const leafSize = document.querySelector<HTMLInputElement>('#leaf-size');
 const leafGloss = document.querySelector<HTMLInputElement>('#leaf-gloss');
 const innerCrownOpacity = document.querySelector<HTMLInputElement>('#inner-crown-opacity');
@@ -168,6 +170,7 @@ function updateTreeStats(model: any, bounds: any): void {
 
 function readParameters(): DeciduousTreeParameters {
     return {
+        crownShape: (crownShape?.value ?? 'ball') as DeciduousCrownShape,
         crownScale: Number(crownSize?.value ?? 2.15),
         leafScale: Number(leafSize?.value ?? 0.45),
         leafGloss: Number(leafGloss?.value ?? 46) / 100,
@@ -202,6 +205,7 @@ function parametersChanged(): void {
 for (const input of [crownSize, branchGravity, branchCount, recursion, branchLength, trunkSize]) {
     input?.addEventListener('input', parametersChanged);
 }
+crownShape?.addEventListener('change', parametersChanged);
 parametersChanged();
 
 leafSize?.addEventListener('input', () => {
