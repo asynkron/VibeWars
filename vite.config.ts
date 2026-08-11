@@ -12,10 +12,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     rollupOptions: {
-      // Two pages: the game, and the terrain viewer (same engine, no match).
+      // Standalone engine workbenches live beside the game so they can reuse
+      // the exact production render code without booting a match.
       input: {
         main: 'index.html',
         terrain: 'terrain.html',
+        trees: 'trees.html',
       },
     },
   },

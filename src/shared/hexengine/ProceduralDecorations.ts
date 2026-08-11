@@ -14,8 +14,19 @@
 // (traverses child meshes), removal when the tile sinks into water, and
 // the factory decorator replacing it on building tiles.
 
-import { hash } from './utils';
-import { PERTURB_GLSL } from './TerrainShader';
+import { PERTURB_GLSL } from './PerturbNormalShader';
+import { childBranchLength } from './deciduousTreeMath';
+
+// Kept local for the same reason as tileVegetation's pinned copy: utils.ts
+// imports GridSystem, while this leaf render module must also be usable by
+// focused viewers without booting the complete map dependency graph.
+function hash(seed: number): number {
+    let h = seed;
+    h = ((h >> 16) ^ h) * 0x45d9f3b;
+    h = ((h >> 16) ^ h) * 0x45d9f3b;
+    h = (h >> 16) ^ h;
+    return h;
+}
 
 // Deterministic per-tile PRNG (mulberry32 over a q/r hash).
 function tileRng(q: number, r: number): () => number {
@@ -549,13 +560,52 @@ const DECOR_FRAGMENT = /* glsl */ `
             // faceted stone drowns the flat face lighting that carries it.
             dBumpH = plateTint * 0.25 + ridge * 0.18 - crack * 0.40 + mossMask * 0.12;
         } else if (vDecorKind < 0.5) {
-            // BARK and dead wood: vertical striations -- strong variation
-            // AROUND the trunk, weak along it, so the grain runs the way
-            // wood splits.
-            float bAngle = atan(vDecorLocalPos.z, vDecorLocalPos.x + 0.0008);
-            float stria = decorNoise(vec2(bAngle * 5.0, vDecorLocalPos.y * 1.4));
-            diffuseColor.rgb *= 0.78 + 0.30 * stria;
-            dBumpH = stria * 0.5;
+            // BARK and dead wood. Three equally weighted projections make
+            // an isotropic 3D-looking field: no axis is privileged, so the
+            // cylinder cannot turn the pattern into vertical stripes.
+            // World anchoring also prevents each short branch cylinder from
+            // restarting the same pattern at every joint.
+            vec3 barkP = vDecorWorldPos * 7.0;
+            float broad = (
+                decorFbm(barkP.xy + vec2(1.7, 5.1))
+                + decorFbm(barkP.yz + vec2(8.3, 2.4))
+                + decorFbm(barkP.zx + vec2(4.6, 9.2))
+            ) / 3.0;
+            vec3 midP = vDecorWorldPos * 18.0 + vec3(2.3, 6.7, 10.1);
+            float midGrain = (
+                decorFbm(midP.xy)
+                + decorFbm(midP.yz)
+                + decorFbm(midP.zx)
+            ) / 3.0;
+            vec3 fineP = vDecorWorldPos * 47.0 + vec3(3.1, 7.4, 11.2);
+            float fineGrain = (
+                decorNoise(fineP.xy)
+                + decorNoise(fineP.yz)
+                + decorNoise(fineP.zx)
+            ) / 3.0;
+            float darkPatch = smoothstep(0.57, 0.72, midGrain)
+                * smoothstep(0.36, 0.58, 1.0 - broad);
+            float palePatch = smoothstep(0.60, 0.74, broad)
+                * smoothstep(0.32, 0.56, 1.0 - midGrain);
+            float roughScab = smoothstep(0.63, 0.78, fineGrain)
+                * smoothstep(0.46, 0.64, midGrain);
+
+            // Layered but restrained colour variation: warm exposed wood,
+            // cool weathered areas, and small dark crusts.
+            diffuseColor.rgb *= 0.87 + broad * 0.20 + midGrain * 0.08;
+            diffuseColor.rgb = mix(
+                diffuseColor.rgb,
+                diffuseColor.rgb * vec3(0.60, 0.63, 0.61),
+                darkPatch * 0.38
+            );
+            diffuseColor.rgb = mix(
+                diffuseColor.rgb,
+                diffuseColor.rgb * vec3(1.18, 1.10, 0.95),
+                palePatch * 0.28
+            );
+            diffuseColor.rgb *= 1.0 - roughScab * 0.16;
+            dBumpH = broad * 0.10 + midGrain * 0.16
+                + fineGrain * 0.055 + roughScab * 0.12 - darkPatch * 0.08;
         } else if (vDecorKind < 1.5) {
             // CONIFER foliage: layered branch fringes that HANG DOWNWARD.
             // In the cone's local frame, iso-lines of (y + droop * radius)
@@ -939,11 +989,6 @@ function makeConifer(rng: () => number, index: number = 0, total: number = 1, de
     return tree;
 }
 
-// The golden angle (137.5 degrees). Rolling each successive branch by this
-// much around the bole is what real stems do, and it is why a tree never
-// shows two limbs stacked in the same plane -- the one arrangement that
-// would make a procedural fork read as a mechanical Y.
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const LIMB_UP = new THREE.Vector3(0, 1, 0);
 
 // Sweep one limb: a chain of tapered, open-ended cylinders laid tip to
@@ -951,8 +996,8 @@ const LIMB_UP = new THREE.Vector3(0, 1, 0);
 // CURVES instead of standing as a straight stick. Every piece is its own
 // mesh -- which costs nothing, because mergeDecorations folds the whole
 // tile into a single draw anyway, and keeping them separate preserves the
-// per-mesh local frame the bark shader reads (atan around the piece's own
-// axis, not around the tree's).
+// per-mesh local frame the bark shader reads, keeping every piece's grain
+// aligned with its own axis rather than the whole tree's.
 //
 // Returns the tip and the heading it arrived with, so a caller can fork
 // again from where this limb ended.
@@ -1045,15 +1090,43 @@ function addCluster(parent: any, rng: () => number, at: any, radius: number, col
 // on a stick has none of that however much the shader roughens its
 // surface, which is why the surface work never fixed it.
 //
-// So: a bare bole for the lower half, 3-4 primaries leaving it on a
-// golden-angle spiral, each forking into two secondaries that are pulled
-// back toward vertical (phototropism -- branches climb for light, they do
-// not keep flying outward), and a small crown at every tip. The GAPS
-// between those crowns are the point: they are what lets the branches
-// show through, and branches showing through is what says "tree".
+// The bole is branch generation 1. Every recursive generation is derived
+// from its actual parent: child length is one configurable fraction of the
+// preceding segment, and radius tapers at the same joint. Foliage exists
+// only at the final tips, leaving the supporting structure visible.
 const DECIDUOUS_CROWN_SCALE = 1.25;
 
-function makeDeciduous(rng: () => number, index: number = 0, total: number = 1, dead: boolean = false, autumn: boolean = false): any {
+export interface DeciduousTreeParameters {
+    crownScale: number;
+    maxBranchesPerFork: number;
+    recursionDepth: number;
+    branchLengthRatio: number;
+    trunkScale: number;
+}
+
+export interface DeciduousTreeStats {
+    branches: number;
+    forks: number;
+    crownClusters: number;
+    generations: number;
+}
+
+const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
+    crownScale: 1,
+    maxBranchesPerFork: 4,
+    recursionDepth: 2,
+    branchLengthRatio: 0.65,
+    trunkScale: 1,
+};
+
+function makeDeciduous(
+    rng: () => number,
+    index: number = 0,
+    total: number = 1,
+    dead: boolean = false,
+    autumn: boolean = false,
+    parameters: DeciduousTreeParameters = DEFAULT_DECIDUOUS_PARAMETERS,
+): any {
     const tree = new THREE.Group();
     const height = 1.15 + rng() * 0.75;
     // Trunk thickness and crown blobs are absolute sizes, unlike everything
@@ -1064,7 +1137,7 @@ function makeDeciduous(rng: () => number, index: number = 0, total: number = 1, 
     const seed = Math.floor(height * 4096);
     // Weathered grey once the tree is dead -- live bark under a bare crown
     // reads as a tree that has merely lost its leaves for the season.
-    const barkColor = dead ? vary(0x6e6257, rng, 0.15) : vary(0x6b4a2c, rng, 0.15);
+    const barkColor = dead ? vary(0x6e6257, rng, 0.15) : vary(0x594a3a, rng, 0.12);
     // Deep forest green to yellowish light green, per TREE -- the low end
     // dips into the conifer range on purpose.
     //
@@ -1093,49 +1166,109 @@ function makeDeciduous(rng: () => number, index: number = 0, total: number = 1, 
 
     // The bole: kept bare, so the crown sits ON something visible.
     const boleH = height * (0.44 + rng() * 0.12);
-    const rTrunk = (0.05 + rng() * 0.022) * girth;
+    const rTrunk = (0.05 + rng() * 0.022) * girth * parameters.trunkScale;
     const lean = new THREE.Vector3((rng() - 0.5) * 0.10, 1, (rng() - 0.5) * 0.10);
-    const bole = growLimb(tree, rng, new THREE.Vector3(0, 0, 0), lean, boleH, rTrunk * 1.35, rTrunk * 0.62, 3, 6, 0, 0.06, barkColor);
+    const bole = growLimb(tree, rng, new THREE.Vector3(0, 0, 0), lean, boleH, rTrunk * 1.35, rTrunk * 0.62, 3, 10, 0, 0.06, barkColor);
 
-    const primaries = 3 + Math.floor(rng() * 2);
-    const roll = rng() * Math.PI * 2;
+    const maxBranches = Math.max(2, Math.min(5, Math.round(parameters.maxBranchesPerFork)));
     let cluster = 0;
-    for (let i = 0; i < primaries; i++) {
-        const a = roll + i * GOLDEN_ANGLE;
-        const tilt = 0.62 + rng() * 0.34;
-        const dir = new THREE.Vector3(Math.sin(tilt) * Math.cos(a), Math.cos(tilt), Math.sin(tilt) * Math.sin(a));
-        // Primaries leave the bole staggered over its top third rather
-        // than all from one point, which is the difference between a tree
-        // and an umbrella frame.
-        const start = bole.tip.clone();
-        start.y -= boleH * 0.28 * rng();
-        const rPrim = rTrunk * (0.50 + rng() * 0.14);
-        const limb = growLimb(tree, rng, start, dir, height * (0.30 + rng() * 0.14), rPrim, rPrim * 0.45, 2, 5, 0.07, 0.30, barkColor);
+    let branches = 1; // The trunk is branch generation 1.
+    let forks = 0;
+    const growFork = (
+        from: any,
+        heading: any,
+        parentLength: number,
+        parentTipRadius: number,
+        level: number,
+    ): void => {
+        forks++;
+        // The percentage applies to the actual parent segment. With the
+        // trunk as generation 1, generation N is exactly
+        // trunkLength * ratio^(N - 1), never another height estimate.
+        const branchLength = childBranchLength(parentLength, parameters.branchLengthRatio);
 
-        // Fork axis: a vector perpendicular to the limb, rolled around it
-        // so each pair of secondaries splits in its own plane.
-        const side = new THREE.Vector3().crossVectors(limb.heading, LIMB_UP);
-        if (side.lengthSq() < 1e-6) side.set(1, 0, 0);
-        side.normalize().applyAxisAngle(limb.heading, rng() * Math.PI);
-        for (let j = 0; j < 2; j++) {
-            const sdir = limb.heading.clone().applyAxisAngle(side, (j === 0 ? 1 : -1) * (0.42 + rng() * 0.34));
-            // Up-pull: without it the secondaries carry on outward and
-            // the crown flattens into a spread cone.
-            sdir.lerp(LIMB_UP, 0.22 + rng() * 0.14).normalize();
-            const twig = growLimb(tree, rng, limb.tip, sdir, height * (0.17 + rng() * 0.10), rPrim * 0.45, rPrim * 0.22, 2, 4, 0.05, 0.34, barkColor);
-            // THE ONLY DIFFERENCE FOR A DEAD TREE is that the crown never
-            // goes on. The bole, the primaries and the twigs are the same
-            // structure -- which is the point: a standing dead tree is the
-            // tree it was, minus its leaves, not a different prop.
-            if (!dead) addCluster(tree, rng, twig.tip, (0.15 + rng() * 0.055) * girth * DECIDUOUS_CROWN_SCALE, leafColor, seed + cluster++);
+        // Build an orthonormal frame around the parent. Children are points
+        // around a cone mantle in THIS 3D frame, not rotations around one
+        // transverse axis (which can only ever produce a flat fan).
+        const reference = Math.abs(heading.y) < 0.92 ? LIMB_UP : new THREE.Vector3(1, 0, 0);
+        const coneX = new THREE.Vector3().crossVectors(heading, reference).normalize();
+        const coneZ = new THREE.Vector3().crossVectors(heading, coneX).normalize();
+        // The control is a ceiling, not a repeated exact count. Every fork
+        // draws independently, but never produces a single-child non-fork.
+        const branchCount = maxBranches === 2
+            ? 2
+            : 2 + Math.floor(rng() * (maxBranches - 1));
+        const azimuthPhase = rng() * Math.PI * 2;
+        const coneOpening = 0.72 + rng() * 0.42;
+
+        const childBaseRadius = parentTipRadius * Math.min(0.88, 1.18 / Math.sqrt(branchCount));
+        const childTipRadius = childBaseRadius * 0.42;
+        for (let branch = 0; branch < branchCount; branch++) {
+            branches++;
+            // Start from an even 3D distribution, then move each child by up
+            // to 35% of one sector. That preserves separation while removing
+            // the manufactured tripod/pentagon silhouette.
+            const sector = Math.PI * 2 / branchCount;
+            const azimuth = azimuthPhase + branch * Math.PI * 2 / branchCount
+                + (rng() - 0.5) * sector * 0.70;
+            const opening = coneOpening + (rng() - 0.5) * 0.30;
+            const radial = coneX.clone().multiplyScalar(Math.cos(azimuth))
+                .addScaledVector(coneZ, Math.sin(azimuth));
+            const direction = heading.clone().multiplyScalar(Math.cos(opening))
+                .addScaledVector(radial, Math.sin(opening))
+                .lerp(LIMB_UP, 0.06 + rng() * 0.06)
+                .normalize();
+            const child = growLimb(
+                tree, rng, from, direction, branchLength,
+                childBaseRadius, childTipRadius, 2, 7, 0.045, 0.30, barkColor
+            );
+
+            if (level + 1 < parameters.recursionDepth) {
+                growFork(child.tip, child.heading, branchLength, childTipRadius, level + 1);
+            } else if (!dead) {
+                const depthScale = Math.pow(0.78, parameters.recursionDepth - 1);
+                const densityScale = Math.sqrt(3 / branchCount);
+                const crownRadius = (0.14 + rng() * 0.05) * girth * DECIDUOUS_CROWN_SCALE
+                    * parameters.crownScale * depthScale * densityScale;
+                addCluster(tree, rng, child.tip, crownRadius, leafColor, seed + cluster++);
+            }
         }
-    }
-    // One more mass over the fork itself, filling the hole the outward
-    // primaries leave in the middle of the canopy.
-    const crownTop = bole.tip.clone();
-    crownTop.y += height * 0.16;
-    if (!dead) addCluster(tree, rng, crownTop, (0.17 + rng() * 0.05) * girth * DECIDUOUS_CROWN_SCALE, leafColor, seed + cluster);
+    };
+
+    growFork(bole.tip, bole.heading, boleH, rTrunk * 0.62, 0);
+    // Leave the fork open. Foliage belongs at the twig tips above; putting
+    // an extra cluster directly on the bole makes a ball sit on the trunk
+    // with no supporting branch, hiding the structure that reads as a tree.
+    tree.userData.treeStats = {
+        branches,
+        forks,
+        crownClusters: cluster,
+        generations: parameters.recursionDepth + 1,
+    } satisfies DeciduousTreeStats;
     return tree;
+}
+
+// Focused workbench entry point. It uses the same deterministic broadleaf
+// maker and merge path as map decorations, but bypasses the prototype cache
+// so parameter changes can rebuild one tree immediately.
+export function createDeciduousTreeModel(parameters: Partial<DeciduousTreeParameters> = {}): any {
+    const resolved: DeciduousTreeParameters = {
+        crownScale: Math.max(0.45, Math.min(3, parameters.crownScale ?? 1)),
+        maxBranchesPerFork: Math.max(2, Math.min(5, Math.round(parameters.maxBranchesPerFork ?? 4))),
+        recursionDepth: Math.max(1, Math.min(4, Math.round(parameters.recursionDepth ?? 2))),
+        branchLengthRatio: Math.max(0.35, Math.min(0.85, parameters.branchLengthRatio ?? 0.65)),
+        trunkScale: Math.max(0.5, Math.min(2, parameters.trunkScale ?? 1)),
+    };
+    const rng = variantRng('deciduous', 4);
+    const tree = makeDeciduous(rng, 4, VARIANTS_PER_KIND, false, false, resolved);
+    const treeStats = tree.userData.treeStats;
+    tintIndividual(tree, rng);
+    addFoliageGrayHint(tree, 0.14, 2);
+    const group = new THREE.Group();
+    group.add(tree);
+    const merged = mergeDecorations(group);
+    if (merged) merged.userData.treeStats = treeStats;
+    return merged;
 }
 
 const BUSH_SCALE = 1.35;
