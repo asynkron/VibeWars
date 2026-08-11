@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#172019">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath fill='%23a8c66c' d='M16 2 5 18h7l-5 7h7v5h4v-5h7l-5-7h7z'/%3E%3C/svg%3E">
+    <title>Vibe Wars — Trädstudie</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,500;6..72,600&display=swap');
+
+        :root {
+            color-scheme: dark;
+            --ink: #e8eadf;
+            --muted: #999f91;
+            --line: rgba(226, 231, 212, 0.14);
+            --panel: rgba(20, 27, 21, 0.88);
+            --moss: #a8c66c;
+            --soil: #bb8d63;
+        }
+
+        * { box-sizing: border-box; }
+
+        html, body { width: 100%; height: 100%; margin: 0; }
+
+        body {
+            overflow: hidden;
+            color: var(--ink);
+            background: #141b16;
+            font-family: "DM Mono", monospace;
+        }
+
+        #viewer { position: fixed; inset: 0; }
+        #viewer canvas { display: block; width: 100%; height: 100%; cursor: grab; }
+        #viewer canvas:active { cursor: grabbing; }
+
+        .topbar {
+            position: fixed;
+            z-index: 5;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 74px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 28px;
+            border-bottom: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(14, 20, 16, 0.94), rgba(14, 20, 16, 0.72));
+            backdrop-filter: blur(16px);
+        }
+
+        .brand { display: flex; align-items: baseline; gap: 16px; }
+        .brand h1 {
+            margin: 0;
+            font: 600 25px/1 "Newsreader", serif;
+            letter-spacing: -0.02em;
+        }
+        .eyebrow, .count, .label {
+            color: var(--muted);
+            font-size: 10px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+        }
+
+        .status { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; }
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--moss);
+            box-shadow: 0 0 14px rgba(168, 198, 108, 0.7);
+        }
+
+        .catalog {
+            position: fixed;
+            z-index: 5;
+            top: 98px;
+            left: 24px;
+            width: 258px;
+            max-height: calc(100vh - 122px);
+            overflow-y: auto;
+            padding: 17px;
+            border: 1px solid var(--line);
+            border-radius: 3px;
+            background: var(--panel);
+            backdrop-filter: blur(18px);
+            box-shadow: 0 24px 70px rgba(0, 0, 0, 0.22);
+        }
+
+        .catalog-head { display: flex; justify-content: space-between; margin-bottom: 14px; }
+        .tree-card {
+            width: 100%;
+            padding: 13px;
+            color: var(--ink);
+            text-align: left;
+            border: 1px solid rgba(168, 198, 108, 0.38);
+            border-radius: 2px;
+            background: linear-gradient(135deg, rgba(168, 198, 108, 0.12), rgba(168, 198, 108, 0.03));
+            cursor: default;
+        }
+        .tree-card strong { display: block; margin-bottom: 6px; font: 500 15px/1.2 "Newsreader", serif; }
+        .tree-card span { color: var(--muted); font-size: 10px; }
+        .swatch { float: right; width: 9px; height: 9px; margin-top: 3px; border-radius: 50%; background: #526f34; }
+
+        .details {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 9px 12px;
+            margin-top: 16px;
+            padding-top: 15px;
+            border-top: 1px solid var(--line);
+            font-size: 10px;
+        }
+        .details dt { margin: 0; color: var(--muted); }
+        .details dd { margin: 0; color: #d4d8cc; text-align: right; }
+
+        .parameters {
+            display: grid;
+            gap: 15px;
+            margin-top: 16px;
+            padding-top: 15px;
+            border-top: 1px solid var(--line);
+        }
+        .parameter-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+            color: #cdd1c7;
+            font-size: 10px;
+        }
+        .parameter-head output { color: var(--moss); font-weight: 500; }
+        .generator-note { margin-top: -9px; color: var(--muted); font-size: 9px; }
+        .parameter select {
+            width: 100%;
+            height: 30px;
+            padding: 0 9px;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            color: #d4d8cc;
+            background: #172019;
+            font: 500 10px/1 "DM Mono", monospace;
+            cursor: pointer;
+        }
+        .parameter select:focus-visible { outline: 1px solid var(--moss); outline-offset: 2px; }
+        .parameter input[type="range"] {
+            width: 100%;
+            height: 14px;
+            margin: 0;
+            appearance: none;
+            background: transparent;
+            cursor: ew-resize;
+        }
+        .parameter input[type="range"]::-webkit-slider-runnable-track {
+            height: 2px;
+            background: linear-gradient(90deg, rgba(168,198,108,.75), rgba(232,234,223,.16));
+        }
+        .parameter input[type="range"]::-webkit-slider-thumb {
+            width: 12px;
+            height: 12px;
+            margin-top: -5px;
+            appearance: none;
+            border: 2px solid #172019;
+            border-radius: 50%;
+            background: var(--moss);
+            box-shadow: 0 0 0 1px rgba(168,198,108,.55);
+        }
+        .parameter input[type="range"]:focus-visible { outline: 1px solid var(--moss); outline-offset: 4px; }
+        .statistics {
+            margin-top: 16px;
+            padding-top: 15px;
+            border-top: 1px solid var(--line);
+        }
+        .statistics .details { margin-top: 12px; padding-top: 0; border-top: 0; }
+
+        .controls {
+            position: fixed;
+            z-index: 5;
+            right: 24px;
+            bottom: 24px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px;
+            border: 1px solid var(--line);
+            border-radius: 3px;
+            background: var(--panel);
+            backdrop-filter: blur(18px);
+        }
+
+        .control-button {
+            min-height: 36px;
+            padding: 0 13px;
+            border: 1px solid var(--line);
+            border-radius: 2px;
+            color: #cdd1c7;
+            background: rgba(255,255,255,0.035);
+            font: 500 10px/1 "DM Mono", monospace;
+            letter-spacing: .05em;
+            cursor: pointer;
+            transition: border-color 140ms, color 140ms, background 140ms;
+        }
+        .control-button:hover { color: #fff; border-color: rgba(168,198,108,.55); }
+        .control-button.is-on { color: #172019; border-color: var(--moss); background: var(--moss); }
+
+        .help {
+            position: fixed;
+            z-index: 4;
+            left: 50%;
+            bottom: 27px;
+            transform: translateX(-50%);
+            color: rgba(232, 234, 223, 0.58);
+            font-size: 10px;
+            letter-spacing: .04em;
+            pointer-events: none;
+        }
+
+        @media (max-width: 720px) {
+            .topbar { height: 62px; padding: 0 16px; }
+            .brand .eyebrow, .status span { display: none; }
+            .catalog { top: 78px; left: 14px; width: 210px; }
+            .controls { right: 14px; bottom: 14px; }
+            .help { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <main id="viewer" aria-label="Interaktiv 3D-visning av lövträd"></main>
+
+    <header class="topbar">
+        <div class="brand">
+            <h1>Trädstudie</h1>
+            <span class="eyebrow">Vibe Wars · modellverkstad</span>
+        </div>
+        <div class="status"><i class="status-dot"></i><span>Renderare aktiv</span></div>
+    </header>
+
+    <aside class="catalog" aria-label="Trädmodeller">
+        <div class="catalog-head"><span class="label">Modeller</span><span class="count">01 / 01</span></div>
+        <button class="tree-card" type="button" aria-pressed="true">
+            <i class="swatch"></i>
+            <strong>Lövträd · Standard</strong>
+            <span>ProceduralDecorations</span>
+        </button>
+        <dl class="details">
+            <dt>Typ</dt><dd>Procedurgenererad</dd>
+            <dt>Källa</dt><dd>Spelets skogssystem</dd>
+            <dt>Variant</dt><dd>Lövträd #05</dd>
+            <dt>Vind</dt><dd>Aktiv</dd>
+        </dl>
+        <section class="parameters" aria-label="Trädparametrar">
+            <span class="label">Generator</span>
+            <span class="generator-note">Stammen är gren 1</span>
+            <label class="parameter">
+                <span class="parameter-head"><span>Kronform</span></span>
+                <select id="crown-shape">
+                    <option value="ball" selected>Boll</option>
+                    <option value="disk">Disk</option>
+                    <option value="dome">Kupa · öppen undertill</option>
+                    <option value="drop">Droppe · spets nedåt</option>
+                </select>
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Storlek på kronor</span><output id="crown-size-value">2.15×</output></span>
+                <input id="crown-size" type="range" min="0.5" max="3" step="0.05" value="2.15">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Storlek på löv</span><output id="leaf-size-value">0.45×</output></span>
+                <input id="leaf-size" type="range" min="0.35" max="2.5" step="0.05" value="0.45">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Lövglans</span><output id="leaf-gloss-value">46%</output></span>
+                <input id="leaf-gloss" type="range" min="0" max="100" step="1" value="46">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Inre kronans opacitet</span><output id="inner-crown-opacity-value">79%</output></span>
+                <input id="inner-crown-opacity" type="range" min="0" max="100" step="1" value="79">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Yttre kronans opacitet</span><output id="outer-crown-opacity-value">49%</output></span>
+                <input id="outer-crown-opacity" type="range" min="0" max="100" step="1" value="49">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Grenarnas gravitation</span><output id="branch-gravity-value">138%</output></span>
+                <input id="branch-gravity" type="range" min="0" max="300" step="1" value="138">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Max förgreningar / rekursion</span><output id="branch-count-value">2</output></span>
+                <input id="branch-count" type="range" min="2" max="5" step="1" value="2">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Antal rekursioner</span><output id="recursion-value">3</output></span>
+                <input id="recursion" type="range" min="1" max="4" step="1" value="3">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Längd av föregående gren</span><output id="branch-length-value">60%</output></span>
+                <input id="branch-length" type="range" min="35" max="85" step="5" value="60">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Tjocklek på stam</span><output id="trunk-size-value">1.50×</output></span>
+                <input id="trunk-size" type="range" min="0.5" max="1.8" step="0.05" value="1.5">
+            </label>
+        </section>
+        <section class="statistics" aria-label="Modellstatistik">
+            <span class="label">Live-statistik</span>
+            <dl class="details">
+                <dt>Trianglar</dt><dd id="stat-triangles">—</dd>
+                <dt>Vertices</dt><dd id="stat-vertices">—</dd>
+                <dt>Logiska grenar</dt><dd id="stat-branches">—</dd>
+                <dt>Förgreningsnoder</dt><dd id="stat-forks">—</dd>
+                <dt>Kronkluster</dt><dd id="stat-crowns">—</dd>
+                <dt>Generationer</dt><dd id="stat-generations">—</dd>
+                <dt>Draw calls</dt><dd id="stat-draw-calls">—</dd>
+                <dt>Höjd × bredd</dt><dd id="stat-size">—</dd>
+            </dl>
+        </section>
+    </aside>
+
+    <div class="help">Dra för att rotera · scrolla för att zooma · högerdra för att panorera</div>
+    <nav class="controls" aria-label="Visningsinställningar">
+        <button id="grid-toggle" class="control-button is-on" type="button" aria-pressed="true">Rutnät</button>
+        <button id="rotate-toggle" class="control-button" type="button" aria-pressed="false">Autorotera</button>
+        <button id="reset-view" class="control-button" type="button">Återställ vy</button>
+    </nav>
+
+    <script type="module" src="/src/treeViewer.ts"></script>
+</body>
+</html>
