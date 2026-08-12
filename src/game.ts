@@ -582,6 +582,9 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
 
     // Update decorator transparency for all hexes
     GridSystem.updateAllDecoratorTransparency();
+    // Tile decorators remain the editable source of truth, while neutral
+    // procedural vegetation is drawn from small reconstructible chunks.
+    GridSystem.buildDecorationChunks();
 
     // Set up event listeners and input handling
     const matrices = setupCamera(mapCenterX, mapCenterZ);

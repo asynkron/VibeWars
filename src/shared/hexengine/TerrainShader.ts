@@ -572,13 +572,13 @@ const WATER_FRAGMENT = /* glsl */ `
 const SHORE_VERTEX_DECL =
     ' varying vec3 vGroundWorldPos;\n attribute vec3 aShoreA;\n attribute vec3 aShoreB;\n' +
     ' attribute float aWaterPin;\n' +
-    ' attribute vec3 aTileNormal;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
+    ' attribute vec3 aTileNormal;\n attribute vec2 aTileLocal;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
     ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;\n' +
     ' attribute float aPristineLum;\n varying float vPristineLum;';
 
 const SHORE_VERTEX_BODY =
     ' vGroundWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;\n' +
-    ' vShoreA = aShoreA;\n vShoreB = aShoreB;\n vTileLocal = position.xz;\n' +
+    ' vShoreA = aShoreA;\n vShoreB = aShoreB;\n vTileLocal = aTileLocal;\n' +
     ' vPristineLum = aPristineLum;\n' +
     // Into view space, where the fragment shader's own normal lives.
     ' vTileNormal = normalize(normalMatrix * aTileNormal);';

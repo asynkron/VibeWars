@@ -1,5 +1,4 @@
 import { getGameState } from '../../systems/gameStateStore';
-import { markShadowsDirty } from './ShadowBudget';
 import { sampleGerstnerHeight, WATER_SURFACE_LIFT } from './WaterWaveShader';
 
 export interface WatercraftPose {
@@ -42,7 +41,6 @@ export function sampleWatercraftPose(
 
 export class WaterUnitMotionSystem {
     static animate(seconds: number): void {
-        let moved = false;
         const state = getGameState();
         for (const unit of state.units) {
             const visual = unit.visualUnit;
@@ -64,8 +62,11 @@ export class WaterUnitMotionSystem {
             if (visual.userData.sprite) {
                 visual.userData.sprite.position.y = visual.position.y + 1.5;
             }
-            moved = true;
         }
-        if (moved) markShadowsDirty();
+        // Wave-following is a tiny cosmetic pose change. Invalidating the
+        // scene-wide shadow and water-reflection caches here made one naval
+        // unit redraw the complete random30 board every frame (thousands of
+        // draw calls). Real unit movement already invalidates those caches
+        // through UnitSystem; the small bob and pitch deliberately do not.
     }
 }

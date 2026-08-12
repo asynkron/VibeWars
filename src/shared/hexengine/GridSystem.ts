@@ -10,6 +10,8 @@ import { TerrainSystem } from './TerrainSystem';
 import { applyProceduralGround, applyWaterSurface } from './TerrainShader';
 import { WATER_TIME_SCALE } from './WaterWaveShader';
 import { createProceduralDecoration } from './ProceduralDecorations';
+import { TerrainChunkSystem } from './TerrainChunkSystem';
+import { DecorationChunkSystem } from './DecorationChunkSystem';
 import { markShadowsDirty } from './ShadowBudget';
 import { addColorVariation, getVertexOffsets } from './utils';
 import { MAP_CONFIG, CRATER_COLOR } from '../../constants';
@@ -118,6 +120,14 @@ class GridSystem {
         const { vertices, uvs, indices } = this.generateHexBufferData(radius, height);
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
         geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        // Preserve coordinates relative to this tile. Terrain chunks bake the
+        // mesh transform into `position`, but shoreline and grid shaders must
+        // still measure from each individual hex centre.
+        const tileLocals: number[] = [];
+        for (let i = 0; i < vertices.length; i += 3) {
+            tileLocals.push(vertices[i], vertices[i + 2]);
+        }
+        geometry.setAttribute('aTileLocal', new THREE.Float32BufferAttribute(tileLocals, 2));
         geometry.setIndex(indices);
         geometry.computeVertexNormals();
         this.applyVertexColors(geometry, vertices);
@@ -175,6 +185,7 @@ class GridSystem {
         // razor-sharp black silhouette onto the surface and makes the real
         // reflection read as an ordinary cast shadow.
         mesh.receiveShadow = type !== 'water';
+        mesh.userData.isTerrainTile = true;
         return mesh;
     }
 
@@ -763,6 +774,7 @@ class GridSystem {
     static smoothTerrain() {
         this.hexGrid.forEach((hexGroup: any) => this.smoothHexTile(hexGroup));
         this.smoothTileNormals();
+        TerrainChunkSystem.rebuildAll(group, this.hexGrid);
     }
 
     // Each top corner is shared by three hexes. Give all three copies the
@@ -833,10 +845,22 @@ class GridSystem {
         if (!hex || !hex.userData || !hex.userData.decorator) return;
         const unit = getGameState().getUnitAt(hex.userData.q, hex.userData.r);
         setDecoratorObscured(hex.userData.decorator, !!unit);
+        const materials = Array.isArray(hex.userData.decorator.material)
+            ? hex.userData.decorator.material
+            : [hex.userData.decorator.material];
+        const burnt = materials.some(
+            (material: any) => (material?.userData?.burnUniform?.value ?? 0) > 0.5,
+        );
+        DecorationChunkSystem.setTileDynamic(hex, !!unit || burnt);
     }
 
     static updateAllDecoratorTransparency() {
         this.hexGrid.forEach((hex: any) => this.updateDecoratorTransparency(hex));
+    }
+
+    static buildDecorationChunks() {
+        DecorationChunkSystem.rebuildAll(group, this.hexGrid);
+        this.updateAllDecoratorTransparency();
     }
 
     static updateHexGeometry(hexMesh: any, waterHeight: number, isWater: boolean = false) {
@@ -883,6 +907,7 @@ class GridSystem {
         }
         if (hex.userData.decorator) {
             hex.userData.decorator.position.y = newHeight;
+            DecorationChunkSystem.tileGeometryChanged(hex);
         }
     }
 
@@ -899,6 +924,7 @@ class GridSystem {
         if (hex.userData.decorator) {
             hex.remove(hex.userData.decorator);
             hex.userData.decorator = null;
+            DecorationChunkSystem.tileGeometryChanged(hex);
         }
         const hexMesh = hex.children.find(
             (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh
@@ -941,13 +967,29 @@ class GridSystem {
         }
 
         FootprintSystem.removeFootprintsAt(coord.q, coord.r);
+        const neighbors = this.getHexNeighbors(coord.q, coord.r);
         this.smoothHexTile(hex);
-        this.getHexNeighbors(coord.q, coord.r).forEach((neighbor: any) => {
+        neighbors.forEach((neighbor: any) => {
             if (neighbor) this.smoothHexTile(neighbor);
         });
         // The hit and its six neighbors have new raw slopes. Re-share their
         // corner normals so crater deformation cannot reopen lighting seams.
         this.smoothTileNormals();
+        // A changed raw slope also changes the blended corner normals of the
+        // next ring of tiles. Include that second ring so a chunk boundary
+        // can never retain the pre-crater lighting cache.
+        const renderAffected = new Set<any>([hex, ...neighbors.filter(Boolean)]);
+        for (const neighbor of neighbors) {
+            if (!neighbor) continue;
+            for (const secondRing of this.getHexNeighbors(
+                neighbor.userData.q,
+                neighbor.userData.r,
+            )) {
+                if (secondRing) renderAffected.add(secondRing);
+            }
+        }
+        TerrainChunkSystem.markTileAndNeighborsDirty([...renderAffected]);
+        TerrainChunkSystem.flush();
         return true;
     }
 
@@ -967,6 +1009,8 @@ class GridSystem {
     }
 
     static clear() {
+        TerrainChunkSystem.dispose();
+        DecorationChunkSystem.dispose();
         this.hexGrid.length = 0;
     }
 }

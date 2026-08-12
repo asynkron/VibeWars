@@ -15,7 +15,11 @@
 // the factory decorator replacing it on building tiles.
 
 import { PERTURB_GLSL } from './PerturbNormalShader';
-import { SPRUCE_TREE_PARAMETERS } from './treeModelPresets';
+import {
+    BROADLEAF_TREE_PARAMETERS,
+    BROADLEAF_TREE_WIDE_PARAMETERS,
+    SPRUCE_TREE_PARAMETERS,
+} from './treeModelPresets';
 import {
     canopyWidthAtTrunkLevel,
     childBranchLength,
@@ -353,6 +357,10 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     varying vec2 vDecorUv;
     varying float vDecorBoundary;
     varying float vDecorAuthored;
+    varying float vDecorSpruceBark;
+    varying float vDecorCanopyTexture;
+    varying float vDecorCanopyAlphaThreshold;
+    varying float vDecorCanopyEdgeFade;
 
     // The baked dot fields, and the cell-to-texture scale that indexes
     // them. Kept in step with LEAF_CELLS on the JS side by construction --
@@ -360,8 +368,9 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     uniform sampler2D uLeafInner;
     uniform sampler2D uLeafFringe;
     uniform float uDecorLeafScale;
-    uniform float uDecorLeafStyle;
-    uniform sampler2D uDecorCanopyTexture;
+    uniform sampler2D uDecorSpruceCanopyTexture;
+    uniform sampler2D uDecorMapleCanopyTexture;
+    uniform sampler2D uDecorRowanCanopyTexture;
     uniform float uDecorCanopyTextureEnabled;
     uniform sampler2D uDecorSpruceBarkTexture;
     uniform float uDecorSpruceBarkTextureEnabled;
@@ -419,78 +428,35 @@ const DECOR_NOISE_GLSL = /* glsl */ `
             atan(direction.z, direction.x) / 6.28318530718 + 0.5,
             asin(clamp(direction.y, -1.0, 1.0)) / 3.14159265359 + 0.5
         );
-        vec3 paint = texture2D(uDecorCanopyTexture, paintedUv).rgb;
+        vec3 paint = vDecorCanopyTexture < 1.5
+            ? texture2D(uDecorSpruceCanopyTexture, paintedUv).rgb
+            : vDecorCanopyTexture < 2.5
+                ? texture2D(uDecorMapleCanopyTexture, paintedUv).rgb
+                : texture2D(uDecorRowanCanopyTexture, paintedUv).rgb;
         float linearLuminance = dot(paint, vec3(0.2126, 0.7152, 0.0722));
         // The texture sampler has already decoded sRGB to linear light.
         // Convert back to perceptual brightness before comparing against a
         // UI percentage, otherwise dark greens are treated as almost black.
         float sourceLuminance = pow(max(linearLuminance, 0.00001), 1.0 / 2.2);
-        float alphaStart = uDecorCanopyTextureAlphaThreshold * 0.15;
-        float paintedAlpha = smoothstep(alphaStart, uDecorCanopyTextureAlphaThreshold, sourceLuminance);
+        float alphaThreshold = vDecorAuthored > 0.5
+            ? vDecorCanopyAlphaThreshold
+            : uDecorCanopyTextureAlphaThreshold;
+        float edgeFade = vDecorAuthored > 0.5
+            ? vDecorCanopyEdgeFade
+            : uDecorCanopyTextureEdgeFade;
+        float alphaStart = alphaThreshold * 0.15;
+        float paintedAlpha = smoothstep(alphaStart, alphaThreshold, sourceLuminance);
         // The cone geometry tags every actual open-rim vertex (and its tip)
         // with zero. Interpolation gives us a narrow guaranteed fade into the
         // face; smoothstep's small upper cutoff keeps almost the whole face at
         // alpha 1 instead of washing out the complete crown.
-        float rimCutoff = mix(0.24, 0.72, uDecorCanopyTextureEdgeFade);
+        float rimCutoff = mix(0.24, 0.72, edgeFade);
         float meshBoundaryFade = smoothstep(0.0, rimCutoff, vDecorBoundary);
         float boundaryFade = meshBoundaryFade;
         // The source is a very dark forest photograph. Lift its midtones
         // while retaining the authored branch and needle contrast.
         vec3 liftedPaint = min(vec3(1.0), pow(max(paint, vec3(0.002)), vec3(0.68)) * 1.28);
         return vec4(liftedPaint, paintedAlpha * boundaryFade);
-    }
-
-    // One plane's leaf dots, from the baked distance field.
-    //
-    // The texture gives the distance to the nearest dot and which dot it
-    // is; the mask is finished here, because the rim lobe is thirteen
-    // cycles per cell and no texture this size can hold it. Scalloped, not
-    // circular: the noise perturbs the rim distance, so the edge lobes
-    // like a tuft of leaves instead of tracing a clean disc.
-    //
-    // ONE noise per plane, where the old code drew nine -- the lobe is
-    // keyed on the WINNING dot, and the winner is now known before the
-    // lobe is needed rather than being what the loop was searching for.
-    vec2 decorLeafDots(sampler2D field, vec2 uv, float rOuter, float rInner, float distScale) {
-        float stretch = uDecorLeafStyle < 0.5 ? 1.0
-            : uDecorLeafStyle < 1.5 ? 1.75
-            : uDecorLeafStyle < 2.5 ? 3.4 : 5.8;
-        float angle = 0.58 + uDecorLeafStyle * 0.37;
-        mat2 brushRotation = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-        vec2 brushUv = brushRotation * uv;
-        brushUv.y *= stretch;
-        vec2 t = texture2D(field, brushUv * DECOR_LEAF_INV_CELLS).rg;
-        float edgeTexture = uDecorLeafStyle < 1.5 ? 0.20 : 0.08;
-        float lobe = decorNoise(fract(brushUv) * 13.0 + t.y * 41.0) - 0.5;
-        float mask = smoothstep(rOuter, rInner, t.x * distScale + lobe * edgeTexture);
-        if (uDecorLeafStyle > 1.5) mask = pow(mask, 0.72);
-        return vec2(mask, t.y);
-    }
-
-    // The full crown-dot field: three plane projections, each weighted by
-    // how face-on it sees the surface (radial normal -- the crown pieces
-    // are origin-centered), best dot wins. An oblique projection smears
-    // its dots into brush strokes; the weighting keeps them round on
-    // every side.
-    //
-    // shift decorrelates the pattern between callers (the fringe shell
-    // samples a shifted copy of the field, so its dots do NOT sit exactly
-    // over the crown's own) while the plane weighting still comes from
-    // the TRUE position. Returns (mask, dot value) -- the second is what
-    // lets every dot pick its own shade of green.
-    vec2 decorCrownDots(sampler2D field, vec3 lp, vec3 shift, float freq, float rOuter, float rInner, float distScale) {
-        vec3 pn = normalize(lp + vec3(0.0008));
-        vec3 sp = (lp + shift) * freq;
-        vec2 dxy = decorLeafDots(field, sp.xy, rOuter, rInner, distScale);
-        dxy.x *= smoothstep(0.25, 0.60, abs(pn.z));
-        vec2 dzy = decorLeafDots(field, sp.zy + 31.0, rOuter, rInner, distScale);
-        dzy.x *= smoothstep(0.25, 0.60, abs(pn.x));
-        vec2 dxz = decorLeafDots(field, sp.xz + 17.0, rOuter, rInner, distScale);
-        dxz.x *= smoothstep(0.25, 0.60, abs(pn.y));
-        vec2 best = dxy;
-        if (dzy.x > best.x) best = dzy;
-        if (dxz.x > best.x) best = dxz;
-        return best;
     }
 
     // Cellular noise, the terrain groundVoronoi's construction on the
@@ -633,7 +599,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // faceted stone drowns the flat face lighting that carries it.
             dBumpH = plateTint * 0.25 + ridge * 0.18 - crack * 0.40 + mossMask * 0.12;
         } else if (vDecorKind < 0.5) {
-            if (vDecorAuthored > 0.5) {
+            if (vDecorSpruceBark > 0.5) {
                 // CylinderGeometry UVs wrap U around the limb and run V
                 // along it, so the photographed grain follows every trunk
                 // and branch in its own local frame instead of projecting
@@ -726,129 +692,18 @@ const DECOR_FRAGMENT = /* glsl */ `
             dBumpH = (1.0 - abs(2.0 * band - 1.0)) * 0.22 + needleField * 0.30;
         } else if (vDecorKind < 2.5) {
             if (uDecorInnerCrownOpacity < 0.001) discard;
-            if (vDecorAuthored > 0.5) {
-                // Authored texture mode is a separate rendering path. The
-                // photograph paints the cone directly; no procedural dots,
-                // leaf masks, palette tint or generated alpha participate.
-                vec4 paintedCanopy = decorPaintedCanopy();
-                diffuseColor.rgb = paintedCanopy.rgb;
-                float authoredInnerOpacity = mix(1.0, uDecorInnerCrownOpacity, uDecorCanopyTextureEnabled);
-                diffuseColor.a *= paintedCanopy.a * authoredInnerOpacity;
-                if (diffuseColor.a < 0.002) discard;
-                dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
-            } else {
-            // DECIDUOUS leaves: the SAME leaf-dot field the fringe shell
-            // uses, as a color pattern -- the solid crown cannot discard,
-            // so the gaps between dots become the dark shadowed interior
-            // of the canopy, and every dot paints its own shade of green
-            // on top. Inner and outer leaves come from one field, so the
-            // fringe reads as the crown's own foliage continuing outward.
-            // A FULL MOSAIC of leaf dots, no clipping and no gaps: with
-            // every cell active (keep 0) and a radius wide enough that
-            // the dot fields overlap, each fragment takes the shade of
-            // its NEAREST dot -- the whole crown surface is leaves, tiled
-            // edge to edge in different greens. (Clipping was tried here
-            // and rolled back in favor of full coverage.)
-            vec2 crown = decorCrownDots(uLeafInner, vDecorLocalPos, vec3(0.0), 17.0 / uDecorLeafScale, 1.10, 0.25, ${LEAF_DIST_INNER.toFixed(2)});
-            // Same two-axis palette as the fringe: HUE walks cool
-            // blue-green -> mid -> warm sunlit yellow, and a separate
-            // brightness jitter keeps two dots of similar hue apart.
-            vec3 coolC = diffuseColor.rgb * vec3(0.55, 0.68, 0.62);
-            vec3 midC  = diffuseColor.rgb * vec3(0.85, 0.95, 0.70);
-            vec3 warmC = diffuseColor.rgb * vec3(1.45, 1.35, 0.80);
-            vec3 dotC = crown.y < 0.5
-                ? mix(coolC, midC, crown.y * 2.0)
-                : mix(midC, warmC, crown.y * 2.0 - 1.0);
-            dotC *= 0.82 + 0.36 * decorHash(vec2(crown.y * 91.7, 13.1));
-            // CLUSTER, not blob: a bright core shading darker toward the
-            // lobed rim gives each dot the volume of a leaf tuft, and a
-            // fine band-limited leaflet texture breaks the interior into
-            // individual leaves.
-            dotC *= 0.78 + 0.34 * smoothstep(0.05, 0.85, crown.x);
-            float leafTexA = mix(0.5, decorNoise(vDecorLocalPos.xz * 55.0 + vDecorLocalPos.y * 40.0),
-                decorDetailFade(vDecorLocalPos.xz * 55.0));
-            // The inner crown sits DARKER than the fringe: the outer
-            // leaves catch the open light, the mass behind them lives in
-            // its own shade -- which is also what pushes the fringe
-            // forward and gives the canopy depth.
-            diffuseColor.rgb = dotC * (0.88 + 0.24 * leafTexA) * 0.74;
-            // ...and per-dot ALPHA: most clusters remain dense, while a
-            // scattered minority lets noticeably more of the crown behind
-            // it show through. This is real partial transparency, not a
-            // binary cutout, and every winning leaf-dot owns one density.
-            float leafDensity = decorHash(vec2(crown.y * 47.3, 5.9));
-            diffuseColor.a *= mix(0.38, 0.88, smoothstep(0.08, 0.92, leafDensity))
-                * uDecorInnerCrownOpacity;
-            // Crown self-shadowing: the underside of a canopy is where
-            // the light does not reach. This cheap vertical AO does more
-            // for "tree, not gumdrop" than any amount of surface noise.
-            diffuseColor.rgb *= mix(0.70, 1.05, smoothstep(-0.30, 0.28, vDecorLocalPos.y));
-            // The dots ARE the relief: raised leaf clusters over recessed
-            // shadow gaps.
-            dBumpH = crown.x * 0.5;
-            }
+            vec4 paintedCanopy = decorPaintedCanopy();
+            diffuseColor.rgb = paintedCanopy.rgb;
+            diffuseColor.a *= paintedCanopy.a * uDecorInnerCrownOpacity;
+            if (diffuseColor.a < 0.002) discard;
+            dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
         } else {
             if (uDecorOuterCrownOpacity < 0.001) discard;
-            if (vDecorAuthored > 0.5) {
-                // Authored crowns use the same photograph and alpha recipe on
-                // both shells. The enlarged shell keeps its own opacity but
-                // must not fall back to the generated leaf-dot fringe.
-                vec4 paintedCanopy = decorPaintedCanopy();
-                diffuseColor.rgb = paintedCanopy.rgb;
-                float authoredOuterOpacity = mix(1.0, uDecorOuterCrownOpacity, uDecorCanopyTextureEnabled);
-                diffuseColor.a *= paintedCanopy.a * authoredOuterOpacity;
-                if (diffuseColor.a < 0.002) discard;
-                dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
-            } else {
-            // FOLIAGE FRINGE (kind 3): the oversized crown shell. Keep
-            // only a scattered fraction of its fragments -- a dithered
-            // cutout, no transparency involved -- so the crown's hard
-            // silhouette dissolves into a ragged fringe of leaf specks.
-            // Geometry/alpha make the fuzz; bloom only underlines it.
-            // MANY SMALL LEAF DOTS with gaps between them, so the solid
-            // crown underneath shows through -- outer leaves in front of
-            // inner canopy, which is what gives the fringe depth. Three
-            // plane projections, best dot wins: a single 2D projection on
-            // a 3D crown stretches its dots into streaks along the
-            // projection axis; taking the max over xy/zy/xz keeps them
-            // round on every side of the crown.
-            // Sparse and small against the sky, sampling a SHIFTED copy
-            // of the field so the fringe leaves sit between the crown's
-            // own rather than exactly on top of them.
-            vec2 dot1 = decorCrownDots(uLeafFringe, vDecorLocalPos, vec3(4.3, 8.9, 2.7), 9.0 / uDecorLeafScale, 0.40, 0.20, ${LEAF_DIST_FRINGE.toFixed(2)});
-            // Soft rims with REAL alpha now that the material is
-            // transparent. Keep even the faint outer part of the mask so
-            // the fringe feathers into the background instead of ending in
-            // another crisp contour around the crown.
-            if (dot1.x < 0.002) discard;
-            // Rim fade times a PER-DOT opacity: every outer leaf has its
-            // own density, from nearly solid to a thin translucent one.
-            // The deliberately wide ramp is our screen-door-free blur: it
-            // cannot blur the background like a post-process pass, but it
-            // produces the same soft optical edge through alpha coverage.
-            diffuseColor.a *= smoothstep(0.00, 0.62, dot1.x)
-                * (0.55 + 0.45 * decorHash(vec2(dot1.y * 57.3, 7.7)))
-                * uDecorOuterCrownOpacity;
-            // EVERY DOT ITS OWN GREEN -- same palette the inner crown
-            // walks (cool -> mid -> warm plus brightness jitter), so the
-            // fringe leaves belong to the same tree. No bloom: a glint
-            // was tried here and read as gloss on a waxed apple.
-            vec3 fCool = diffuseColor.rgb * vec3(0.55, 0.68, 0.62);
-            vec3 fMid  = diffuseColor.rgb * vec3(0.85, 0.95, 0.70);
-            vec3 fWarm = diffuseColor.rgb * vec3(1.45, 1.35, 0.80);
-            diffuseColor.rgb = dot1.y < 0.5
-                ? mix(fCool, fMid, dot1.y * 2.0)
-                : mix(fMid, fWarm, dot1.y * 2.0 - 1.0);
-            diffuseColor.rgb *= 0.82 + 0.36 * decorHash(vec2(dot1.y * 91.7, 13.1));
-            // Same cluster treatment as the crown: bright tuft core, and
-            // leaflet texture inside. Darkened overall -- the fringe still
-            // sits a step lighter than the inner crown (0.84 vs 0.74),
-            // keeping the depth, without reading as spring-bright.
-            diffuseColor.rgb *= 0.78 + 0.34 * smoothstep(0.05, 0.85, dot1.x);
-            float leafTexB = mix(0.5, decorNoise(vDecorLocalPos.xz * 55.0 + vDecorLocalPos.y * 40.0),
-                decorDetailFade(vDecorLocalPos.xz * 55.0));
-            diffuseColor.rgb *= (0.88 + 0.24 * leafTexB) * 0.84;
-            }
+            vec4 paintedCanopy = decorPaintedCanopy();
+            diffuseColor.rgb = paintedCanopy.rgb;
+            diffuseColor.a *= paintedCanopy.a * uDecorOuterCrownOpacity;
+            if (diffuseColor.a < 0.002) discard;
+            dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
         }
     }
 `;
@@ -987,28 +842,19 @@ export function setDecorationLeafScale(model: any, scale: number): void {
     });
 }
 
-export function setDecorationLeafStyle(model: any, style: DeciduousLeafStyle): void {
-    const value = LEAF_STYLE_VALUE[style] ?? LEAF_STYLE_VALUE.round;
-    model?.traverse?.((child: any) => {
-        const materials = Array.isArray(child.material) ? child.material : [child.material];
-        for (const material of materials) {
-            if (material?.userData?.leafStyleUniform) material.userData.leafStyleUniform.value = value;
-        }
-    });
-}
-
 export function setDecorationCanopyTexture(model: any, texture: DeciduousCanopyTexture): void {
-    const enabled = texture === 'spruce-2x2' ? 1 : 0;
+    const textureValue = CANOPY_TEXTURE_VALUE[texture];
     model?.traverse?.((child: any) => {
         const materials = Array.isArray(child.material) ? child.material : [child.material];
         for (const material of materials) {
             if (material?.userData?.canopyTextureEnabledUniform) {
-                material.userData.canopyTextureEnabledUniform.value = enabled;
+                material.userData.canopyTextureEnabledUniform.value = 1;
             }
+            if (material?.userData?.canopyTextureValueUniform) material.userData.canopyTextureValueUniform.value = textureValue;
             if (material?.userData?.spruceBarkTextureEnabledUniform) {
                 // The Gran preset owns both authored spruce textures. Other
                 // tree presets keep the existing procedural bark.
-                material.userData.spruceBarkTextureEnabledUniform.value = enabled;
+                material.userData.spruceBarkTextureEnabledUniform.value = texture === 'spruce-2x2' ? 1 : 0;
             }
         }
     });
@@ -1094,8 +940,8 @@ function applyOrganicDetail(material: any): void {
     // Map defaults match the approved broadleaf interval. The tree viewer
     // replaces these immediately with its current controls after merging.
     material.userData.leafScaleUniform = { value: 0.60 };
-    material.userData.leafStyleUniform = { value: LEAF_STYLE_VALUE.round };
     material.userData.canopyTextureEnabledUniform = { value: 0 };
+    material.userData.canopyTextureValueUniform = { value: CANOPY_TEXTURE_VALUE.maple };
     material.userData.spruceBarkTextureEnabledUniform = { value: 0 };
     // In-game authored spruce trial values. The workbench replaces these
     // uniforms with its selected preset after building its standalone tree.
@@ -1110,9 +956,11 @@ function applyOrganicDetail(material: any): void {
         shader.uniforms.uDecorWindTime = DECOR_WIND_TIME;
         shader.uniforms.uDecorWindStrength = material.userData.windStrengthUniform;
         shader.uniforms.uDecorLeafScale = material.userData.leafScaleUniform;
-        shader.uniforms.uDecorLeafStyle = material.userData.leafStyleUniform;
-        shader.uniforms.uDecorCanopyTexture = { value: getSpruceCanopyTexture() };
+        shader.uniforms.uDecorSpruceCanopyTexture = { value: getCanopyTexture('spruce-2x2') };
+        shader.uniforms.uDecorMapleCanopyTexture = { value: getCanopyTexture('maple') };
+        shader.uniforms.uDecorRowanCanopyTexture = { value: getCanopyTexture('rowan') };
         shader.uniforms.uDecorCanopyTextureEnabled = material.userData.canopyTextureEnabledUniform;
+        shader.uniforms.uDecorCanopyTextureValue = material.userData.canopyTextureValueUniform;
         shader.uniforms.uDecorSpruceBarkTexture = { value: getSpruceBarkTexture() };
         shader.uniforms.uDecorSpruceBarkTextureEnabled = material.userData.spruceBarkTextureEnabledUniform;
         shader.uniforms.uDecorCanopyTextureAlphaThreshold = material.userData.canopyTextureAlphaThresholdUniform;
@@ -1126,7 +974,7 @@ function applyOrganicDetail(material: any): void {
         shader.uniforms.uLeafInner = { value: fields.inner };
         shader.uniforms.uLeafFringe = { value: fields.fringe };
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying vec2 vDecorUv;\n varying float vDecorBoundary;\n varying float vDecorAuthored;\n varying float vDecorKind;\n uniform float uDecorWindTime;\n uniform float uDecorWindStrength;\n attribute vec3 aDecorLocal;\n attribute vec2 aDecorTexUv;\n attribute float aDecorBoundary;\n attribute float aDecorAuthored;\n attribute float aDecorKind;\n attribute float aDecorWind;\n attribute vec3 aDecorWindAnchor;')
+            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying vec2 vDecorUv;\n varying float vDecorBoundary;\n varying float vDecorAuthored;\n varying float vDecorSpruceBark;\n varying float vDecorCanopyTexture;\n varying float vDecorCanopyAlphaThreshold;\n varying float vDecorCanopyEdgeFade;\n varying float vDecorKind;\n uniform float uDecorWindTime;\n uniform float uDecorWindStrength;\n uniform float uDecorCanopyTextureValue;\n uniform float uDecorCanopyTextureAlphaThreshold;\n uniform float uDecorCanopyTextureEdgeFade;\n attribute vec3 aDecorLocal;\n attribute vec2 aDecorTexUv;\n attribute float aDecorBoundary;\n attribute float aDecorAuthored;\n attribute float aDecorSpruceBark;\n attribute float aDecorCanopyTexture;\n attribute float aDecorCanopyAlphaThreshold;\n attribute float aDecorCanopyEdgeFade;\n attribute float aDecorKind;\n attribute float aDecorWind;\n attribute vec3 aDecorWindAnchor;')
             .replace(
                 '#include <beginnormal_vertex>',
                 '#include <beginnormal_vertex>\n' + DECOR_LEAF_FLUTTER_NORMAL
@@ -1138,7 +986,7 @@ function applyOrganicDetail(material: any): void {
                 // crown splotches are computed in that frame, so feeding
                 // them the merged tile-local position instead would rescale
                 // every pattern on the map.
-                '#include <begin_vertex>\n' + DECOR_WIND_VERTEX + '\n vDecorWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorUv = aDecorTexUv;\n vDecorBoundary = aDecorBoundary;\n vDecorAuthored = aDecorAuthored;\n vDecorKind = aDecorKind;'
+                '#include <begin_vertex>\n' + DECOR_WIND_VERTEX + '\n vDecorWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorUv = aDecorTexUv;\n vDecorBoundary = aDecorBoundary;\n vDecorAuthored = aDecorAuthored;\n vDecorSpruceBark = aDecorSpruceBark;\n vDecorCanopyTexture = aDecorAuthored > 0.5 ? aDecorCanopyTexture : uDecorCanopyTextureValue;\n vDecorCanopyAlphaThreshold = aDecorAuthored > 0.5 ? aDecorCanopyAlphaThreshold : uDecorCanopyTextureAlphaThreshold;\n vDecorCanopyEdgeFade = aDecorAuthored > 0.5 ? aDecorCanopyEdgeFade : uDecorCanopyTextureEdgeFade;\n vDecorKind = aDecorKind;'
             );
         shader.fragmentShader = shader.fragmentShader
             // dBumpH is written by the color pass and read by the bump
@@ -1169,9 +1017,7 @@ function mat(color: number, kind: number = 0) {
         metalness: 0.05,
         roughness: 0.85,
         flatShading: false,
-        // Double-sided since the crown gaps CLIP: through a hole you see
-        // the canopy interior (backfaces), not out the other side.
-        side: THREE.DoubleSide,
+        side: THREE.FrontSide,
         // Transparent so the crowns can carry real varying alpha; every
         // non-foliage fragment writes alpha 1.0 and stays visually opaque.
         transparent: true,
@@ -1349,30 +1195,34 @@ function growLimb(
 }
 
 export type DeciduousCrownShape = 'none' | 'ball' | 'disk' | 'dome' | 'cone' | 'drop';
-export type DeciduousLeafStyle = 'round' | 'elongated' | 'needles' | 'long-needles';
-export type DeciduousCanopyTexture = 'procedural' | 'spruce-2x2';
+export type DeciduousCanopyTexture = 'spruce-2x2' | 'maple' | 'rowan';
 
-const LEAF_STYLE_VALUE: Record<DeciduousLeafStyle, number> = {
-    round: 0,
-    elongated: 1,
-    needles: 2,
-    'long-needles': 3,
+const CANOPY_TEXTURE_VALUE: Record<DeciduousCanopyTexture, number> = {
+    'spruce-2x2': 1,
+    maple: 2,
+    rowan: 3,
 };
 
-let spruceCanopyTexture: any = null;
-const SPRUCE_CANOPY_TEXTURE_URL = new URL('../../../gran_texture_2x2_proof.png', import.meta.url).href;
+const CANOPY_TEXTURE_URLS: Record<DeciduousCanopyTexture, string> = {
+    'spruce-2x2': new URL('../../../gran_texture_2x2_proof.png', import.meta.url).href,
+    maple: new URL('../../../maple.png', import.meta.url).href,
+    rowan: new URL('../../../rowan.png', import.meta.url).href,
+};
+const canopyTextures = new Map<DeciduousCanopyTexture, any>();
 let spruceBarkTexture: any = null;
 const SPRUCE_BARK_TEXTURE_URL = new URL('../../../granbark.png', import.meta.url).href;
 
-function getSpruceCanopyTexture(): any {
-    if (!spruceCanopyTexture) {
-        spruceCanopyTexture = new THREE.TextureLoader().load(SPRUCE_CANOPY_TEXTURE_URL);
-        spruceCanopyTexture.colorSpace = THREE.SRGBColorSpace;
-        spruceCanopyTexture.wrapS = THREE.RepeatWrapping;
-        spruceCanopyTexture.wrapT = THREE.RepeatWrapping;
-        spruceCanopyTexture.anisotropy = 8;
+function getCanopyTexture(texture: DeciduousCanopyTexture): any {
+    let loaded = canopyTextures.get(texture);
+    if (!loaded) {
+        loaded = new THREE.TextureLoader().load(CANOPY_TEXTURE_URLS[texture]);
+        loaded.colorSpace = THREE.SRGBColorSpace;
+        loaded.wrapS = THREE.RepeatWrapping;
+        loaded.wrapT = THREE.RepeatWrapping;
+        loaded.anisotropy = 8;
+        canopyTextures.set(texture, loaded);
     }
-    return spruceCanopyTexture;
+    return loaded;
 }
 
 function getSpruceBarkTexture(): any {
@@ -1562,18 +1412,17 @@ function crownGeometry(
         geometry.computeVertexNormals();
     }
 
-    if (shape === 'cone') geometry = markOpenBoundaryVertices(geometry);
+    // Both Dome and Cone are open underneath. Mark their real open rim so
+    // the texture edge-fade slider can feather that cut instead of only
+    // affecting Cone. Closed crown shapes keep the default solid boundary.
+    if (shape === 'dome' || shape === 'cone') geometry = markOpenBoundaryVertices(geometry);
     geometry = roughen(geometry, seed, radius * (fringe ? 0.10 : shape === 'drop' ? 0.10 : shape === 'dome' || shape === 'cone' ? 0.12 : 0.20));
     return shape === 'cone' ? orientCrownFacesOutward(geometry) : geometry;
 }
 
-// A leaf cluster: the crown blob the old tree had, shrunk and hung on a
-// branch tip. Same kind-2 leaf-dot shading and the same fringe shell, so
-// nothing about the canopy material changes -- only where the mass sits.
-//
-// TWENTY FACES for the dense volume, eight for its transparent fringe. The
-// inner silhouette stays round while the sparse outer leaves use cheaper
-// geometry where its facets are much harder to perceive.
+// A leaf cluster: one textured crown mesh hung on a branch tip. Every crown
+// shape uses only this mesh; the former enlarged shell duplicated texture,
+// geometry and overdraw without adding useful structure.
 function addCluster(
     parent: any,
     rng: () => number,
@@ -1583,6 +1432,7 @@ function addCluster(
     seed: number,
     shape: DeciduousCrownShape,
     heightToWidthRatio: number,
+    windStrength: number,
 ): void {
     const blob = addMesh(
         parent,
@@ -1591,7 +1441,7 @@ function addCluster(
         at.x, at.y, at.z,
         2
     );
-    blob.userData.decorWind = 1;
+    blob.userData.decorWind = windStrength;
     const yScale = shape === 'disk'
         ? 0.34 + rng() * 0.14
         : shape === 'drop'
@@ -1623,14 +1473,6 @@ function addCluster(
         blob.position.y = crownTopAnchorY - blob.geometry.boundingBox.max.y * blob.scale.y;
         blob.userData.crownTopAnchorY = crownTopAnchorY;
     }
-    // Cone uses its authored texture and explicit rim fade directly on the
-    // inner mesh. A second enlarged cone only duplicates the same photograph
-    // and adds triangles without contributing a useful silhouette layer.
-    if (shape === 'cone') return;
-    // Other shapes keep the coarse shell behind their sparse outer leaf field
-    // while their twenty-face inner volume preserves the visible roundness.
-    const fringeGeometry = crownGeometry(shape, radius, seed ^ 0x51ed270b, true);
-    addFringe(parent, blob, fringeGeometry);
 }
 
 // Deciduous: a trunk-and-branch skeleton carrying its foliage in separate
@@ -1668,7 +1510,6 @@ export interface DeciduousTreeParameters {
     };
     canopy: {
         shape: DeciduousCrownShape;
-        leafStyle: DeciduousLeafStyle;
         texture: DeciduousCanopyTexture;
         textureAlphaThreshold: number;
         textureEdgeFade: number;
@@ -1678,7 +1519,6 @@ export interface DeciduousTreeParameters {
         leafScale: number;
         gloss: number;
         innerOpacity: number;
-        outerOpacity: number;
         depthFromTip: number;
     };
 }
@@ -1696,20 +1536,35 @@ export interface DeciduousTreeStats {
     generations: number;
 }
 
-const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
-    branches: { countPerFork: 3, levels: 2, startLengthRatio: 0.38, lengthRatioPerTrunkLevel: 0.75, childLengthRatio: 0.75, childRadiusRatio: 0.73, gravity: 3.00 },
-    trunk: { levels: 3, baseLengthRatio: 0.50, childLengthRatio: 0.75, baseRadiusScale: 1.30, tipRadiusRatio: 0.26 },
-    canopy: { shape: 'dome', leafStyle: 'round', texture: 'procedural', textureAlphaThreshold: 0.12, textureEdgeFade: 0.38, widthScale: 1.90, widthRatioPerTrunkLevel: 1, heightScale: 1.90, leafScale: 0.65, gloss: 0.60, innerOpacity: 0.75, outerOpacity: 0.64, depthFromTip: 0 },
-};
+const DEFAULT_DECIDUOUS_PARAMETERS = BROADLEAF_TREE_PARAMETERS;
 
 // Current in-game broadleaf trial profile. Keep this fixed across the eight
 // seeded prototypes while evaluating it from the game camera; their height,
 // fork angles, branch counts and placement still provide natural variation.
 function gameDeciduousParameters(): DeciduousTreeParameters {
     return {
-        branches: { countPerFork: 3, levels: 2, startLengthRatio: 0.30, lengthRatioPerTrunkLevel: 0.75, childLengthRatio: 0.60, childRadiusRatio: 0.55, gravity: 0 },
-        trunk: { levels: 2, baseLengthRatio: 0.50, childLengthRatio: 0.60, baseRadiusScale: 1.15, tipRadiusRatio: 0.22 },
-        canopy: { shape: 'dome', leafStyle: 'round', texture: 'procedural', textureAlphaThreshold: 0.12, textureEdgeFade: 0.38, widthScale: 1.40, widthRatioPerTrunkLevel: 1, heightScale: 1.40, leafScale: 0.60, gloss: 0.46, innerOpacity: 0.95, outerOpacity: 1.00, depthFromTip: 0 },
+        ...BROADLEAF_TREE_PARAMETERS,
+        branches: { ...BROADLEAF_TREE_PARAMETERS.branches },
+        trunk: { ...BROADLEAF_TREE_PARAMETERS.trunk },
+        canopy: { ...BROADLEAF_TREE_PARAMETERS.canopy, texture: 'maple' },
+    };
+}
+
+function gameDeciduousVariant(index: number): { parameters: DeciduousTreeParameters; windStrength: number } {
+    if (index % 2 === 1) {
+        return {
+            parameters: {
+                ...BROADLEAF_TREE_WIDE_PARAMETERS,
+                branches: { ...BROADLEAF_TREE_WIDE_PARAMETERS.branches },
+                trunk: { ...BROADLEAF_TREE_WIDE_PARAMETERS.trunk },
+                canopy: { ...BROADLEAF_TREE_WIDE_PARAMETERS.canopy },
+            },
+            windStrength: 3,
+        };
+    }
+    return {
+        parameters: gameDeciduousParameters(),
+        windStrength: 1,
     };
 }
 
@@ -1736,6 +1591,7 @@ function makeDeciduous(
     dead: boolean = false,
     autumn: boolean = false,
     parameters?: DeciduousTreeParameters,
+    windStrength: number = 1,
 ): any {
     const resolvedParameters = parameters ?? gameDeciduousParameters();
     const tree = new THREE.Group();
@@ -1824,6 +1680,7 @@ function makeDeciduous(
             childSeed(crownSeed, 0x51ed270b),
             resolvedParameters.canopy.shape,
             resolvedParameters.canopy.heightScale / crownWidth,
+            windStrength,
         );
         cluster++;
     };
@@ -2037,11 +1894,14 @@ function makeDeciduous(
         crownClusters: cluster,
         generations: 1 + Math.max(resolvedParameters.branches.levels, resolvedParameters.trunk.levels),
     } satisfies DeciduousTreeStats;
-    if (resolvedParameters.canopy.texture === 'spruce-2x2') {
-        tree.traverse((child: any) => {
-            if (child.isMesh) child.userData.decorAuthored = 1;
-        });
-    }
+    tree.traverse((child: any) => {
+        if (!child.isMesh) return;
+        child.userData.decorAuthored = 1;
+        child.userData.decorCanopyTexture = resolvedParameters.canopy.texture;
+        child.userData.decorCanopyAlphaThreshold = resolvedParameters.canopy.textureAlphaThreshold;
+        child.userData.decorCanopyEdgeFade = resolvedParameters.canopy.textureEdgeFade;
+        if (resolvedParameters.canopy.texture === 'spruce-2x2') child.userData.decorSpruceBark = 1;
+    });
     return tree;
 }
 
@@ -2077,12 +1937,11 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
                 || canopyOverrides.shape === 'drop'
                 ? canopyOverrides.shape
                 : DEFAULT_DECIDUOUS_PARAMETERS.canopy.shape,
-            leafStyle: canopyOverrides.leafStyle === 'elongated'
-                || canopyOverrides.leafStyle === 'needles'
-                || canopyOverrides.leafStyle === 'long-needles'
-                ? canopyOverrides.leafStyle
-                : 'round',
-            texture: canopyOverrides.texture === 'spruce-2x2' ? 'spruce-2x2' : 'procedural',
+            texture: canopyOverrides.texture === 'spruce-2x2'
+                || canopyOverrides.texture === 'maple'
+                || canopyOverrides.texture === 'rowan'
+                ? canopyOverrides.texture
+                : 'maple',
             textureAlphaThreshold: Math.max(0.01, Math.min(1, canopyOverrides.textureAlphaThreshold ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.textureAlphaThreshold)),
             textureEdgeFade: Math.max(0, Math.min(1, canopyOverrides.textureEdgeFade ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.textureEdgeFade)),
             widthScale: Math.max(0.45, Math.min(3, canopyOverrides.widthScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.widthScale)),
@@ -2091,7 +1950,6 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
             leafScale: Math.max(0.35, Math.min(2.5, canopyOverrides.leafScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.leafScale)),
             gloss: Math.max(0, Math.min(1, canopyOverrides.gloss ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.gloss)),
             innerOpacity: Math.max(0, Math.min(1, canopyOverrides.innerOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.innerOpacity)),
-            outerOpacity: Math.max(0, Math.min(1, canopyOverrides.outerOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.outerOpacity)),
             depthFromTip: Math.max(0, Math.min(4, Math.round(canopyOverrides.depthFromTip ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.depthFromTip))),
         },
     };
@@ -2106,16 +1964,11 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
     if (merged) {
         merged.userData.treeStats = treeStats;
         setDecorationLeafScale(merged, resolved.canopy.leafScale);
-        setDecorationLeafStyle(merged, resolved.canopy.leafStyle);
         setDecorationCanopyTexture(merged, resolved.canopy.texture);
         setDecorationCanopyTextureAlphaThreshold(merged, resolved.canopy.textureAlphaThreshold);
         setDecorationCanopyTextureEdgeFade(merged, resolved.canopy.textureEdgeFade);
         setDecorationLeafGloss(merged, resolved.canopy.gloss);
-        setDecorationCrownOpacity(
-            merged,
-            resolved.canopy.innerOpacity,
-            resolved.canopy.outerOpacity,
-        );
+        setDecorationCrownOpacity(merged, resolved.canopy.innerOpacity, 1);
     }
     return merged;
 }
@@ -2399,8 +2252,22 @@ function pickTree(kind: 'conifer' | 'deciduous', rng: () => number): any {
     // Only a living tree can have turned -- a dead one has no crown to
     // colour, and rolling for it would quietly halve the dead rate.
     const tree = rng() < AUTUMN_TREE_CHANCE
-        ? pick('deciduous-autumn', (r, i, n) => makeDeciduous(r, i, n, false, true), rng)
-        : pick('deciduous', makeDeciduous, rng);
+        ? pick(
+            'deciduous-autumn',
+            (r, i, n) => {
+                const variant = gameDeciduousVariant(i);
+                return makeDeciduous(r, i, n, false, true, variant.parameters, variant.windStrength);
+            },
+            rng,
+        )
+        : pick(
+            'deciduous-tree-model',
+            (r, i, n) => {
+                const variant = gameDeciduousVariant(i);
+                return makeDeciduous(r, i, n, false, false, variant.parameters, variant.windStrength);
+            },
+            rng,
+        );
     // Deciduous crowns get the same cool gray, but much more lightly than
     // conifers so their brighter green and autumn colours remain distinct.
     addFoliageGrayHint(tree, 0.10 + livingT * 0.08, 2);
@@ -2510,6 +2377,10 @@ function mergeDecorations(group: any): any | null {
     const local = new Float32Array(vertices * 3);
     const boundary = new Float32Array(vertices);
     const authored = new Float32Array(vertices);
+    const spruceBark = new Float32Array(vertices);
+    const canopyTexture = new Float32Array(vertices);
+    const canopyAlphaThreshold = new Float32Array(vertices);
+    const canopyEdgeFade = new Float32Array(vertices);
     const color = new Float32Array(vertices * 3);
     const kind = new Float32Array(vertices);
     const wind = new Float32Array(vertices);
@@ -2540,6 +2411,10 @@ function mergeDecorations(group: any): any | null {
         const k = mesh.userData.decorKind ?? 0;
         const windWeight = mesh.userData.decorWind ?? 0;
         const authoredWeight = mesh.userData.decorAuthored ?? 0;
+        const spruceBarkWeight = mesh.userData.decorSpruceBark ?? 0;
+        const canopyTextureWeight = CANOPY_TEXTURE_VALUE[mesh.userData.decorCanopyTexture as DeciduousCanopyTexture] ?? 0;
+        const canopyAlphaThresholdValue = mesh.userData.decorCanopyAlphaThreshold ?? 0.38;
+        const canopyEdgeFadeValue = mesh.userData.decorCanopyEdgeFade ?? 0.14;
         treeOrigin.set(0, 0, 0).applyMatrix4(mesh.parent.matrixWorld);
         clusterCenter.set(0, 0, 0).applyMatrix4(matrix);
         const grayHint = mesh.userData.decorGrayHint ?? 0;
@@ -2573,6 +2448,10 @@ function mergeDecorations(group: any): any | null {
             }
             boundary[vOffset + i] = srcBoundary ? srcBoundary.getX(i) : 1;
             authored[vOffset + i] = authoredWeight;
+            spruceBark[vOffset + i] = spruceBarkWeight;
+            canopyTexture[vOffset + i] = canopyTextureWeight;
+            canopyAlphaThreshold[vOffset + i] = canopyAlphaThresholdValue;
+            canopyEdgeFade[vOffset + i] = canopyEdgeFadeValue;
 
             color[(vOffset + i) * 3] = cr;
             color[(vOffset + i) * 3 + 1] = cg;
@@ -2605,6 +2484,10 @@ function mergeDecorations(group: any): any | null {
     merged.setAttribute('aDecorTexUv', new THREE.BufferAttribute(uv, 2));
     merged.setAttribute('aDecorBoundary', new THREE.BufferAttribute(boundary, 1));
     merged.setAttribute('aDecorAuthored', new THREE.BufferAttribute(authored, 1));
+    merged.setAttribute('aDecorSpruceBark', new THREE.BufferAttribute(spruceBark, 1));
+    merged.setAttribute('aDecorCanopyTexture', new THREE.BufferAttribute(canopyTexture, 1));
+    merged.setAttribute('aDecorCanopyAlphaThreshold', new THREE.BufferAttribute(canopyAlphaThreshold, 1));
+    merged.setAttribute('aDecorCanopyEdgeFade', new THREE.BufferAttribute(canopyEdgeFade, 1));
     merged.setAttribute('color', new THREE.BufferAttribute(color, 3));
     merged.setAttribute('aDecorKind', new THREE.BufferAttribute(kind, 1));
     merged.setAttribute('aDecorWind', new THREE.BufferAttribute(wind, 1));
@@ -2618,9 +2501,9 @@ function mergeDecorations(group: any): any | null {
         metalness: 0.05,
         roughness: 0.85,
         flatShading: false,
-        // Double-sided since the crown gaps CLIP: through a hole you see
-        // the canopy interior (backfaces), not out the other side.
-        side: THREE.DoubleSide,
+        // Crown geometry is wound outward. Backface culling avoids shading
+        // the hidden inside of every textured crown across the whole map.
+        side: THREE.FrontSide,
         // Transparent so the crowns can carry real varying alpha; every
         // non-foliage fragment writes alpha 1.0 and stays visually opaque.
         transparent: true,
