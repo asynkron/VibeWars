@@ -1498,6 +1498,38 @@ function markOpenBoundaryVertices(geometry: any): any {
     return marked;
 }
 
+function orientCrownFacesOutward(geometry: any): any {
+    const position = geometry.attributes.position;
+    const boundary = geometry.attributes.aDecorBoundary;
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const faceNormal = new THREE.Vector3();
+    const faceCenter = new THREE.Vector3();
+
+    for (let i = 0; i < position.count; i += 3) {
+        a.fromBufferAttribute(position, i);
+        b.fromBufferAttribute(position, i + 1);
+        c.fromBufferAttribute(position, i + 2);
+        faceNormal.subVectors(b, a).cross(new THREE.Vector3().subVectors(c, a));
+        faceCenter.copy(a).add(b).add(c).multiplyScalar(1 / 3);
+        if (faceNormal.dot(faceCenter) >= 0) continue;
+
+        position.setXYZ(i + 1, c.x, c.y, c.z);
+        position.setXYZ(i + 2, b.x, b.y, b.z);
+        if (boundary) {
+            const boundaryB = boundary.getX(i + 1);
+            boundary.setX(i + 1, boundary.getX(i + 2));
+            boundary.setX(i + 2, boundaryB);
+        }
+    }
+
+    position.needsUpdate = true;
+    if (boundary) boundary.needsUpdate = true;
+    geometry.computeVertexNormals();
+    return geometry;
+}
+
 function crownGeometry(
     shape: DeciduousCrownShape,
     radius: number,
@@ -1531,7 +1563,8 @@ function crownGeometry(
     }
 
     if (shape === 'cone') geometry = markOpenBoundaryVertices(geometry);
-    return roughen(geometry, seed, radius * (fringe ? 0.10 : shape === 'drop' ? 0.10 : shape === 'dome' || shape === 'cone' ? 0.12 : 0.20));
+    geometry = roughen(geometry, seed, radius * (fringe ? 0.10 : shape === 'drop' ? 0.10 : shape === 'dome' || shape === 'cone' ? 0.12 : 0.20));
+    return shape === 'cone' ? orientCrownFacesOutward(geometry) : geometry;
 }
 
 // A leaf cluster: the crown blob the old tree had, shrunk and hung on a
@@ -1590,9 +1623,12 @@ function addCluster(
         blob.position.y = crownTopAnchorY - blob.geometry.boundingBox.max.y * blob.scale.y;
         blob.userData.crownTopAnchorY = crownTopAnchorY;
     }
-    // Both set BEFORE the fringe, which copies scale and rotation. Ball and
-    // disk can use a coarse shell behind their sparse outer leaf field while
-    // their twenty-face inner volume preserves the visible roundness.
+    // Cone uses its authored texture and explicit rim fade directly on the
+    // inner mesh. A second enlarged cone only duplicates the same photograph
+    // and adds triangles without contributing a useful silhouette layer.
+    if (shape === 'cone') return;
+    // Other shapes keep the coarse shell behind their sparse outer leaf field
+    // while their twenty-face inner volume preserves the visible roundness.
     const fringeGeometry = crownGeometry(shape, radius, seed ^ 0x51ed270b, true);
     addFringe(parent, blob, fringeGeometry);
 }
