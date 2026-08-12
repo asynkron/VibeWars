@@ -1673,6 +1673,9 @@ class VisualizationSystem {
             roughness = 0.5,
             flatShading = true,
             dithering = false,
+            polygonOffset = false,
+            polygonOffsetFactor = 0,
+            polygonOffsetUnits = 0,
         } = options;
 
         // Create geometry using the shared helper
@@ -1691,6 +1694,9 @@ class VisualizationSystem {
             roughness: roughness,
             flatShading: flatShading,
             dithering: dithering,
+            polygonOffset: polygonOffset,
+            polygonOffsetFactor: polygonOffsetFactor,
+            polygonOffsetUnits: polygonOffsetUnits,
         };
 
         if (texture) {

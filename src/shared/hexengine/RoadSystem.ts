@@ -5,7 +5,6 @@ import { PathfindingSystem } from './PathfindingSystem';
 import { UnitSystem } from './UnitSystem';
 import { GridSystem } from './GridSystem';
 import { applyRoadSurface } from './DecalShaders';
-import { VISUAL_OFFSETS } from '../../constants';
 import { getGameState } from '../../systems/gameStateStore';
 
 class RoadSystem {
@@ -100,7 +99,7 @@ class RoadSystem {
                     hex,
                     null,
                     {
-                        heightOffset: (VISUAL_OFFSETS as any).ROAD_OFFSET, // pre-existing: never defined, always undefined
+                        heightOffset: 0,
                         color: '#ffffff',
                         opacity: 1.0,
                         renderOrder: 0,  // Same as terrain
@@ -120,6 +119,12 @@ class RoadSystem {
                         // it instead of breaking into six lit wedges.
                         flatShading: false,
                         dithering: false,
+                        // The road is a decal on the exact terrain surface.
+                        // A depth bias keeps it in front without lifting its
+                        // geometry and opening a visible seam at tile edges.
+                        polygonOffset: true,
+                        polygonOffsetFactor: -2,
+                        polygonOffsetUnits: -2,
                     }
                 );
                 if (roadMesh) {
