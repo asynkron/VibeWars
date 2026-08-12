@@ -8,6 +8,14 @@ export function firstSideBranchLength(treeBaseHeight: number, startRatio: number
     return treeBaseHeight * startRatio;
 }
 
+export function sideBranchLengthAtTrunkLevel(baseLength: number, ratio: number, trunkLevel: number): number {
+    return baseLength * Math.pow(ratio, Math.max(0, trunkLevel));
+}
+
+export function canopyWidthAtTrunkLevel(baseWidth: number, ratio: number, trunkLevel: number): number {
+    return baseWidth * Math.pow(ratio, Math.max(0, trunkLevel));
+}
+
 export function leaderBranchAzimuth(
     side: number,
     sideCount: number,

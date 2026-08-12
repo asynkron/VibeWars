@@ -15,7 +15,14 @@
 // the factory decorator replacing it on building tiles.
 
 import { PERTURB_GLSL } from './PerturbNormalShader';
-import { childBranchLength, firstSideBranchLength, leaderBranchAzimuth } from './deciduousTreeMath';
+import { SPRUCE_TREE_PARAMETERS } from './treeModelPresets';
+import {
+    canopyWidthAtTrunkLevel,
+    childBranchLength,
+    firstSideBranchLength,
+    leaderBranchAzimuth,
+    sideBranchLengthAtTrunkLevel,
+} from './deciduousTreeMath';
 
 // Kept local for the same reason as tileVegetation's pinned copy: utils.ts
 // imports GridSystem, while this leaf render module must also be usable by
@@ -343,6 +350,9 @@ function getLeafFields(): { inner: any; fringe: any } {
 const DECOR_NOISE_GLSL = /* glsl */ `
     varying vec3 vDecorWorldPos;
     varying vec3 vDecorLocalPos;
+    varying vec2 vDecorUv;
+    varying float vDecorBoundary;
+    varying float vDecorAuthored;
 
     // The baked dot fields, and the cell-to-texture scale that indexes
     // them. Kept in step with LEAF_CELLS on the JS side by construction --
@@ -350,6 +360,13 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     uniform sampler2D uLeafInner;
     uniform sampler2D uLeafFringe;
     uniform float uDecorLeafScale;
+    uniform float uDecorLeafStyle;
+    uniform sampler2D uDecorCanopyTexture;
+    uniform float uDecorCanopyTextureEnabled;
+    uniform sampler2D uDecorSpruceBarkTexture;
+    uniform float uDecorSpruceBarkTextureEnabled;
+    uniform float uDecorCanopyTextureAlphaThreshold;
+    uniform float uDecorCanopyTextureEdgeFade;
     uniform float uDecorLeafGloss;
     uniform float uDecorInnerCrownOpacity;
     uniform float uDecorOuterCrownOpacity;
@@ -393,6 +410,36 @@ const DECOR_NOISE_GLSL = /* glsl */ `
         return 1.0 - smoothstep(0.8, 1.6, fw);
     }
 
+    vec4 decorPaintedCanopy() {
+        // Polyhedron UVs collapse and overlap across an icosahedron-derived
+        // cone. Project from the cluster-local 3D position instead, wrapping
+        // the full photograph once around every crown.
+        vec3 direction = normalize(vDecorLocalPos + vec3(0.0001));
+        vec2 paintedUv = vec2(
+            atan(direction.z, direction.x) / 6.28318530718 + 0.5,
+            asin(clamp(direction.y, -1.0, 1.0)) / 3.14159265359 + 0.5
+        );
+        vec3 paint = texture2D(uDecorCanopyTexture, paintedUv).rgb;
+        float linearLuminance = dot(paint, vec3(0.2126, 0.7152, 0.0722));
+        // The texture sampler has already decoded sRGB to linear light.
+        // Convert back to perceptual brightness before comparing against a
+        // UI percentage, otherwise dark greens are treated as almost black.
+        float sourceLuminance = pow(max(linearLuminance, 0.00001), 1.0 / 2.2);
+        float alphaStart = uDecorCanopyTextureAlphaThreshold * 0.15;
+        float paintedAlpha = smoothstep(alphaStart, uDecorCanopyTextureAlphaThreshold, sourceLuminance);
+        // The cone geometry tags every actual open-rim vertex (and its tip)
+        // with zero. Interpolation gives us a narrow guaranteed fade into the
+        // face; smoothstep's small upper cutoff keeps almost the whole face at
+        // alpha 1 instead of washing out the complete crown.
+        float rimCutoff = mix(0.24, 0.72, uDecorCanopyTextureEdgeFade);
+        float meshBoundaryFade = smoothstep(0.0, rimCutoff, vDecorBoundary);
+        float boundaryFade = meshBoundaryFade;
+        // The source is a very dark forest photograph. Lift its midtones
+        // while retaining the authored branch and needle contrast.
+        vec3 liftedPaint = min(vec3(1.0), pow(max(paint, vec3(0.002)), vec3(0.68)) * 1.28);
+        return vec4(liftedPaint, paintedAlpha * boundaryFade);
+    }
+
     // One plane's leaf dots, from the baked distance field.
     //
     // The texture gives the distance to the nearest dot and which dot it
@@ -405,9 +452,19 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     // keyed on the WINNING dot, and the winner is now known before the
     // lobe is needed rather than being what the loop was searching for.
     vec2 decorLeafDots(sampler2D field, vec2 uv, float rOuter, float rInner, float distScale) {
-        vec2 t = texture2D(field, uv * DECOR_LEAF_INV_CELLS).rg;
-        float lobe = decorNoise(fract(uv) * 13.0 + t.y * 41.0) - 0.5;
-        return vec2(smoothstep(rOuter, rInner, t.x * distScale + lobe * 0.20), t.y);
+        float stretch = uDecorLeafStyle < 0.5 ? 1.0
+            : uDecorLeafStyle < 1.5 ? 1.75
+            : uDecorLeafStyle < 2.5 ? 3.4 : 5.8;
+        float angle = 0.58 + uDecorLeafStyle * 0.37;
+        mat2 brushRotation = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
+        vec2 brushUv = brushRotation * uv;
+        brushUv.y *= stretch;
+        vec2 t = texture2D(field, brushUv * DECOR_LEAF_INV_CELLS).rg;
+        float edgeTexture = uDecorLeafStyle < 1.5 ? 0.20 : 0.08;
+        float lobe = decorNoise(fract(brushUv) * 13.0 + t.y * 41.0) - 0.5;
+        float mask = smoothstep(rOuter, rInner, t.x * distScale + lobe * edgeTexture);
+        if (uDecorLeafStyle > 1.5) mask = pow(mask, 0.72);
+        return vec2(mask, t.y);
     }
 
     // The full crown-dot field: three plane projections, each weighted by
@@ -576,6 +633,19 @@ const DECOR_FRAGMENT = /* glsl */ `
             // faceted stone drowns the flat face lighting that carries it.
             dBumpH = plateTint * 0.25 + ridge * 0.18 - crack * 0.40 + mossMask * 0.12;
         } else if (vDecorKind < 0.5) {
+            if (vDecorAuthored > 0.5) {
+                // CylinderGeometry UVs wrap U around the limb and run V
+                // along it, so the photographed grain follows every trunk
+                // and branch in its own local frame instead of projecting
+                // world-space stripes through the complete tree.
+                vec3 spruceBark = texture2D(
+                    uDecorSpruceBarkTexture,
+                    vDecorUv * vec2(1.35, 1.0)
+                ).rgb;
+                diffuseColor.rgb = spruceBark * vec3(0.72, 0.68, 0.62);
+                float barkLuminance = dot(spruceBark, vec3(0.2126, 0.7152, 0.0722));
+                dBumpH = barkLuminance * 0.34;
+            } else {
             // BARK and dead wood. Three equally weighted projections make
             // an isotropic 3D-looking field: no axis is privileged, so the
             // cylinder cannot turn the pattern into vertical stripes.
@@ -622,6 +692,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             diffuseColor.rgb *= 1.0 - roughScab * 0.16;
             dBumpH = broad * 0.10 + midGrain * 0.16
                 + fineGrain * 0.055 + roughScab * 0.12 - darkPatch * 0.08;
+            }
         } else if (vDecorKind < 1.5) {
             // CONIFER foliage: layered branch fringes that HANG DOWNWARD.
             // In the cone's local frame, iso-lines of (y + droop * radius)
@@ -655,6 +726,17 @@ const DECOR_FRAGMENT = /* glsl */ `
             dBumpH = (1.0 - abs(2.0 * band - 1.0)) * 0.22 + needleField * 0.30;
         } else if (vDecorKind < 2.5) {
             if (uDecorInnerCrownOpacity < 0.001) discard;
+            if (vDecorAuthored > 0.5) {
+                // Authored texture mode is a separate rendering path. The
+                // photograph paints the cone directly; no procedural dots,
+                // leaf masks, palette tint or generated alpha participate.
+                vec4 paintedCanopy = decorPaintedCanopy();
+                diffuseColor.rgb = paintedCanopy.rgb;
+                float authoredInnerOpacity = mix(1.0, uDecorInnerCrownOpacity, uDecorCanopyTextureEnabled);
+                diffuseColor.a *= paintedCanopy.a * authoredInnerOpacity;
+                if (diffuseColor.a < 0.002) discard;
+                dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
+            } else {
             // DECIDUOUS leaves: the SAME leaf-dot field the fringe shell
             // uses, as a color pattern -- the solid crown cannot discard,
             // so the gaps between dots become the dark shadowed interior
@@ -704,8 +786,20 @@ const DECOR_FRAGMENT = /* glsl */ `
             // The dots ARE the relief: raised leaf clusters over recessed
             // shadow gaps.
             dBumpH = crown.x * 0.5;
+            }
         } else {
             if (uDecorOuterCrownOpacity < 0.001) discard;
+            if (vDecorAuthored > 0.5) {
+                // Authored crowns use the same photograph and alpha recipe on
+                // both shells. The enlarged shell keeps its own opacity but
+                // must not fall back to the generated leaf-dot fringe.
+                vec4 paintedCanopy = decorPaintedCanopy();
+                diffuseColor.rgb = paintedCanopy.rgb;
+                float authoredOuterOpacity = mix(1.0, uDecorOuterCrownOpacity, uDecorCanopyTextureEnabled);
+                diffuseColor.a *= paintedCanopy.a * authoredOuterOpacity;
+                if (diffuseColor.a < 0.002) discard;
+                dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
+            } else {
             // FOLIAGE FRINGE (kind 3): the oversized crown shell. Keep
             // only a scattered fraction of its fragments -- a dithered
             // cutout, no transparency involved -- so the crown's hard
@@ -754,6 +848,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             float leafTexB = mix(0.5, decorNoise(vDecorLocalPos.xz * 55.0 + vDecorLocalPos.y * 40.0),
                 decorDetailFade(vDecorLocalPos.xz * 55.0));
             diffuseColor.rgb *= (0.88 + 0.24 * leafTexB) * 0.84;
+            }
         }
     }
 `;
@@ -767,6 +862,7 @@ const DECOR_ROUGHNESS_FRAGMENT = /* glsl */ `
     roughnessFactor = mix(roughnessFactor, 0.66, barkMask);
     roughnessFactor = mix(roughnessFactor, 0.76, step(0.5, vDecorKind));
     float leafRoughness = mix(0.86, 0.08, uDecorLeafGloss);
+    leafRoughness = mix(leafRoughness, 0.94, vDecorAuthored);
     roughnessFactor = mix(roughnessFactor, leafRoughness, step(1.5, vDecorKind));
 `;
 
@@ -788,7 +884,7 @@ const DECOR_BARK_VOLUME_FRAGMENT = /* glsl */ `
 // brightening of the crown.
 const DECOR_LEAF_GLINT_FRAGMENT = /* glsl */ `
     #if NUM_DIR_LIGHTS > 0
-        float leafGlintMask = step(1.5, vDecorKind);
+        float leafGlintMask = step(1.5, vDecorKind) * (1.0 - vDecorAuthored);
         vec3 leafLightDir = normalize(directionalLights[0].direction);
         vec3 leafViewDir = normalize(vViewPosition);
         vec3 leafHalfDir = normalize(leafLightDir + leafViewDir);
@@ -891,6 +987,57 @@ export function setDecorationLeafScale(model: any, scale: number): void {
     });
 }
 
+export function setDecorationLeafStyle(model: any, style: DeciduousLeafStyle): void {
+    const value = LEAF_STYLE_VALUE[style] ?? LEAF_STYLE_VALUE.round;
+    model?.traverse?.((child: any) => {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+            if (material?.userData?.leafStyleUniform) material.userData.leafStyleUniform.value = value;
+        }
+    });
+}
+
+export function setDecorationCanopyTexture(model: any, texture: DeciduousCanopyTexture): void {
+    const enabled = texture === 'spruce-2x2' ? 1 : 0;
+    model?.traverse?.((child: any) => {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+            if (material?.userData?.canopyTextureEnabledUniform) {
+                material.userData.canopyTextureEnabledUniform.value = enabled;
+            }
+            if (material?.userData?.spruceBarkTextureEnabledUniform) {
+                // The Gran preset owns both authored spruce textures. Other
+                // tree presets keep the existing procedural bark.
+                material.userData.spruceBarkTextureEnabledUniform.value = enabled;
+            }
+        }
+    });
+}
+
+export function setDecorationCanopyTextureAlphaThreshold(model: any, threshold: number): void {
+    const value = Math.max(0.01, Math.min(1, threshold));
+    model?.traverse?.((child: any) => {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+            if (material?.userData?.canopyTextureAlphaThresholdUniform) {
+                material.userData.canopyTextureAlphaThresholdUniform.value = value;
+            }
+        }
+    });
+}
+
+export function setDecorationCanopyTextureEdgeFade(model: any, fade: number): void {
+    const value = Math.max(0, Math.min(1, fade));
+    model?.traverse?.((child: any) => {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+            if (material?.userData?.canopyTextureEdgeFadeUniform) {
+                material.userData.canopyTextureEdgeFadeUniform.value = value;
+            }
+        }
+    });
+}
+
 export function setDecorationLeafGloss(model: any, gloss: number): void {
     const value = Math.max(0, Math.min(1, gloss));
     model?.traverse?.((child: any) => {
@@ -947,6 +1094,13 @@ function applyOrganicDetail(material: any): void {
     // Map defaults match the approved broadleaf interval. The tree viewer
     // replaces these immediately with its current controls after merging.
     material.userData.leafScaleUniform = { value: 0.60 };
+    material.userData.leafStyleUniform = { value: LEAF_STYLE_VALUE.round };
+    material.userData.canopyTextureEnabledUniform = { value: 0 };
+    material.userData.spruceBarkTextureEnabledUniform = { value: 0 };
+    // In-game authored spruce trial values. The workbench replaces these
+    // uniforms with its selected preset after building its standalone tree.
+    material.userData.canopyTextureAlphaThresholdUniform = { value: 0.38 };
+    material.userData.canopyTextureEdgeFadeUniform = { value: 0.14 };
     material.userData.leafGlossUniform = { value: 0.46 };
     material.userData.innerCrownOpacityUniform = { value: 0.95 };
     material.userData.outerCrownOpacityUniform = { value: 1.00 };
@@ -956,6 +1110,13 @@ function applyOrganicDetail(material: any): void {
         shader.uniforms.uDecorWindTime = DECOR_WIND_TIME;
         shader.uniforms.uDecorWindStrength = material.userData.windStrengthUniform;
         shader.uniforms.uDecorLeafScale = material.userData.leafScaleUniform;
+        shader.uniforms.uDecorLeafStyle = material.userData.leafStyleUniform;
+        shader.uniforms.uDecorCanopyTexture = { value: getSpruceCanopyTexture() };
+        shader.uniforms.uDecorCanopyTextureEnabled = material.userData.canopyTextureEnabledUniform;
+        shader.uniforms.uDecorSpruceBarkTexture = { value: getSpruceBarkTexture() };
+        shader.uniforms.uDecorSpruceBarkTextureEnabled = material.userData.spruceBarkTextureEnabledUniform;
+        shader.uniforms.uDecorCanopyTextureAlphaThreshold = material.userData.canopyTextureAlphaThresholdUniform;
+        shader.uniforms.uDecorCanopyTextureEdgeFade = material.userData.canopyTextureEdgeFadeUniform;
         shader.uniforms.uDecorLeafGloss = material.userData.leafGlossUniform;
         shader.uniforms.uDecorInnerCrownOpacity = material.userData.innerCrownOpacityUniform;
         shader.uniforms.uDecorOuterCrownOpacity = material.userData.outerCrownOpacityUniform;
@@ -965,7 +1126,7 @@ function applyOrganicDetail(material: any): void {
         shader.uniforms.uLeafInner = { value: fields.inner };
         shader.uniforms.uLeafFringe = { value: fields.fringe };
         shader.vertexShader = shader.vertexShader
-            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying float vDecorKind;\n uniform float uDecorWindTime;\n uniform float uDecorWindStrength;\n attribute vec3 aDecorLocal;\n attribute float aDecorKind;\n attribute float aDecorWind;\n attribute vec3 aDecorWindAnchor;')
+            .replace('#include <common>', '#include <common>\n varying vec3 vDecorWorldPos;\n varying vec3 vDecorLocalPos;\n varying vec2 vDecorUv;\n varying float vDecorBoundary;\n varying float vDecorAuthored;\n varying float vDecorKind;\n uniform float uDecorWindTime;\n uniform float uDecorWindStrength;\n attribute vec3 aDecorLocal;\n attribute vec2 aDecorTexUv;\n attribute float aDecorBoundary;\n attribute float aDecorAuthored;\n attribute float aDecorKind;\n attribute float aDecorWind;\n attribute vec3 aDecorWindAnchor;')
             .replace(
                 '#include <beginnormal_vertex>',
                 '#include <beginnormal_vertex>\n' + DECOR_LEAF_FLUTTER_NORMAL
@@ -977,7 +1138,7 @@ function applyOrganicDetail(material: any): void {
                 // crown splotches are computed in that frame, so feeding
                 // them the merged tile-local position instead would rescale
                 // every pattern on the map.
-                '#include <begin_vertex>\n' + DECOR_WIND_VERTEX + '\n vDecorWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorKind = aDecorKind;'
+                '#include <begin_vertex>\n' + DECOR_WIND_VERTEX + '\n vDecorWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorUv = aDecorTexUv;\n vDecorBoundary = aDecorBoundary;\n vDecorAuthored = aDecorAuthored;\n vDecorKind = aDecorKind;'
             );
         shader.fragmentShader = shader.fragmentShader
             // dBumpH is written by the color pass and read by the bump
@@ -1037,6 +1198,11 @@ function addFringe(parent: any, source: any, geometry: any = source.geometry): v
     // pixel or two of the crown and vanishes. The fringe has to stand
     // clearly off the silhouette to read at all.
     shell.scale.copy(source.scale).multiplyScalar(1.16);
+    if (source.userData.crownTopAnchorY !== undefined) {
+        geometry.computeBoundingBox();
+        shell.position.y = source.userData.crownTopAnchorY
+            - geometry.boundingBox.max.y * shell.scale.y;
+    }
     parent.add(shell);
 }
 
@@ -1182,7 +1348,43 @@ function growLimb(
     return { tip: cursor, heading };
 }
 
-export type DeciduousCrownShape = 'none' | 'ball' | 'disk' | 'dome' | 'drop';
+export type DeciduousCrownShape = 'none' | 'ball' | 'disk' | 'dome' | 'cone' | 'drop';
+export type DeciduousLeafStyle = 'round' | 'elongated' | 'needles' | 'long-needles';
+export type DeciduousCanopyTexture = 'procedural' | 'spruce-2x2';
+
+const LEAF_STYLE_VALUE: Record<DeciduousLeafStyle, number> = {
+    round: 0,
+    elongated: 1,
+    needles: 2,
+    'long-needles': 3,
+};
+
+let spruceCanopyTexture: any = null;
+const SPRUCE_CANOPY_TEXTURE_URL = new URL('../../../gran_texture_2x2_proof.png', import.meta.url).href;
+let spruceBarkTexture: any = null;
+const SPRUCE_BARK_TEXTURE_URL = new URL('../../../granbark.png', import.meta.url).href;
+
+function getSpruceCanopyTexture(): any {
+    if (!spruceCanopyTexture) {
+        spruceCanopyTexture = new THREE.TextureLoader().load(SPRUCE_CANOPY_TEXTURE_URL);
+        spruceCanopyTexture.colorSpace = THREE.SRGBColorSpace;
+        spruceCanopyTexture.wrapS = THREE.RepeatWrapping;
+        spruceCanopyTexture.wrapT = THREE.RepeatWrapping;
+        spruceCanopyTexture.anisotropy = 8;
+    }
+    return spruceCanopyTexture;
+}
+
+function getSpruceBarkTexture(): any {
+    if (!spruceBarkTexture) {
+        spruceBarkTexture = new THREE.TextureLoader().load(SPRUCE_BARK_TEXTURE_URL);
+        spruceBarkTexture.colorSpace = THREE.SRGBColorSpace;
+        spruceBarkTexture.wrapS = THREE.RepeatWrapping;
+        spruceBarkTexture.wrapT = THREE.RepeatWrapping;
+        spruceBarkTexture.anisotropy = 8;
+    }
+    return spruceBarkTexture;
+}
 
 function removeDomeBottom(geometry: any, radius: number, seed: number): any {
     const source = geometry.index ? geometry.toNonIndexed() : geometry;
@@ -1211,6 +1413,91 @@ function removeDomeBottom(geometry: any, radius: number, seed: number): any {
     return dome;
 }
 
+function taperDomeToCone(geometry: any, radius: number): any {
+    const position = geometry.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+        const x = position.getX(i);
+        const y = position.getY(i);
+        const z = position.getZ(i);
+        const height = Math.max(0, Math.min(1, (y + radius * 0.12) / (radius * 1.02)));
+        const currentRadius = Math.hypot(x, z);
+        const targetRadius = radius * Math.pow(1 - height, 0.82);
+        const scale = currentRadius > 0.0001 ? targetRadius / currentRadius : 0;
+        position.setX(i, x * scale);
+        position.setZ(i, z * scale);
+        position.setY(i, y * 1.16);
+    }
+    position.needsUpdate = true;
+    geometry.computeVertexNormals();
+    return geometry;
+}
+
+function markOpenBoundaryVertices(geometry: any): any {
+    const position = geometry.attributes.position;
+    const vertexKey = (index: number): string => `${Math.round(position.getX(index) * 100000)},${Math.round(position.getY(index) * 100000)},${Math.round(position.getZ(index) * 100000)}`;
+    const edgeCounts = new Map<string, number>();
+    const countEdge = (a: string, b: string): void => {
+        const edge = a < b ? `${a}|${b}` : `${b}|${a}`;
+        edgeCounts.set(edge, (edgeCounts.get(edge) ?? 0) + 1);
+    };
+
+    for (let i = 0; i < position.count; i += 3) {
+        const a = vertexKey(i);
+        const b = vertexKey(i + 1);
+        const c = vertexKey(i + 2);
+        countEdge(a, b);
+        countEdge(b, c);
+        countEdge(c, a);
+    }
+
+    const boundaryKeys = new Set<string>();
+    for (const [edge, count] of edgeCounts) {
+        if (count !== 1) continue;
+        const [a, b] = edge.split('|');
+        boundaryKeys.add(a);
+        boundaryKeys.add(b);
+    }
+
+    const positions: number[] = [];
+    const boundary: number[] = [];
+    const append = (x: number, y: number, z: number, alpha: number): void => {
+        positions.push(x, y, z);
+        boundary.push(alpha);
+    };
+    for (let i = 0; i < position.count; i += 3) {
+        const vertices = [i, i + 1, i + 2];
+        const edgeVertex = vertices.map(vertex => boundaryKeys.has(vertexKey(vertex)));
+        if (edgeVertex.every(Boolean)) {
+            const centerX = vertices.reduce((sum, vertex) => sum + position.getX(vertex), 0) / 3;
+            const centerY = vertices.reduce((sum, vertex) => sum + position.getY(vertex), 0) / 3;
+            const centerZ = vertices.reduce((sum, vertex) => sum + position.getZ(vertex), 0) / 3;
+            for (let corner = 0; corner < 3; corner++) {
+                const a = vertices[corner];
+                const b = vertices[(corner + 1) % 3];
+                append(position.getX(a), position.getY(a), position.getZ(a), 0);
+                append(position.getX(b), position.getY(b), position.getZ(b), 0);
+                append(centerX, centerY, centerZ, 1);
+            }
+            continue;
+        }
+        for (let corner = 0; corner < 3; corner++) {
+            const vertex = vertices[corner];
+            append(
+                position.getX(vertex),
+                position.getY(vertex),
+                position.getZ(vertex),
+                edgeVertex[corner] ? 0 : 1,
+            );
+        }
+    }
+    geometry.dispose();
+    const marked = new THREE.BufferGeometry();
+    marked.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    marked.setAttribute('aDecorBoundary', new THREE.Float32BufferAttribute(boundary, 1));
+    marked.computeVertexNormals();
+    return marked;
+}
+
 function crownGeometry(
     shape: DeciduousCrownShape,
     radius: number,
@@ -1223,7 +1510,8 @@ function crownGeometry(
         ? new THREE.OctahedronGeometry(radius, 0)
         : new THREE.IcosahedronGeometry(radius, 0);
 
-    if (shape === 'dome') geometry = removeDomeBottom(geometry, radius, seed);
+    if (shape === 'dome' || shape === 'cone') geometry = removeDomeBottom(geometry, radius, seed);
+    if (shape === 'cone') geometry = taperDomeToCone(geometry, radius);
     if (shape === 'drop') {
         const position = geometry.attributes.position;
         for (let i = 0; i < position.count; i++) {
@@ -1242,7 +1530,8 @@ function crownGeometry(
         geometry.computeVertexNormals();
     }
 
-    return roughen(geometry, seed, radius * (fringe ? 0.12 : shape === 'drop' ? 0.10 : shape === 'dome' ? 0.12 : 0.20));
+    if (shape === 'cone') geometry = markOpenBoundaryVertices(geometry);
+    return roughen(geometry, seed, radius * (fringe ? 0.10 : shape === 'drop' ? 0.10 : shape === 'dome' || shape === 'cone' ? 0.12 : 0.20));
 }
 
 // A leaf cluster: the crown blob the old tree had, shrunk and hung on a
@@ -1260,6 +1549,7 @@ function addCluster(
     color: number,
     seed: number,
     shape: DeciduousCrownShape,
+    heightToWidthRatio: number,
 ): void {
     const blob = addMesh(
         parent,
@@ -1274,7 +1564,7 @@ function addCluster(
         : shape === 'drop'
             ? 0.92 + rng() * 0.14
             : 0.74 + rng() * 0.22;
-    blob.scale.set(1, yScale, 1);
+    blob.scale.set(1, yScale * heightToWidthRatio, 1);
     // ...and turned, which matters far more at twenty faces than at
     // eighty: a d20 has a recognisable outline, and every cluster on the
     // map sharing it would tile the forest with one repeated silhouette.
@@ -1290,6 +1580,15 @@ function addCluster(
         // Directional profiles must keep their open side or point downward.
         // Yaw still varies their irregular outline without tilting the form.
         blob.rotation.set(0, rotationY * 2, 0);
+    }
+    if (shape === 'cone') {
+        // `at` is the owning branch tip. Cone crowns grow downward from that
+        // point. Let the top extend a little past the joint so foliage wraps
+        // around and hides the bare end of the supporting branch.
+        blob.geometry.computeBoundingBox();
+        const crownTopAnchorY = at.y + radius * blob.scale.y * 0.12;
+        blob.position.y = crownTopAnchorY - blob.geometry.boundingBox.max.y * blob.scale.y;
+        blob.userData.crownTopAnchorY = crownTopAnchorY;
     }
     // Both set BEFORE the fringe, which copies scale and rotation. Ball and
     // disk can use a coarse shell behind their sparse outer leaf field while
@@ -1319,6 +1618,7 @@ export interface DeciduousTreeParameters {
         countPerFork: number;
         levels: number;
         startLengthRatio: number;
+        lengthRatioPerTrunkLevel: number;
         childLengthRatio: number;
         childRadiusRatio: number;
         gravity: number;
@@ -1332,7 +1632,13 @@ export interface DeciduousTreeParameters {
     };
     canopy: {
         shape: DeciduousCrownShape;
-        clusterScale: number;
+        leafStyle: DeciduousLeafStyle;
+        texture: DeciduousCanopyTexture;
+        textureAlphaThreshold: number;
+        textureEdgeFade: number;
+        widthScale: number;
+        widthRatioPerTrunkLevel: number;
+        heightScale: number;
         leafScale: number;
         gloss: number;
         innerOpacity: number;
@@ -1355,9 +1661,9 @@ export interface DeciduousTreeStats {
 }
 
 const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
-    branches: { countPerFork: 3, levels: 2, startLengthRatio: 0.38, childLengthRatio: 0.75, childRadiusRatio: 0.73, gravity: 3.00 },
+    branches: { countPerFork: 3, levels: 2, startLengthRatio: 0.38, lengthRatioPerTrunkLevel: 0.75, childLengthRatio: 0.75, childRadiusRatio: 0.73, gravity: 3.00 },
     trunk: { levels: 3, baseLengthRatio: 0.50, childLengthRatio: 0.75, baseRadiusScale: 1.30, tipRadiusRatio: 0.26 },
-    canopy: { shape: 'dome', clusterScale: 1.90, leafScale: 0.65, gloss: 0.60, innerOpacity: 0.75, outerOpacity: 0.64, depthFromTip: 0 },
+    canopy: { shape: 'dome', leafStyle: 'round', texture: 'procedural', textureAlphaThreshold: 0.12, textureEdgeFade: 0.38, widthScale: 1.90, widthRatioPerTrunkLevel: 1, heightScale: 1.90, leafScale: 0.65, gloss: 0.60, innerOpacity: 0.75, outerOpacity: 0.64, depthFromTip: 0 },
 };
 
 // Current in-game broadleaf trial profile. Keep this fixed across the eight
@@ -1365,9 +1671,25 @@ const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
 // fork angles, branch counts and placement still provide natural variation.
 function gameDeciduousParameters(): DeciduousTreeParameters {
     return {
-        branches: { countPerFork: 3, levels: 2, startLengthRatio: 0.30, childLengthRatio: 0.60, childRadiusRatio: 0.55, gravity: 0 },
+        branches: { countPerFork: 3, levels: 2, startLengthRatio: 0.30, lengthRatioPerTrunkLevel: 0.75, childLengthRatio: 0.60, childRadiusRatio: 0.55, gravity: 0 },
         trunk: { levels: 2, baseLengthRatio: 0.50, childLengthRatio: 0.60, baseRadiusScale: 1.15, tipRadiusRatio: 0.22 },
-        canopy: { shape: 'dome', clusterScale: 1.40, leafScale: 0.60, gloss: 0.46, innerOpacity: 0.95, outerOpacity: 1.00, depthFromTip: 0 },
+        canopy: { shape: 'dome', leafStyle: 'round', texture: 'procedural', textureAlphaThreshold: 0.12, textureEdgeFade: 0.38, widthScale: 1.40, widthRatioPerTrunkLevel: 1, heightScale: 1.40, leafScale: 0.60, gloss: 0.46, innerOpacity: 0.95, outerOpacity: 1.00, depthFromTip: 0 },
+    };
+}
+
+function gameSpruceParameters(): DeciduousTreeParameters {
+    return {
+        ...SPRUCE_TREE_PARAMETERS,
+        trunk: {
+            ...SPRUCE_TREE_PARAMETERS.trunk,
+            levels: 6,
+            baseLengthRatio: 0.43,
+            baseRadiusScale: 0.65,
+        },
+        canopy: {
+            ...SPRUCE_TREE_PARAMETERS.canopy,
+            widthRatioPerTrunkLevel: 0.81,
+        },
     };
 }
 
@@ -1381,7 +1703,9 @@ function makeDeciduous(
 ): any {
     const resolvedParameters = parameters ?? gameDeciduousParameters();
     const tree = new THREE.Group();
-    tree.userData.decorationTreeKind = 'deciduous';
+    tree.userData.decorationTreeKind = resolvedParameters.canopy.texture === 'spruce-2x2'
+        ? 'spruce'
+        : 'deciduous';
     // The workbench keeps its familiar #05 scale. In the game, spread the
     // eight cached prototypes over a taller, bottom-heavy range: most stay
     // ordinary, while the last couple become unmistakable canopy trees.
@@ -1443,13 +1767,18 @@ function makeDeciduous(
     let forks = 0;
 
     const treeStructureSeed = childSeed(seed, 0x2f6e2b1);
-    const addTipCrown = (tip: any, localBranchCount: number, crownSeed: number): void => {
+    const addTipCrown = (tip: any, localBranchCount: number, crownSeed: number, trunkLevel: number): void => {
         if (dead || resolvedParameters.canopy.shape === 'none') return;
         const crownRng = seededRng(childSeed(crownSeed, 0x63d8359));
         const depthScale = Math.pow(0.78, resolvedParameters.branches.levels - 1);
         const densityScale = Math.sqrt(3 / Math.max(2, localBranchCount));
+        const crownWidth = canopyWidthAtTrunkLevel(
+            resolvedParameters.canopy.widthScale,
+            resolvedParameters.canopy.widthRatioPerTrunkLevel,
+            trunkLevel,
+        );
         const crownRadius = (0.14 + crownRng() * 0.05) * girth * DECIDUOUS_CROWN_SCALE
-            * resolvedParameters.canopy.clusterScale * depthScale * densityScale;
+            * crownWidth * depthScale * densityScale;
         addCluster(
             tree,
             crownRng,
@@ -1458,6 +1787,7 @@ function makeDeciduous(
             leafColor,
             childSeed(crownSeed, 0x51ed270b),
             resolvedParameters.canopy.shape,
+            resolvedParameters.canopy.heightScale / crownWidth,
         );
         cluster++;
     };
@@ -1477,6 +1807,7 @@ function makeDeciduous(
         remainingDepth: number,
         nodeSeed: number,
         crownAlreadyOwned: boolean = false,
+        trunkLevel: number = 0,
     ): void => {
         forks++;
         const nodeRng = seededRng(nodeSeed);
@@ -1486,7 +1817,7 @@ function makeDeciduous(
         const ownsCrown = !crownAlreadyOwned
             && resolvedParameters.canopy.depthFromTip > 0
             && remainingDepth <= resolvedParameters.canopy.depthFromTip;
-        if (ownsCrown) addTipCrown(from, branchesPerFork, childSeed(nodeSeed, 0x1187));
+        if (ownsCrown) addTipCrown(from, branchesPerFork, childSeed(nodeSeed, 0x1187), trunkLevel);
         const crownOwned = crownAlreadyOwned || ownsCrown;
         // The percentage applies to the actual parent segment. With the
         // trunk as generation 1, generation N is exactly
@@ -1538,8 +1869,9 @@ function makeDeciduous(
                     remainingDepth - 1,
                     childSeed(branchSeed, 0x41),
                     crownOwned,
+                    trunkLevel,
                 );
-            } else if (!crownOwned) addTipCrown(child.tip, branchCount, childSeed(branchSeed, 0x51));
+            } else if (!crownOwned) addTipCrown(child.tip, branchCount, childSeed(branchSeed, 0x51), trunkLevel);
         }
     };
 
@@ -1565,15 +1897,19 @@ function makeDeciduous(
         const sideCrownsOwnedAtLeader = resolvedParameters.canopy.depthFromTip > 0
             && resolvedParameters.canopy.depthFromTip >= resolvedParameters.branches.levels;
         if (ownsLeaderCrown || sideCrownsOwnedAtLeader) {
-            addTipCrown(from, branchesPerFork, childSeed(nodeSeed, 0x6187));
+            addTipCrown(from, branchesPerFork, childSeed(nodeSeed, 0x6187), level);
         }
         const leaderCrownOwned = crownAlreadyOwned || ownsLeaderCrown;
         const trunkLevelLength = childBranchLength(parentLength, resolvedParameters.trunk.childLengthRatio);
         // First-generation side branches belong to their own length chain.
-        // Their reference is always the base bole, never the current leader
-        // level (whose length already contains one or more trunk ratios).
+        // Their reference is always the independent branch base length, never
+        // the current leader length. Only the trunk level number shortens them.
         // Only descendants of this branch use sideBranchLength as parent.
-        const sideBranchLength = baseBranchLength;
+        const sideBranchLength = sideBranchLengthAtTrunkLevel(
+            baseBranchLength,
+            resolvedParameters.branches.lengthRatioPerTrunkLevel,
+            level,
+        );
         // The leader is the next trunk level, not one of the requested
         // branches. A value of three therefore means three lateral branches
         // plus the one thicker continuation of the trunk.
@@ -1620,9 +1956,10 @@ function makeDeciduous(
                     resolvedParameters.branches.levels - 1,
                     childSeed(sideSeed, 0x71),
                     sideCrownsOwnedAtLeader,
+                    level,
                 );
             } else if (!sideCrownsOwnedAtLeader) {
-                addTipCrown(sideBranch.tip, childCount, childSeed(sideSeed, 0x81));
+                addTipCrown(sideBranch.tip, childCount, childSeed(sideSeed, 0x81), level);
             }
         }
 
@@ -1653,7 +1990,7 @@ function makeDeciduous(
                 leaderCrownOwned,
             );
         } else if (!leaderCrownOwned) {
-            addTipCrown(leader.tip, childCount, childSeed(leaderSeed, 0xb1));
+            addTipCrown(leader.tip, childCount, childSeed(leaderSeed, 0xb1), level + 1);
         }
     };
 
@@ -1664,6 +2001,11 @@ function makeDeciduous(
         crownClusters: cluster,
         generations: 1 + Math.max(resolvedParameters.branches.levels, resolvedParameters.trunk.levels),
     } satisfies DeciduousTreeStats;
+    if (resolvedParameters.canopy.texture === 'spruce-2x2') {
+        tree.traverse((child: any) => {
+            if (child.isMesh) child.userData.decorAuthored = 1;
+        });
+    }
     return tree;
 }
 
@@ -1679,6 +2021,7 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
             countPerFork: Math.max(2, Math.min(5, Math.round(branchOverrides.countPerFork ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.countPerFork))),
             levels: Math.max(1, Math.min(4, Math.round(branchOverrides.levels ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.levels))),
             startLengthRatio: Math.max(0.05, Math.min(0.75, branchOverrides.startLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.startLengthRatio)),
+            lengthRatioPerTrunkLevel: Math.max(0, Math.min(1, branchOverrides.lengthRatioPerTrunkLevel ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.lengthRatioPerTrunkLevel)),
             childLengthRatio: Math.max(0, Math.min(1, branchOverrides.childLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.childLengthRatio)),
             childRadiusRatio: Math.max(0.2, Math.min(0.9, branchOverrides.childRadiusRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.childRadiusRatio)),
             gravity: Math.max(0, Math.min(3, branchOverrides.gravity ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.gravity)),
@@ -1694,10 +2037,21 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
             shape: canopyOverrides.shape === 'none'
                 || canopyOverrides.shape === 'disk'
                 || canopyOverrides.shape === 'dome'
+                || canopyOverrides.shape === 'cone'
                 || canopyOverrides.shape === 'drop'
                 ? canopyOverrides.shape
                 : DEFAULT_DECIDUOUS_PARAMETERS.canopy.shape,
-            clusterScale: Math.max(0.45, Math.min(3, canopyOverrides.clusterScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.clusterScale)),
+            leafStyle: canopyOverrides.leafStyle === 'elongated'
+                || canopyOverrides.leafStyle === 'needles'
+                || canopyOverrides.leafStyle === 'long-needles'
+                ? canopyOverrides.leafStyle
+                : 'round',
+            texture: canopyOverrides.texture === 'spruce-2x2' ? 'spruce-2x2' : 'procedural',
+            textureAlphaThreshold: Math.max(0.01, Math.min(1, canopyOverrides.textureAlphaThreshold ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.textureAlphaThreshold)),
+            textureEdgeFade: Math.max(0, Math.min(1, canopyOverrides.textureEdgeFade ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.textureEdgeFade)),
+            widthScale: Math.max(0.45, Math.min(3, canopyOverrides.widthScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.widthScale)),
+            widthRatioPerTrunkLevel: Math.max(0.1, Math.min(1, canopyOverrides.widthRatioPerTrunkLevel ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.widthRatioPerTrunkLevel)),
+            heightScale: Math.max(0.45, Math.min(3, canopyOverrides.heightScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.heightScale)),
             leafScale: Math.max(0.35, Math.min(2.5, canopyOverrides.leafScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.leafScale)),
             gloss: Math.max(0, Math.min(1, canopyOverrides.gloss ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.gloss)),
             innerOpacity: Math.max(0, Math.min(1, canopyOverrides.innerOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.innerOpacity)),
@@ -1716,6 +2070,10 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
     if (merged) {
         merged.userData.treeStats = treeStats;
         setDecorationLeafScale(merged, resolved.canopy.leafScale);
+        setDecorationLeafStyle(merged, resolved.canopy.leafStyle);
+        setDecorationCanopyTexture(merged, resolved.canopy.texture);
+        setDecorationCanopyTextureAlphaThreshold(merged, resolved.canopy.textureAlphaThreshold);
+        setDecorationCanopyTextureEdgeFade(merged, resolved.canopy.textureEdgeFade);
         setDecorationLeafGloss(merged, resolved.canopy.gloss);
         setDecorationCrownOpacity(
             merged,
@@ -1993,17 +2351,11 @@ function pickTree(kind: 'conifer' | 'deciduous', rng: () => number): any {
     if (kind === 'conifer') {
         const tree = dead
             ? pick('conifer-dead', (r, i, n) => makeConifer(r, i, n, true), rng)
-            : pick('conifer', makeConifer, rng);
-        if (!dead) {
-            // Reuse the life/death roll instead of consuming another random
-            // number: MapSystem replays the tile stream to determine whether
-            // vegetation exists. Among living trees this maps evenly to a
-            // clear 55-75% drift toward a dark, cool gray. The foliage
-            // shader adds green back through its sun/shadow palette, so a
-            // weaker mix disappears once the tree is lit in the scene.
-            const livingT = (lifeRoll - DEAD_TREE_CHANCE) / (1 - DEAD_TREE_CHANCE);
-            addFoliageGrayHint(tree, 0.55 + livingT * 0.20, 1);
-        }
+            : pick(
+                'spruce-tree-model',
+                (r, i, n) => makeDeciduous(r, i, n, false, false, gameSpruceParameters()),
+                rng,
+            );
         return tree;
     }
     if (dead) return pick('deciduous-dead', (r, i, n) => makeDeciduous(r, i, n, true), rng);
@@ -2048,6 +2400,9 @@ function place(
 const TREE_TILE_SAFE_RADIUS = Math.sqrt(3) / 2 - 0.035;
 
 function fitDeciduousTreeScatter(piece: any, requestedScatter: number): number {
+    // Trial: preserve the approved Gran model's natural X/Z proportions even
+    // when its crown reaches beyond the owning tile.
+    if (piece.userData?.decorationTreeKind === 'spruce') return requestedScatter;
     if (piece.userData?.decorationTreeKind !== 'deciduous') return requestedScatter;
 
     const cachedFootprint = piece.userData.horizontalFootprint;
@@ -2117,6 +2472,8 @@ function mergeDecorations(group: any): any | null {
     const normal = new Float32Array(vertices * 3);
     const uv = new Float32Array(vertices * 2);
     const local = new Float32Array(vertices * 3);
+    const boundary = new Float32Array(vertices);
+    const authored = new Float32Array(vertices);
     const color = new Float32Array(vertices * 3);
     const kind = new Float32Array(vertices);
     const wind = new Float32Array(vertices);
@@ -2141,10 +2498,12 @@ function mergeDecorations(group: any): any | null {
         const src = g.attributes.position;
         const srcNormal = g.attributes.normal;
         const srcUv = g.attributes.uv;
+        const srcBoundary = g.attributes.aDecorBoundary;
         const material = Array.isArray(mesh.material) ? mesh.material[0] : mesh.material;
         const c = material?.color ?? { r: 1, g: 1, b: 1 };
         const k = mesh.userData.decorKind ?? 0;
         const windWeight = mesh.userData.decorWind ?? 0;
+        const authoredWeight = mesh.userData.decorAuthored ?? 0;
         treeOrigin.set(0, 0, 0).applyMatrix4(mesh.parent.matrixWorld);
         clusterCenter.set(0, 0, 0).applyMatrix4(matrix);
         const grayHint = mesh.userData.decorGrayHint ?? 0;
@@ -2176,6 +2535,8 @@ function mergeDecorations(group: any): any | null {
                 uv[(vOffset + i) * 2] = srcUv.getX(i);
                 uv[(vOffset + i) * 2 + 1] = srcUv.getY(i);
             }
+            boundary[vOffset + i] = srcBoundary ? srcBoundary.getX(i) : 1;
+            authored[vOffset + i] = authoredWeight;
 
             color[(vOffset + i) * 3] = cr;
             color[(vOffset + i) * 3 + 1] = cg;
@@ -2205,6 +2566,9 @@ function mergeDecorations(group: any): any | null {
     merged.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
     merged.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     merged.setAttribute('aDecorLocal', new THREE.BufferAttribute(local, 3));
+    merged.setAttribute('aDecorTexUv', new THREE.BufferAttribute(uv, 2));
+    merged.setAttribute('aDecorBoundary', new THREE.BufferAttribute(boundary, 1));
+    merged.setAttribute('aDecorAuthored', new THREE.BufferAttribute(authored, 1));
     merged.setAttribute('color', new THREE.BufferAttribute(color, 3));
     merged.setAttribute('aDecorKind', new THREE.BufferAttribute(kind, 1));
     merged.setAttribute('aDecorWind', new THREE.BufferAttribute(wind, 1));

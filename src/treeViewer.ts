@@ -3,15 +3,22 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import {
     animateDecorationWind,
     createDeciduousTreeModel,
+    setDecorationCanopyTexture,
+    setDecorationCanopyTextureAlphaThreshold,
+    setDecorationCanopyTextureEdgeFade,
     setDecorationCrownOpacity,
     setDecorationLeafGloss,
     setDecorationLeafScale,
+    setDecorationLeafStyle,
     setDecorationWindStrength,
+    type DeciduousCanopyTexture,
     type DeciduousCrownShape,
+    type DeciduousLeafStyle,
     type DeciduousTreeParameters,
     type DeciduousTreeParameterOverrides,
 } from './shared/hexengine/ProceduralDecorations';
 import { SunSystem } from './shared/hexengine/SunSystem';
+import { TREE_PRESETS, type TreePreset } from './treePresets';
 
 const host = document.querySelector<HTMLElement>('#viewer');
 if (!host) throw new Error('Tree viewer host is missing');
@@ -115,9 +122,18 @@ scene.add(ground);
 const gridToggle = document.querySelector<HTMLButtonElement>('#grid-toggle');
 const rotateToggle = document.querySelector<HTMLButtonElement>('#rotate-toggle');
 const resetButton = document.querySelector<HTMLButtonElement>('#reset-view');
+const presetCards = [...document.querySelectorAll<HTMLButtonElement>('[data-preset]')];
+const presetCount = document.querySelector<HTMLElement>('#preset-count');
+const presetVariant = document.querySelector<HTMLElement>('#preset-variant');
 
-const canopyClusterScale = document.querySelector<HTMLInputElement>('#canopy-cluster-scale');
+const canopyWidthScale = document.querySelector<HTMLInputElement>('#canopy-width-scale');
+const canopyWidthRatioPerTrunkLevel = document.querySelector<HTMLInputElement>('#canopy-width-ratio-per-trunk-level');
+const canopyHeightScale = document.querySelector<HTMLInputElement>('#canopy-height-scale');
 const canopyShape = document.querySelector<HTMLSelectElement>('#canopy-shape');
+const canopyLeafStyle = document.querySelector<HTMLSelectElement>('#canopy-leaf-style');
+const canopyTexture = document.querySelector<HTMLSelectElement>('#canopy-texture');
+const canopyTextureAlphaThreshold = document.querySelector<HTMLInputElement>('#canopy-texture-alpha-threshold');
+const canopyTextureEdgeFade = document.querySelector<HTMLInputElement>('#canopy-texture-edge-fade');
 const canopyLeafScale = document.querySelector<HTMLInputElement>('#canopy-leaf-scale');
 const canopyGloss = document.querySelector<HTMLInputElement>('#canopy-gloss');
 const canopyInnerOpacity = document.querySelector<HTMLInputElement>('#canopy-inner-opacity');
@@ -130,16 +146,21 @@ const canopyDepth = document.querySelector<HTMLInputElement>('#canopy-depth');
 const trunkLevels = document.querySelector<HTMLInputElement>('#trunk-levels');
 const trunkBaseLengthRatio = document.querySelector<HTMLInputElement>('#trunk-base-length-ratio');
 const branchStartLengthRatio = document.querySelector<HTMLInputElement>('#branch-start-length-ratio');
+const branchLengthRatioPerTrunkLevel = document.querySelector<HTMLInputElement>('#branch-length-ratio-per-trunk-level');
 const branchChildLengthRatio = document.querySelector<HTMLInputElement>('#branch-child-length-ratio');
 const trunkChildLengthRatio = document.querySelector<HTMLInputElement>('#trunk-child-length-ratio');
 const trunkBaseRadiusScale = document.querySelector<HTMLInputElement>('#trunk-base-radius-scale');
 const branchChildRadiusRatio = document.querySelector<HTMLInputElement>('#branch-child-radius-ratio');
 const trunkTipRadiusRatio = document.querySelector<HTMLInputElement>('#trunk-tip-radius-ratio');
-const canopyClusterScaleValue = document.querySelector<HTMLOutputElement>('#canopy-cluster-scale-value');
+const canopyWidthScaleValue = document.querySelector<HTMLOutputElement>('#canopy-width-scale-value');
+const canopyWidthRatioPerTrunkLevelValue = document.querySelector<HTMLOutputElement>('#canopy-width-ratio-per-trunk-level-value');
+const canopyHeightScaleValue = document.querySelector<HTMLOutputElement>('#canopy-height-scale-value');
 const canopyLeafScaleValue = document.querySelector<HTMLOutputElement>('#canopy-leaf-scale-value');
 const canopyGlossValue = document.querySelector<HTMLOutputElement>('#canopy-gloss-value');
 const canopyInnerOpacityValue = document.querySelector<HTMLOutputElement>('#canopy-inner-opacity-value');
 const canopyOuterOpacityValue = document.querySelector<HTMLOutputElement>('#canopy-outer-opacity-value');
+const canopyTextureAlphaThresholdValue = document.querySelector<HTMLOutputElement>('#canopy-texture-alpha-threshold-value');
+const canopyTextureEdgeFadeValue = document.querySelector<HTMLOutputElement>('#canopy-texture-edge-fade-value');
 const branchGravityStrengthValue = document.querySelector<HTMLOutputElement>('#branch-gravity-strength-value');
 const windStrengthValue = document.querySelector<HTMLOutputElement>('#wind-strength-value');
 const branchCountPerForkValue = document.querySelector<HTMLOutputElement>('#branch-count-per-fork-value');
@@ -148,6 +169,7 @@ const canopyDepthValue = document.querySelector<HTMLOutputElement>('#canopy-dept
 const trunkLevelsValue = document.querySelector<HTMLOutputElement>('#trunk-levels-value');
 const trunkBaseLengthRatioValue = document.querySelector<HTMLOutputElement>('#trunk-base-length-ratio-value');
 const branchStartLengthRatioValue = document.querySelector<HTMLOutputElement>('#branch-start-length-ratio-value');
+const branchLengthRatioPerTrunkLevelValue = document.querySelector<HTMLOutputElement>('#branch-length-ratio-per-trunk-level-value');
 const branchChildLengthRatioValue = document.querySelector<HTMLOutputElement>('#branch-child-length-ratio-value');
 const trunkChildLengthRatioValue = document.querySelector<HTMLOutputElement>('#trunk-child-length-ratio-value');
 const trunkBaseRadiusScaleValue = document.querySelector<HTMLOutputElement>('#trunk-base-radius-scale-value');
@@ -193,6 +215,7 @@ function readParameters(): DeciduousTreeParameters {
             countPerFork: Number(branchCountPerFork?.value ?? 3),
             levels: Number(branchLevels?.value ?? 2),
             startLengthRatio: Number(branchStartLengthRatio?.value ?? 38) / 100,
+            lengthRatioPerTrunkLevel: Number(branchLengthRatioPerTrunkLevel?.value ?? 75) / 100,
             childLengthRatio: Number(branchChildLengthRatio?.value ?? 75) / 100,
             childRadiusRatio: Number(branchChildRadiusRatio?.value ?? 73) / 100,
             gravity: Number(branchGravityStrength?.value ?? 300) / 100,
@@ -206,7 +229,13 @@ function readParameters(): DeciduousTreeParameters {
         },
         canopy: {
             shape: (canopyShape?.value ?? 'dome') as DeciduousCrownShape,
-            clusterScale: Number(canopyClusterScale?.value ?? 1.9),
+            leafStyle: (canopyLeafStyle?.value ?? 'round') as DeciduousLeafStyle,
+            texture: (canopyTexture?.value ?? 'procedural') as DeciduousCanopyTexture,
+            textureAlphaThreshold: Number(canopyTextureAlphaThreshold?.value ?? 12) / 100,
+            textureEdgeFade: Number(canopyTextureEdgeFade?.value ?? 38) / 100,
+            widthScale: Number(canopyWidthScale?.value ?? 1.9),
+            widthRatioPerTrunkLevel: Number(canopyWidthRatioPerTrunkLevel?.value ?? 100) / 100,
+            heightScale: Number(canopyHeightScale?.value ?? 1.9),
             leafScale: Number(canopyLeafScale?.value ?? 0.65),
             gloss: Number(canopyGloss?.value ?? 60) / 100,
             innerOpacity: Number(canopyInnerOpacity?.value ?? 75) / 100,
@@ -216,12 +245,60 @@ function readParameters(): DeciduousTreeParameters {
     };
 }
 
+function setInputValue(input: HTMLInputElement | HTMLSelectElement | null, value: number | string): void {
+    if (input) input.value = String(value);
+}
+
+function applyPreset(preset: TreePreset): void {
+    const { branches, trunk, canopy } = preset.parameters;
+    setInputValue(branchCountPerFork, branches.countPerFork);
+    setInputValue(branchLevels, branches.levels);
+    setInputValue(branchStartLengthRatio, branches.startLengthRatio * 100);
+    setInputValue(branchLengthRatioPerTrunkLevel, branches.lengthRatioPerTrunkLevel * 100);
+    setInputValue(branchChildLengthRatio, branches.childLengthRatio * 100);
+    setInputValue(branchChildRadiusRatio, branches.childRadiusRatio * 100);
+    setInputValue(branchGravityStrength, branches.gravity * 100);
+    setInputValue(trunkLevels, trunk.levels);
+    setInputValue(trunkBaseLengthRatio, trunk.baseLengthRatio * 100);
+    setInputValue(trunkChildLengthRatio, trunk.childLengthRatio * 100);
+    setInputValue(trunkBaseRadiusScale, trunk.baseRadiusScale);
+    setInputValue(trunkTipRadiusRatio, trunk.tipRadiusRatio * 100);
+    setInputValue(canopyShape, canopy.shape);
+    setInputValue(canopyLeafStyle, canopy.leafStyle);
+    setInputValue(canopyTexture, canopy.texture);
+    setInputValue(canopyTextureAlphaThreshold, canopy.textureAlphaThreshold * 100);
+    setInputValue(canopyTextureEdgeFade, canopy.textureEdgeFade * 100);
+    setInputValue(canopyDepth, canopy.depthFromTip);
+    setInputValue(canopyWidthScale, canopy.widthScale);
+    setInputValue(canopyWidthRatioPerTrunkLevel, canopy.widthRatioPerTrunkLevel * 100);
+    setInputValue(canopyHeightScale, canopy.heightScale);
+    setInputValue(canopyLeafScale, canopy.leafScale);
+    setInputValue(canopyGloss, canopy.gloss * 100);
+    setInputValue(canopyInnerOpacity, canopy.innerOpacity * 100);
+    setInputValue(canopyOuterOpacity, canopy.outerOpacity * 100);
+    setInputValue(windStrength, preset.windStrength * 100);
+
+    for (const card of presetCards) {
+        const selected = card.dataset.preset === preset.id;
+        card.classList.toggle('is-active', selected);
+        card.setAttribute('aria-pressed', String(selected));
+    }
+    if (presetCount) {
+        const index = TREE_PRESETS.findIndex(candidate => candidate.id === preset.id);
+        presetCount.textContent = `${String(index + 1).padStart(2, '0')} / ${String(TREE_PRESETS.length).padStart(2, '0')}`;
+    }
+    if (presetVariant) presetVariant.textContent = preset.variant;
+    if (windStrengthValue) windStrengthValue.value = `${Math.round(preset.windStrength * 100)}%`;
+    parametersChanged();
+}
+
 let rebuildTimer: number | undefined;
 function parametersChanged(): void {
     const parameters = readParameters();
     if (branchCountPerForkValue) branchCountPerForkValue.value = String(parameters.branches.countPerFork);
     if (branchLevelsValue) branchLevelsValue.value = String(parameters.branches.levels);
     if (branchStartLengthRatioValue) branchStartLengthRatioValue.value = `${Math.round(parameters.branches.startLengthRatio * 100)}%`;
+    if (branchLengthRatioPerTrunkLevelValue) branchLengthRatioPerTrunkLevelValue.value = `${Math.round(parameters.branches.lengthRatioPerTrunkLevel * 100)}%`;
     if (branchChildLengthRatioValue) branchChildLengthRatioValue.value = `${Math.round(parameters.branches.childLengthRatio * 100)}%`;
     if (branchChildRadiusRatioValue) branchChildRadiusRatioValue.value = `${Math.round(parameters.branches.childRadiusRatio * 100)}%`;
     if (branchGravityStrengthValue) branchGravityStrengthValue.value = `${Math.round(parameters.branches.gravity * 100)}%`;
@@ -231,26 +308,58 @@ function parametersChanged(): void {
     if (trunkBaseRadiusScaleValue) trunkBaseRadiusScaleValue.value = `${parameters.trunk.baseRadiusScale.toFixed(2)}×`;
     if (trunkTipRadiusRatioValue) trunkTipRadiusRatioValue.value = `${Math.round(parameters.trunk.tipRadiusRatio * 100)}%`;
     if (canopyDepthValue) canopyDepthValue.value = String(parameters.canopy.depthFromTip);
-    if (canopyClusterScaleValue) canopyClusterScaleValue.value = `${parameters.canopy.clusterScale.toFixed(2)}×`;
+    if (canopyWidthScaleValue) canopyWidthScaleValue.value = `${parameters.canopy.widthScale.toFixed(2)}×`;
+    if (canopyWidthRatioPerTrunkLevelValue) canopyWidthRatioPerTrunkLevelValue.value = `${Math.round(parameters.canopy.widthRatioPerTrunkLevel * 100)}%`;
+    if (canopyHeightScaleValue) canopyHeightScaleValue.value = `${parameters.canopy.heightScale.toFixed(2)}×`;
     if (canopyLeafScaleValue) canopyLeafScaleValue.value = `${parameters.canopy.leafScale.toFixed(2)}×`;
     if (canopyGlossValue) canopyGlossValue.value = `${Math.round(parameters.canopy.gloss * 100)}%`;
     if (canopyInnerOpacityValue) canopyInnerOpacityValue.value = `${Math.round(parameters.canopy.innerOpacity * 100)}%`;
     if (canopyOuterOpacityValue) canopyOuterOpacityValue.value = `${Math.round(parameters.canopy.outerOpacity * 100)}%`;
+    if (canopyTextureAlphaThresholdValue) canopyTextureAlphaThresholdValue.value = `${Math.round(parameters.canopy.textureAlphaThreshold * 100)}%`;
+    if (canopyTextureEdgeFadeValue) canopyTextureEdgeFadeValue.value = `${Math.round(parameters.canopy.textureEdgeFade * 100)}%`;
 
     window.clearTimeout(rebuildTimer);
     rebuildTimer = window.setTimeout(() => replaceTree(parameters), 80);
 }
 
-for (const input of [canopyClusterScale, branchGravityStrength, branchCountPerFork, branchLevels, canopyDepth, trunkLevels, trunkBaseLengthRatio, branchStartLengthRatio, branchChildLengthRatio, trunkChildLengthRatio, trunkBaseRadiusScale, branchChildRadiusRatio, trunkTipRadiusRatio]) {
+for (const input of [canopyWidthScale, canopyWidthRatioPerTrunkLevel, canopyHeightScale, canopyTextureAlphaThreshold, canopyTextureEdgeFade, branchGravityStrength, branchCountPerFork, branchLevels, canopyDepth, trunkLevels, trunkBaseLengthRatio, branchStartLengthRatio, branchLengthRatioPerTrunkLevel, branchChildLengthRatio, trunkChildLengthRatio, trunkBaseRadiusScale, branchChildRadiusRatio, trunkTipRadiusRatio]) {
     input?.addEventListener('input', parametersChanged);
 }
 canopyShape?.addEventListener('change', parametersChanged);
-parametersChanged();
+canopyLeafStyle?.addEventListener('change', parametersChanged);
+canopyTexture?.addEventListener('change', parametersChanged);
+for (const card of presetCards) {
+    card.addEventListener('click', () => {
+        const preset = TREE_PRESETS.find(candidate => candidate.id === card.dataset.preset);
+        if (preset) applyPreset(preset);
+    });
+}
+applyPreset(TREE_PRESETS[0]);
 
 canopyLeafScale?.addEventListener('input', () => {
     const scale = Number(canopyLeafScale.value);
     if (canopyLeafScaleValue) canopyLeafScaleValue.value = `${scale.toFixed(2)}×`;
     setDecorationLeafScale(tree, scale);
+});
+
+canopyLeafStyle?.addEventListener('change', () => {
+    setDecorationLeafStyle(tree, canopyLeafStyle.value as DeciduousLeafStyle);
+});
+
+canopyTexture?.addEventListener('change', () => {
+    setDecorationCanopyTexture(tree, canopyTexture.value as DeciduousCanopyTexture);
+});
+
+canopyTextureAlphaThreshold?.addEventListener('input', () => {
+    const threshold = Number(canopyTextureAlphaThreshold.value) / 100;
+    if (canopyTextureAlphaThresholdValue) canopyTextureAlphaThresholdValue.value = `${Math.round(threshold * 100)}%`;
+    setDecorationCanopyTextureAlphaThreshold(tree, threshold);
+});
+
+canopyTextureEdgeFade?.addEventListener('input', () => {
+    const fade = Number(canopyTextureEdgeFade.value) / 100;
+    if (canopyTextureEdgeFadeValue) canopyTextureEdgeFadeValue.value = `${Math.round(fade * 100)}%`;
+    setDecorationCanopyTextureEdgeFade(tree, fade);
 });
 
 canopyGloss?.addEventListener('input', () => {

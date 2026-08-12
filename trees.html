@@ -89,6 +89,7 @@
         }
 
         .catalog-head { display: flex; justify-content: space-between; margin-bottom: 14px; }
+        .tree-list { display: grid; gap: 7px; }
         .tree-card {
             width: 100%;
             padding: 13px;
@@ -97,8 +98,10 @@
             border: 1px solid rgba(168, 198, 108, 0.38);
             border-radius: 2px;
             background: linear-gradient(135deg, rgba(168, 198, 108, 0.12), rgba(168, 198, 108, 0.03));
-            cursor: default;
+            cursor: pointer;
         }
+        .tree-card:not(.is-active) { border-color: var(--line); background: rgba(255, 255, 255, 0.018); }
+        .tree-card:hover { border-color: rgba(168, 198, 108, 0.58); }
         .tree-card strong { display: block; margin-bottom: 6px; font: 500 15px/1.2 "Newsreader", serif; }
         .tree-card span { color: var(--muted); font-size: 10px; }
         .swatch { float: right; width: 9px; height: 9px; margin-top: 3px; border-radius: 50%; background: #526f34; }
@@ -241,16 +244,28 @@
     </header>
 
     <aside class="catalog" aria-label="Trädmodeller">
-        <div class="catalog-head"><span class="label">Modeller</span><span class="count">01 / 01</span></div>
-        <button class="tree-card" type="button" aria-pressed="true">
-            <i class="swatch"></i>
-            <strong>Lövträd · Standard</strong>
-            <span>ProceduralDecorations</span>
-        </button>
+        <div class="catalog-head"><span class="label">Modeller</span><span id="preset-count" class="count">01 / 03</span></div>
+        <div class="tree-list" role="list" aria-label="Trädpresets">
+            <button class="tree-card is-active" type="button" data-preset="broadleaf-standard" aria-pressed="true" role="listitem">
+                <i class="swatch"></i>
+                <strong>Lövträd · Standard</strong>
+                <span>ProceduralDecorations</span>
+            </button>
+            <button class="tree-card" type="button" data-preset="spruce" aria-pressed="false" role="listitem">
+                <i class="swatch"></i>
+                <strong>Gran</strong>
+                <span>ProceduralDecorations</span>
+            </button>
+            <button class="tree-card" type="button" data-preset="pine" aria-pressed="false" role="listitem">
+                <i class="swatch"></i>
+                <strong>Tall</strong>
+                <span>ProceduralDecorations</span>
+            </button>
+        </div>
         <dl class="details">
             <dt>Typ</dt><dd>Procedurgenererad</dd>
             <dt>Källa</dt><dd>Spelets skogssystem</dd>
-            <dt>Variant</dt><dd>Lövträd #05</dd>
+            <dt>Variant</dt><dd id="preset-variant">Lövträd #05</dd>
             <dt>Vind</dt><dd>Aktiv</dd>
         </dl>
         <section class="parameters" aria-label="Trädparametrar">
@@ -259,7 +274,8 @@
                 <label class="parameter"><span class="parameter-head"><span>Grenar per förgrening</span><output id="branch-count-per-fork-value">3</output></span><input id="branch-count-per-fork" type="range" min="2" max="5" step="1" value="3"></label>
                 <label class="parameter"><span class="parameter-head"><span>Nivåer</span><output id="branch-levels-value">2</output></span><input id="branch-levels" type="range" min="1" max="4" step="1" value="2"></label>
                 <label class="parameter"><span class="parameter-head"><span>Startlängd</span><output id="branch-start-length-ratio-value">38%</output></span><input id="branch-start-length-ratio" type="range" min="5" max="75" step="1" value="38"></label>
-                <label class="parameter"><span class="parameter-head"><span>Längdfaktor per nivå</span><output id="branch-child-length-ratio-value">75%</output></span><input id="branch-child-length-ratio" type="range" min="0" max="100" step="5" value="75"></label>
+                <label class="parameter"><span class="parameter-head"><span>Längdfaktor per stamnivå</span><output id="branch-length-ratio-per-trunk-level-value">75%</output></span><input id="branch-length-ratio-per-trunk-level" type="range" min="0" max="100" step="5" value="75"></label>
+                <label class="parameter"><span class="parameter-head"><span>Längdfaktor per grennivå</span><output id="branch-child-length-ratio-value">75%</output></span><input id="branch-child-length-ratio" type="range" min="0" max="100" step="5" value="75"></label>
                 <label class="parameter"><span class="parameter-head"><span>Tjockleksfaktor per nivå</span><output id="branch-child-radius-ratio-value">73%</output></span><input id="branch-child-radius-ratio" type="range" min="20" max="90" step="1" value="73"></label>
                 <label class="parameter"><span class="parameter-head"><span>Gravitation</span><output id="branch-gravity-strength-value">300%</output></span><input id="branch-gravity-strength" type="range" min="0" max="300" step="1" value="300"></label>
             </div>
@@ -271,9 +287,15 @@
                 <label class="parameter"><span class="parameter-head"><span>Sluttjocklek</span><output id="trunk-tip-radius-ratio-value">26%</output></span><input id="trunk-tip-radius-ratio" type="range" min="10" max="80" step="1" value="26"></label>
             </div>
             <div class="parameter-group"><span class="parameter-group-title">Krona</span>
-                <label class="parameter"><span class="parameter-head"><span>Form</span></span><select id="canopy-shape"><option value="none">Ingen</option><option value="ball">Boll</option><option value="disk">Disk</option><option value="dome" selected>Kupa · öppen undertill</option><option value="drop">Droppe · spets nedåt</option></select></label>
+                <label class="parameter"><span class="parameter-head"><span>Form</span></span><select id="canopy-shape"><option value="none">Ingen</option><option value="ball">Boll</option><option value="disk">Disk</option><option value="dome" selected>Kupa · öppen undertill</option><option value="cone">Kon · spets upptill</option><option value="drop">Droppe · spets nedåt</option></select></label>
+                <label class="parameter"><span class="parameter-head"><span>Lövverk</span></span><select id="canopy-leaf-style"><option value="round" selected>Runda löv</option><option value="elongated">Avlånga löv</option><option value="needles">Barr</option><option value="long-needles">Långa barr</option></select></label>
+                <label class="parameter"><span class="parameter-head"><span>Krontextur</span></span><select id="canopy-texture"><option value="procedural" selected>Procedurell</option><option value="spruce-2x2">Gran 2×2</option></select></label>
+                <label class="parameter"><span class="parameter-head"><span>Texturens alfagräns</span><output id="canopy-texture-alpha-threshold-value">12%</output></span><input id="canopy-texture-alpha-threshold" type="range" min="1" max="60" step="1" value="12"></label>
+                <label class="parameter"><span class="parameter-head"><span>Texturens kantfade</span><output id="canopy-texture-edge-fade-value">38%</output></span><input id="canopy-texture-edge-fade" type="range" min="0" max="100" step="1" value="38"></label>
                 <label class="parameter"><span class="parameter-head"><span>Djup från grenspets</span><output id="canopy-depth-value">0</output></span><input id="canopy-depth" type="range" min="0" max="4" step="1" value="0"></label>
-                <label class="parameter"><span class="parameter-head"><span>Klusterstorlek</span><output id="canopy-cluster-scale-value">1.90×</output></span><input id="canopy-cluster-scale" type="range" min="0.5" max="3" step="0.05" value="1.9"></label>
+                <label class="parameter"><span class="parameter-head"><span>Kronbredd</span><output id="canopy-width-scale-value">1.90×</output></span><input id="canopy-width-scale" type="range" min="0.5" max="3" step="0.05" value="1.9"></label>
+                <label class="parameter"><span class="parameter-head"><span>Kronbredd per stamnivå</span><output id="canopy-width-ratio-per-trunk-level-value">100%</output></span><input id="canopy-width-ratio-per-trunk-level" type="range" min="10" max="100" step="1" value="100"></label>
+                <label class="parameter"><span class="parameter-head"><span>Kronhöjd</span><output id="canopy-height-scale-value">1.90×</output></span><input id="canopy-height-scale" type="range" min="0.5" max="3" step="0.05" value="1.9"></label>
                 <label class="parameter"><span class="parameter-head"><span>Lövstorlek</span><output id="canopy-leaf-scale-value">0.65×</output></span><input id="canopy-leaf-scale" type="range" min="0.35" max="2.5" step="0.05" value="0.65"></label>
                 <label class="parameter"><span class="parameter-head"><span>Glans</span><output id="canopy-gloss-value">60%</output></span><input id="canopy-gloss" type="range" min="0" max="100" step="1" value="60"></label>
                 <label class="parameter"><span class="parameter-head"><span>Inre opacitet</span><output id="canopy-inner-opacity-value">75%</output></span><input id="canopy-inner-opacity" type="range" min="0" max="100" step="1" value="75"></label>

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { childBranchLength, firstSideBranchLength, leaderBranchAzimuth } from './deciduousTreeMath';
+import {
+    childBranchLength,
+    canopyWidthAtTrunkLevel,
+    firstSideBranchLength,
+    leaderBranchAzimuth,
+    sideBranchLengthAtTrunkLevel,
+} from './deciduousTreeMath';
 
 describe('childBranchLength', () => {
     it('treats the trunk as generation 1 and applies the ratio to each actual parent', () => {
@@ -10,6 +16,14 @@ describe('childBranchLength', () => {
 
         const expected = [10, 6.5, 4.225, 2.74625];
         generations.forEach((length, index) => expect(length).toBeCloseTo(expected[index], 8));
+    });
+});
+
+describe('canopyWidthAtTrunkLevel', () => {
+    it('keeps full width at the first trunk level and compounds upward', () => {
+        expect(canopyWidthAtTrunkLevel(2.35, 0.8, 0)).toBeCloseTo(2.35, 8);
+        expect(canopyWidthAtTrunkLevel(2.35, 0.8, 1)).toBeCloseTo(1.88, 8);
+        expect(canopyWidthAtTrunkLevel(2.35, 0.8, 2)).toBeCloseTo(1.504, 8);
     });
 });
 
@@ -29,6 +43,12 @@ describe('independent trunk and branch length chains', () => {
         const firstBranch = firstSideBranchLength(10, 0.38);
         expect(childBranchLength(firstBranch, 0)).toBe(0);
         expect(childBranchLength(firstBranch, 0.75)).toBeCloseTo(2.85, 8);
+    });
+
+    it('shortens first-generation side branches by trunk level count, not trunk length', () => {
+        expect(sideBranchLengthAtTrunkLevel(4, 0.75, 0)).toBe(4);
+        expect(sideBranchLengthAtTrunkLevel(4, 0.75, 1)).toBe(3);
+        expect(sideBranchLengthAtTrunkLevel(4, 0.75, 2)).toBe(2.25);
     });
 });
 
