@@ -15,7 +15,7 @@
 // the factory decorator replacing it on building tiles.
 
 import { PERTURB_GLSL } from './PerturbNormalShader';
-import { childBranchLength, leaderBranchAzimuth } from './deciduousTreeMath';
+import { childBranchLength, firstSideBranchLength, leaderBranchAzimuth } from './deciduousTreeMath';
 
 // Kept local for the same reason as tileVegetation's pinned copy: utils.ts
 // imports GridSystem, while this leaf render module must also be usable by
@@ -1315,21 +1315,36 @@ function addCluster(
 const DECIDUOUS_CROWN_SCALE = 1.25;
 
 export interface DeciduousTreeParameters {
-    crownShape: DeciduousCrownShape;
-    crownScale: number;
-    leafScale: number;
-    leafGloss: number;
-    innerCrownOpacity: number;
-    outerCrownOpacity: number;
-    branchGravity: number;
-    maxBranchesPerFork: number;
-    recursionDepth: number;
-    crownDepthFromTip: number;
-    trunkSegments: number;
-    branchLengthRatio: number;
-    trunkScale: number;
-    branchRadiusRatio: number;
-    trunkTipRadiusRatio: number;
+    branches: {
+        countPerFork: number;
+        levels: number;
+        startLengthRatio: number;
+        childLengthRatio: number;
+        childRadiusRatio: number;
+        gravity: number;
+    };
+    trunk: {
+        levels: number;
+        baseLengthRatio: number;
+        childLengthRatio: number;
+        baseRadiusScale: number;
+        tipRadiusRatio: number;
+    };
+    canopy: {
+        shape: DeciduousCrownShape;
+        clusterScale: number;
+        leafScale: number;
+        gloss: number;
+        innerOpacity: number;
+        outerOpacity: number;
+        depthFromTip: number;
+    };
+}
+
+export interface DeciduousTreeParameterOverrides {
+    branches?: Partial<DeciduousTreeParameters['branches']>;
+    trunk?: Partial<DeciduousTreeParameters['trunk']>;
+    canopy?: Partial<DeciduousTreeParameters['canopy']>;
 }
 
 export interface DeciduousTreeStats {
@@ -1340,21 +1355,9 @@ export interface DeciduousTreeStats {
 }
 
 const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
-    crownShape: 'ball',
-    crownScale: 1.90,
-    leafScale: 1.10,
-    leafGloss: 0.60,
-    innerCrownOpacity: 0.75,
-    outerCrownOpacity: 0.64,
-    branchGravity: 3.00,
-    maxBranchesPerFork: 3,
-    recursionDepth: 2,
-    crownDepthFromTip: 0,
-    trunkSegments: 2,
-    branchLengthRatio: 0.60,
-    trunkScale: 1.15,
-    branchRadiusRatio: 0.55,
-    trunkTipRadiusRatio: 0.22,
+    branches: { countPerFork: 3, levels: 2, startLengthRatio: 0.38, childLengthRatio: 0.75, childRadiusRatio: 0.73, gravity: 3.00 },
+    trunk: { levels: 3, baseLengthRatio: 0.50, childLengthRatio: 0.75, baseRadiusScale: 1.30, tipRadiusRatio: 0.26 },
+    canopy: { shape: 'dome', clusterScale: 1.90, leafScale: 0.65, gloss: 0.60, innerOpacity: 0.75, outerOpacity: 0.64, depthFromTip: 0 },
 };
 
 // Current in-game broadleaf trial profile. Keep this fixed across the eight
@@ -1362,21 +1365,9 @@ const DEFAULT_DECIDUOUS_PARAMETERS: DeciduousTreeParameters = {
 // fork angles, branch counts and placement still provide natural variation.
 function gameDeciduousParameters(): DeciduousTreeParameters {
     return {
-        crownShape: 'dome',
-        crownScale: 1.40,
-        leafScale: 0.60,
-        leafGloss: 0.46,
-        innerCrownOpacity: 0.95,
-        outerCrownOpacity: 1.00,
-        branchGravity: 0,
-        maxBranchesPerFork: 3,
-        recursionDepth: 2,
-        crownDepthFromTip: 0,
-        trunkSegments: 2,
-        branchLengthRatio: 0.60,
-        trunkScale: 1.15,
-        branchRadiusRatio: 0.55,
-        trunkTipRadiusRatio: 0.22,
+        branches: { countPerFork: 3, levels: 2, startLengthRatio: 0.30, childLengthRatio: 0.60, childRadiusRatio: 0.55, gravity: 0 },
+        trunk: { levels: 2, baseLengthRatio: 0.50, childLengthRatio: 0.60, baseRadiusScale: 1.15, tipRadiusRatio: 0.22 },
+        canopy: { shape: 'dome', clusterScale: 1.40, leafScale: 0.60, gloss: 0.46, innerOpacity: 0.95, outerOpacity: 1.00, depthFromTip: 0 },
     };
 }
 
@@ -1435,29 +1426,30 @@ function makeDeciduous(
         : lerpHex(0x395a2b, 0x5f7d36, seedT(seed * 97));
 
     // The bole: kept bare, so the crown sits ON something visible.
-    const boleH = height * (0.44 + rng() * 0.12);
-    const rTrunk = (0.05 + rng() * 0.022) * girth * resolvedParameters.trunkScale;
-    const trunkJointCount = resolvedParameters.trunkSegments + 1;
-    const trunkTaperPerJoint = Math.pow(resolvedParameters.trunkTipRadiusRatio, 1 / trunkJointCount);
+    const boleH = height * resolvedParameters.trunk.baseLengthRatio;
+    const baseBranchLength = firstSideBranchLength(height, resolvedParameters.branches.startLengthRatio);
+    const rTrunk = (0.05 + rng() * 0.022) * girth * resolvedParameters.trunk.baseRadiusScale;
+    const trunkJointCount = resolvedParameters.trunk.levels + 1;
+    const trunkTaperPerJoint = Math.pow(resolvedParameters.trunk.tipRadiusRatio, 1 / trunkJointCount);
     const boleTipRadius = rTrunk * 1.35 * trunkTaperPerJoint;
     const lean = new THREE.Vector3((rng() - 0.5) * 0.10, 1, (rng() - 0.5) * 0.10);
     // Eight smooth-shaded sides are enough to read as round at gameplay
     // distance. Sixteen doubled the bole cost without improving its outline.
     const bole = growLimb(tree, rng, new THREE.Vector3(0, 0, 0), lean, boleH, rTrunk * 1.35, boleTipRadius, 1, 8, 0, 0.06, barkColor);
 
-    const branchesPerFork = Math.max(2, Math.min(5, Math.round(resolvedParameters.maxBranchesPerFork)));
+    const branchesPerFork = Math.max(2, Math.min(5, Math.round(resolvedParameters.branches.countPerFork)));
     let cluster = 0;
     let branches = 1; // The trunk is branch generation 1.
     let forks = 0;
 
     const treeStructureSeed = childSeed(seed, 0x2f6e2b1);
     const addTipCrown = (tip: any, localBranchCount: number, crownSeed: number): void => {
-        if (dead || resolvedParameters.crownShape === 'none') return;
+        if (dead || resolvedParameters.canopy.shape === 'none') return;
         const crownRng = seededRng(childSeed(crownSeed, 0x63d8359));
-        const depthScale = Math.pow(0.78, resolvedParameters.recursionDepth - 1);
+        const depthScale = Math.pow(0.78, resolvedParameters.branches.levels - 1);
         const densityScale = Math.sqrt(3 / Math.max(2, localBranchCount));
         const crownRadius = (0.14 + crownRng() * 0.05) * girth * DECIDUOUS_CROWN_SCALE
-            * resolvedParameters.crownScale * depthScale * densityScale;
+            * resolvedParameters.canopy.clusterScale * depthScale * densityScale;
         addCluster(
             tree,
             crownRng,
@@ -1465,7 +1457,7 @@ function makeDeciduous(
             crownRadius,
             leafColor,
             childSeed(crownSeed, 0x51ed270b),
-            resolvedParameters.crownShape,
+            resolvedParameters.canopy.shape,
         );
         cluster++;
     };
@@ -1492,14 +1484,14 @@ function makeDeciduous(
         // ownership toward the trunk: this joint gets the crown, while all
         // remaining twig generations continue growing through its volume.
         const ownsCrown = !crownAlreadyOwned
-            && resolvedParameters.crownDepthFromTip > 0
-            && remainingDepth <= resolvedParameters.crownDepthFromTip;
+            && resolvedParameters.canopy.depthFromTip > 0
+            && remainingDepth <= resolvedParameters.canopy.depthFromTip;
         if (ownsCrown) addTipCrown(from, branchesPerFork, childSeed(nodeSeed, 0x1187));
         const crownOwned = crownAlreadyOwned || ownsCrown;
         // The percentage applies to the actual parent segment. With the
         // trunk as generation 1, generation N is exactly
         // trunkLength * ratio^(N - 1), never another height estimate.
-        const branchLength = childBranchLength(parentLength, resolvedParameters.branchLengthRatio);
+        const branchLength = childBranchLength(parentLength, resolvedParameters.branches.childLengthRatio);
 
         // Build an orthonormal frame around the parent. Children are points
         // around a cone mantle in THIS 3D frame, not rotations around one
@@ -1509,8 +1501,8 @@ function makeDeciduous(
         const azimuthPhase = nodeRng() * Math.PI * 2;
         const coneOpening = 0.72 + nodeRng() * 0.42;
 
-        const childBaseRadius = parentTipRadius * resolvedParameters.branchRadiusRatio;
-        const childTipRadius = childBaseRadius * resolvedParameters.branchRadiusRatio;
+        const childBaseRadius = parentTipRadius * resolvedParameters.branches.childRadiusRatio;
+        const childTipRadius = childBaseRadius * resolvedParameters.branches.childRadiusRatio;
         for (let branch = 0; branch < branchCount; branch++) {
             branches++;
             // Start from an even 3D distribution, then move each child by up
@@ -1534,7 +1526,7 @@ function makeDeciduous(
                 // A triangular prism is six side triangles per piece instead
                 // of twenty, while the bole remains rounder at 16 sides.
                 childBaseRadius, childTipRadius, 1, 3,
-                resolvedParameters.branchGravity * 0.12, 0.30, barkColor
+                resolvedParameters.branches.gravity * 0.12, 0.30, barkColor
             );
 
             if (remainingDepth > 1) {
@@ -1560,24 +1552,29 @@ function makeDeciduous(
         heading: any,
         parentLength: number,
         parentTipRadius: number,
-        segment: number,
+        level: number,
         nodeSeed: number,
         crownAlreadyOwned: boolean = false,
     ): void => {
         forks++;
         const nodeRng = seededRng(nodeSeed);
-        const remainingLeaderSegments = resolvedParameters.trunkSegments - segment;
+        const remainingTrunkLevels = resolvedParameters.trunk.levels - level;
         const ownsLeaderCrown = !crownAlreadyOwned
-            && resolvedParameters.crownDepthFromTip > 0
-            && remainingLeaderSegments <= resolvedParameters.crownDepthFromTip;
-        const sideCrownsOwnedAtLeader = resolvedParameters.crownDepthFromTip > 0
-            && resolvedParameters.crownDepthFromTip >= resolvedParameters.recursionDepth;
+            && resolvedParameters.canopy.depthFromTip > 0
+            && remainingTrunkLevels <= resolvedParameters.canopy.depthFromTip;
+        const sideCrownsOwnedAtLeader = resolvedParameters.canopy.depthFromTip > 0
+            && resolvedParameters.canopy.depthFromTip >= resolvedParameters.branches.levels;
         if (ownsLeaderCrown || sideCrownsOwnedAtLeader) {
             addTipCrown(from, branchesPerFork, childSeed(nodeSeed, 0x6187));
         }
         const leaderCrownOwned = crownAlreadyOwned || ownsLeaderCrown;
-        const segmentLength = childBranchLength(parentLength, resolvedParameters.branchLengthRatio);
-        // The leader is the next trunk segment, not one of the requested
+        const trunkLevelLength = childBranchLength(parentLength, resolvedParameters.trunk.childLengthRatio);
+        // First-generation side branches belong to their own length chain.
+        // Their reference is always the base bole, never the current leader
+        // level (whose length already contains one or more trunk ratios).
+        // Only descendants of this branch use sideBranchLength as parent.
+        const sideBranchLength = baseBranchLength;
+        // The leader is the next trunk level, not one of the requested
         // branches. A value of three therefore means three lateral branches
         // plus the one thicker continuation of the trunk.
         const sideCount = branchesPerFork;
@@ -1586,8 +1583,8 @@ function makeDeciduous(
         // Existing nodes remain deterministic, but adjacent trunk levels do
         // not inherit a spiral, plane or preferred direction from each other.
         const azimuthPhase = nodeRng() * Math.PI * 2;
-        const sideBaseRadius = parentTipRadius * resolvedParameters.branchRadiusRatio;
-        const sideTipRadius = sideBaseRadius * resolvedParameters.branchRadiusRatio;
+        const sideBaseRadius = parentTipRadius * resolvedParameters.branches.childRadiusRatio;
+        const sideTipRadius = sideBaseRadius * resolvedParameters.branches.childRadiusRatio;
 
         for (let side = 0; side < sideCount; side++) {
             branches++;
@@ -1610,17 +1607,17 @@ function makeDeciduous(
             const sideSeed = childSeed(nodeSeed, 0x4000 + side);
             const sideRng = seededRng(childSeed(sideSeed, 0x61));
             const sideBranch = growLimb(
-                tree, sideRng, from, direction, segmentLength,
+                tree, sideRng, from, direction, sideBranchLength,
                 sideBaseRadius, sideTipRadius, 2, 3,
-                resolvedParameters.branchGravity * 0.12, 0.30, barkColor,
+                resolvedParameters.branches.gravity * 0.12, 0.30, barkColor,
             );
-            if (resolvedParameters.recursionDepth > 1) {
+            if (resolvedParameters.branches.levels > 1) {
                 growSideFork(
                     sideBranch.tip,
                     sideBranch.heading,
-                    segmentLength,
+                    sideBranchLength,
                     sideTipRadius,
-                    resolvedParameters.recursionDepth - 1,
+                    resolvedParameters.branches.levels - 1,
                     childSeed(sideSeed, 0x71),
                     sideCrownsOwnedAtLeader,
                 );
@@ -1641,17 +1638,17 @@ function makeDeciduous(
         const leaderSeed = childSeed(nodeSeed, 0x7f4a7c15);
         const leaderRng = seededRng(childSeed(leaderSeed, 0x91));
         const leader = growLimb(
-            tree, leaderRng, from, leaderDirection, segmentLength * (1.04 + nodeRng() * 0.08),
+            tree, leaderRng, from, leaderDirection, trunkLevelLength * (1.04 + nodeRng() * 0.08),
             leaderBaseRadius, leaderTipRadius, 1, 4,
-            resolvedParameters.branchGravity * 0.025, 0.10, barkColor,
+            resolvedParameters.branches.gravity * 0.025, 0.10, barkColor,
         );
-        if (segment + 1 < resolvedParameters.trunkSegments) {
+        if (level + 1 < resolvedParameters.trunk.levels) {
             growLeader(
                 leader.tip,
                 leader.heading,
-                segmentLength,
+                trunkLevelLength,
                 leaderTipRadius,
-                segment + 1,
+                level + 1,
                 childSeed(leaderSeed, 0xa1),
                 leaderCrownOwned,
             );
@@ -1665,7 +1662,7 @@ function makeDeciduous(
         branches,
         forks,
         crownClusters: cluster,
-        generations: 1 + Math.max(resolvedParameters.recursionDepth, resolvedParameters.trunkSegments),
+        generations: 1 + Math.max(resolvedParameters.branches.levels, resolvedParameters.trunk.levels),
     } satisfies DeciduousTreeStats;
     return tree;
 }
@@ -1673,28 +1670,40 @@ function makeDeciduous(
 // Focused workbench entry point. It uses the same deterministic broadleaf
 // maker and merge path as map decorations, but bypasses the prototype cache
 // so parameter changes can rebuild one tree immediately.
-export function createDeciduousTreeModel(parameters: Partial<DeciduousTreeParameters> = {}): any {
+export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverrides = {}): any {
+    const branchOverrides = parameters.branches ?? {};
+    const trunkOverrides = parameters.trunk ?? {};
+    const canopyOverrides = parameters.canopy ?? {};
     const resolved: DeciduousTreeParameters = {
-        crownShape: parameters.crownShape === 'none'
-            || parameters.crownShape === 'disk'
-            || parameters.crownShape === 'dome'
-            || parameters.crownShape === 'drop'
-            ? parameters.crownShape
-            : DEFAULT_DECIDUOUS_PARAMETERS.crownShape,
-        crownScale: Math.max(0.45, Math.min(3, parameters.crownScale ?? DEFAULT_DECIDUOUS_PARAMETERS.crownScale)),
-        leafScale: Math.max(0.35, Math.min(2.5, parameters.leafScale ?? DEFAULT_DECIDUOUS_PARAMETERS.leafScale)),
-        leafGloss: Math.max(0, Math.min(1, parameters.leafGloss ?? DEFAULT_DECIDUOUS_PARAMETERS.leafGloss)),
-        innerCrownOpacity: Math.max(0, Math.min(1, parameters.innerCrownOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.innerCrownOpacity)),
-        outerCrownOpacity: Math.max(0, Math.min(1, parameters.outerCrownOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.outerCrownOpacity)),
-        branchGravity: Math.max(0, Math.min(3, parameters.branchGravity ?? DEFAULT_DECIDUOUS_PARAMETERS.branchGravity)),
-        maxBranchesPerFork: Math.max(2, Math.min(5, Math.round(parameters.maxBranchesPerFork ?? DEFAULT_DECIDUOUS_PARAMETERS.maxBranchesPerFork))),
-        recursionDepth: Math.max(1, Math.min(4, Math.round(parameters.recursionDepth ?? DEFAULT_DECIDUOUS_PARAMETERS.recursionDepth))),
-        crownDepthFromTip: Math.max(0, Math.min(4, Math.round(parameters.crownDepthFromTip ?? DEFAULT_DECIDUOUS_PARAMETERS.crownDepthFromTip))),
-        trunkSegments: Math.max(1, Math.min(6, Math.round(parameters.trunkSegments ?? DEFAULT_DECIDUOUS_PARAMETERS.trunkSegments))),
-        branchLengthRatio: Math.max(0.35, Math.min(0.85, parameters.branchLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branchLengthRatio)),
-        trunkScale: Math.max(0.5, Math.min(2, parameters.trunkScale ?? DEFAULT_DECIDUOUS_PARAMETERS.trunkScale)),
-        branchRadiusRatio: Math.max(0.2, Math.min(0.9, parameters.branchRadiusRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branchRadiusRatio)),
-        trunkTipRadiusRatio: Math.max(0.1, Math.min(0.8, parameters.trunkTipRadiusRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.trunkTipRadiusRatio)),
+        branches: {
+            countPerFork: Math.max(2, Math.min(5, Math.round(branchOverrides.countPerFork ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.countPerFork))),
+            levels: Math.max(1, Math.min(4, Math.round(branchOverrides.levels ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.levels))),
+            startLengthRatio: Math.max(0.05, Math.min(0.75, branchOverrides.startLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.startLengthRatio)),
+            childLengthRatio: Math.max(0, Math.min(1, branchOverrides.childLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.childLengthRatio)),
+            childRadiusRatio: Math.max(0.2, Math.min(0.9, branchOverrides.childRadiusRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.childRadiusRatio)),
+            gravity: Math.max(0, Math.min(3, branchOverrides.gravity ?? DEFAULT_DECIDUOUS_PARAMETERS.branches.gravity)),
+        },
+        trunk: {
+            levels: Math.max(1, Math.min(6, Math.round(trunkOverrides.levels ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.levels))),
+            baseLengthRatio: Math.max(0.25, Math.min(0.75, trunkOverrides.baseLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.baseLengthRatio)),
+            childLengthRatio: Math.max(0.35, Math.min(1, trunkOverrides.childLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.childLengthRatio)),
+            baseRadiusScale: Math.max(0.5, Math.min(2, trunkOverrides.baseRadiusScale ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.baseRadiusScale)),
+            tipRadiusRatio: Math.max(0.1, Math.min(0.8, trunkOverrides.tipRadiusRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.tipRadiusRatio)),
+        },
+        canopy: {
+            shape: canopyOverrides.shape === 'none'
+                || canopyOverrides.shape === 'disk'
+                || canopyOverrides.shape === 'dome'
+                || canopyOverrides.shape === 'drop'
+                ? canopyOverrides.shape
+                : DEFAULT_DECIDUOUS_PARAMETERS.canopy.shape,
+            clusterScale: Math.max(0.45, Math.min(3, canopyOverrides.clusterScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.clusterScale)),
+            leafScale: Math.max(0.35, Math.min(2.5, canopyOverrides.leafScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.leafScale)),
+            gloss: Math.max(0, Math.min(1, canopyOverrides.gloss ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.gloss)),
+            innerOpacity: Math.max(0, Math.min(1, canopyOverrides.innerOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.innerOpacity)),
+            outerOpacity: Math.max(0, Math.min(1, canopyOverrides.outerOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.outerOpacity)),
+            depthFromTip: Math.max(0, Math.min(4, Math.round(canopyOverrides.depthFromTip ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.depthFromTip))),
+        },
     };
     const rng = variantRng('deciduous', 4);
     const tree = makeDeciduous(rng, 4, VARIANTS_PER_KIND, false, false, resolved);
@@ -1706,12 +1715,12 @@ export function createDeciduousTreeModel(parameters: Partial<DeciduousTreeParame
     const merged = mergeDecorations(group);
     if (merged) {
         merged.userData.treeStats = treeStats;
-        setDecorationLeafScale(merged, resolved.leafScale);
-        setDecorationLeafGloss(merged, resolved.leafGloss);
+        setDecorationLeafScale(merged, resolved.canopy.leafScale);
+        setDecorationLeafGloss(merged, resolved.canopy.gloss);
         setDecorationCrownOpacity(
             merged,
-            resolved.innerCrownOpacity,
-            resolved.outerCrownOpacity,
+            resolved.canopy.innerOpacity,
+            resolved.canopy.outerOpacity,
         );
     }
     return merged;

@@ -4,6 +4,10 @@ export function childBranchLength(parentLength: number, ratio: number): number {
     return parentLength * ratio;
 }
 
+export function firstSideBranchLength(treeBaseHeight: number, startRatio: number): number {
+    return treeBaseHeight * startRatio;
+}
+
 export function leaderBranchAzimuth(
     side: number,
     sideCount: number,
