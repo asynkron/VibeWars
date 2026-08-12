@@ -1368,6 +1368,7 @@ function makeDeciduous(
 ): any {
     const resolvedParameters = parameters ?? gameDeciduousParameters();
     const tree = new THREE.Group();
+    tree.userData.decorationTreeKind = 'deciduous';
     // The workbench keeps its familiar #05 scale. In the game, spread the
     // eight cached prototypes over a taller, bottom-heavy range: most stay
     // ordinary, while the last couple become unmistakable canopy trees.
@@ -1377,10 +1378,9 @@ function makeDeciduous(
     const height = parameters
         ? 1.15 + rng() * 0.75
         : 1.35 + Math.pow(gameRung, 1.7) * 2.10 + (rng() - 0.5) * 0.12;
-    // Trunk thickness and crown blobs are absolute sizes, unlike everything
-    // else here which is a fraction of `height` -- so raising the height
-    // alone would have grown a tall tree on the same thin stick with the
-    // same small tufts. This carries them up with it.
+    // Keep every prototype's natural proportions here. Tile containment is
+    // enforced later, after its placement scale is known, and only compresses
+    // X/Z when the actual footprint would cross the owning hex boundary.
     const girth = height / 1.2;
     const seed = Math.floor(height * 4096);
     // Weathered grey once the tree is dead -- live bark under a bare crown
@@ -1712,6 +1712,25 @@ function scatter(rng: () => number, maxRadius: number): { x: number; z: number }
     return { x: Math.cos(angle) * dist, z: Math.sin(angle) * dist };
 }
 
+function measureHorizontalFootprint(piece: any): number {
+    piece.updateMatrixWorld(true);
+    const origin = new THREE.Vector3().setFromMatrixPosition(piece.matrixWorld);
+    const vertex = new THREE.Vector3();
+    let radius = 0;
+    piece.traverse((child: any) => {
+        const position = child.geometry?.attributes?.position;
+        if (!child.isMesh || !position) return;
+        for (let i = 0; i < position.count; i++) {
+            vertex.fromBufferAttribute(position, i).applyMatrix4(child.matrixWorld);
+            radius = Math.max(radius, Math.hypot(
+                vertex.x - origin.x,
+                vertex.z - origin.z,
+            ));
+        }
+    });
+    return radius;
+}
+
 // ---------------------------------------------------------------------
 // Prototype library
 //
@@ -1767,6 +1786,7 @@ function pick(kind: string, make: (rng: () => number, index: number, total: numb
             const seeded = variantRng(kind, i);
             const proto = make(seeded, i, VARIANTS_PER_KIND);
             tintIndividual(proto, seeded);
+            proto.userData.horizontalFootprint = measureHorizontalFootprint(proto);
             variants.push(proto);
         }
         library.set(kind, variants);
@@ -1844,6 +1864,32 @@ function place(
     piece.position.set(x, ground + groundOffset, z);
     if (spin) piece.rotation.y = rng() * Math.PI * 2;
     group.add(piece);
+}
+
+// A radius-1 pointy hex has an inradius of sqrt(3) / 2. Keeping the complete
+// tree inside a slightly smaller circle is conservative but rotation-proof:
+// anything inside that circle is inside the hex for every yaw angle.
+const TREE_TILE_SAFE_RADIUS = Math.sqrt(3) / 2 - 0.035;
+
+function fitDeciduousTreeScatter(piece: any, requestedScatter: number): number {
+    if (piece.userData?.decorationTreeKind !== 'deciduous') return requestedScatter;
+
+    const cachedFootprint = piece.userData.horizontalFootprint;
+    let footprint = typeof cachedFootprint === 'number'
+        ? cachedFootprint * Math.max(piece.scale.x, piece.scale.z)
+        : measureHorizontalFootprint(piece);
+
+    if (footprint > TREE_TILE_SAFE_RADIUS) {
+        const compression = TREE_TILE_SAFE_RADIUS / footprint;
+        piece.scale.x *= compression;
+        piece.scale.z *= compression;
+        footprint = TREE_TILE_SAFE_RADIUS;
+    }
+
+    return Math.min(
+        requestedScatter,
+        Math.max(0, TREE_TILE_SAFE_RADIUS - footprint),
+    );
 }
 
 // ---------------------------------------------------------------------
@@ -2065,7 +2111,7 @@ export function createProceduralDecoration(
                     : roll < 0.68 ? pickTree('conifer', rng) : pickTree('deciduous', rng);
                 const s = 0.8 + rng() * 0.35;
                 tree.scale.set(s, s, s);
-                place(group, rng, tree, 0.55);
+                place(group, rng, tree, fitDeciduousTreeScatter(tree, 0.55));
             }
             // Forest floor litter: a fallen log and/or undergrowth tufts.
             if (rng() < 0.35) place(group, rng, pick('log', makeLog, rng), 0.5);
@@ -2084,7 +2130,7 @@ export function createProceduralDecoration(
             } else if (roll < 0.45) {
                 // A lone deciduous tree.
                 const tree = pickTree('deciduous', rng);
-                place(group, rng, tree, 0.4);
+                place(group, rng, tree, fitDeciduousTreeScatter(tree, 0.4));
             } else if (roll < 0.52) {
                 // A lone dead tree or a fallen log on open ground.
                 place(group, rng, rng() < 0.5 ? pick('deadTree', makeDeadTree, rng) : pick('log', makeLog, rng), 0.45);
