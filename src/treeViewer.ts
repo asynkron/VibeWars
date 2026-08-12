@@ -6,6 +6,7 @@ import {
     setDecorationCrownOpacity,
     setDecorationLeafGloss,
     setDecorationLeafScale,
+    setDecorationWindStrength,
     type DeciduousCrownShape,
     type DeciduousTreeParameters,
 } from './shared/hexengine/ProceduralDecorations';
@@ -68,6 +69,7 @@ let tree: any = null;
 
 function replaceTree(parameters: Partial<DeciduousTreeParameters> = {}): void {
     const next = createDeciduousTreeModel(parameters);
+    setDecorationWindStrength(next, Number(windStrength?.value ?? 100) / 100);
     const bounds = new THREE.Box3().setFromObject(next);
     const center = bounds.getCenter(new THREE.Vector3());
     next.position.set(-center.x, -bounds.min.y, -center.z);
@@ -120,20 +122,30 @@ const leafGloss = document.querySelector<HTMLInputElement>('#leaf-gloss');
 const innerCrownOpacity = document.querySelector<HTMLInputElement>('#inner-crown-opacity');
 const outerCrownOpacity = document.querySelector<HTMLInputElement>('#outer-crown-opacity');
 const branchGravity = document.querySelector<HTMLInputElement>('#branch-gravity');
+const windStrength = document.querySelector<HTMLInputElement>('#wind-strength');
 const branchCount = document.querySelector<HTMLInputElement>('#branch-count');
 const recursion = document.querySelector<HTMLInputElement>('#recursion');
+const crownDepth = document.querySelector<HTMLInputElement>('#crown-depth');
+const trunkSegments = document.querySelector<HTMLInputElement>('#trunk-segments');
 const branchLength = document.querySelector<HTMLInputElement>('#branch-length');
 const trunkSize = document.querySelector<HTMLInputElement>('#trunk-size');
+const branchThickness = document.querySelector<HTMLInputElement>('#branch-thickness');
+const trunkTaper = document.querySelector<HTMLInputElement>('#trunk-taper');
 const crownSizeValue = document.querySelector<HTMLOutputElement>('#crown-size-value');
 const leafSizeValue = document.querySelector<HTMLOutputElement>('#leaf-size-value');
 const leafGlossValue = document.querySelector<HTMLOutputElement>('#leaf-gloss-value');
 const innerCrownOpacityValue = document.querySelector<HTMLOutputElement>('#inner-crown-opacity-value');
 const outerCrownOpacityValue = document.querySelector<HTMLOutputElement>('#outer-crown-opacity-value');
 const branchGravityValue = document.querySelector<HTMLOutputElement>('#branch-gravity-value');
+const windStrengthValue = document.querySelector<HTMLOutputElement>('#wind-strength-value');
 const branchCountValue = document.querySelector<HTMLOutputElement>('#branch-count-value');
 const recursionValue = document.querySelector<HTMLOutputElement>('#recursion-value');
+const crownDepthValue = document.querySelector<HTMLOutputElement>('#crown-depth-value');
+const trunkSegmentsValue = document.querySelector<HTMLOutputElement>('#trunk-segments-value');
 const branchLengthValue = document.querySelector<HTMLOutputElement>('#branch-length-value');
 const trunkSizeValue = document.querySelector<HTMLOutputElement>('#trunk-size-value');
+const branchThicknessValue = document.querySelector<HTMLOutputElement>('#branch-thickness-value');
+const trunkTaperValue = document.querySelector<HTMLOutputElement>('#trunk-taper-value');
 const statTriangles = document.querySelector<HTMLElement>('#stat-triangles');
 const statVertices = document.querySelector<HTMLElement>('#stat-vertices');
 const statBranches = document.querySelector<HTMLElement>('#stat-branches');
@@ -171,16 +183,20 @@ function updateTreeStats(model: any, bounds: any): void {
 function readParameters(): DeciduousTreeParameters {
     return {
         crownShape: (crownShape?.value ?? 'ball') as DeciduousCrownShape,
-        crownScale: Number(crownSize?.value ?? 2.15),
-        leafScale: Number(leafSize?.value ?? 0.45),
-        leafGloss: Number(leafGloss?.value ?? 46) / 100,
-        innerCrownOpacity: Number(innerCrownOpacity?.value ?? 79) / 100,
-        outerCrownOpacity: Number(outerCrownOpacity?.value ?? 49) / 100,
-        branchGravity: Number(branchGravity?.value ?? 138) / 100,
-        maxBranchesPerFork: Number(branchCount?.value ?? 2),
-        recursionDepth: Number(recursion?.value ?? 3),
+        crownScale: Number(crownSize?.value ?? 1.9),
+        leafScale: Number(leafSize?.value ?? 1.1),
+        leafGloss: Number(leafGloss?.value ?? 60) / 100,
+        innerCrownOpacity: Number(innerCrownOpacity?.value ?? 75) / 100,
+        outerCrownOpacity: Number(outerCrownOpacity?.value ?? 64) / 100,
+        branchGravity: Number(branchGravity?.value ?? 300) / 100,
+        maxBranchesPerFork: Number(branchCount?.value ?? 3),
+        recursionDepth: Number(recursion?.value ?? 2),
+        crownDepthFromTip: Number(crownDepth?.value ?? 0),
+        trunkSegments: Number(trunkSegments?.value ?? 2),
         branchLengthRatio: Number(branchLength?.value ?? 60) / 100,
-        trunkScale: Number(trunkSize?.value ?? 1.5),
+        trunkScale: Number(trunkSize?.value ?? 1.15),
+        branchRadiusRatio: Number(branchThickness?.value ?? 55) / 100,
+        trunkTipRadiusRatio: Number(trunkTaper?.value ?? 22) / 100,
     };
 }
 
@@ -195,14 +211,18 @@ function parametersChanged(): void {
     if (branchGravityValue) branchGravityValue.value = `${Math.round(parameters.branchGravity * 100)}%`;
     if (branchCountValue) branchCountValue.value = String(parameters.maxBranchesPerFork);
     if (recursionValue) recursionValue.value = String(parameters.recursionDepth);
+    if (crownDepthValue) crownDepthValue.value = String(parameters.crownDepthFromTip);
+    if (trunkSegmentsValue) trunkSegmentsValue.value = String(parameters.trunkSegments);
     if (branchLengthValue) branchLengthValue.value = `${Math.round(parameters.branchLengthRatio * 100)}%`;
     if (trunkSizeValue) trunkSizeValue.value = `${parameters.trunkScale.toFixed(2)}×`;
+    if (branchThicknessValue) branchThicknessValue.value = `${Math.round(parameters.branchRadiusRatio * 100)}%`;
+    if (trunkTaperValue) trunkTaperValue.value = `${Math.round(parameters.trunkTipRadiusRatio * 100)}%`;
 
     window.clearTimeout(rebuildTimer);
     rebuildTimer = window.setTimeout(() => replaceTree(parameters), 80);
 }
 
-for (const input of [crownSize, branchGravity, branchCount, recursion, branchLength, trunkSize]) {
+for (const input of [crownSize, branchGravity, branchCount, recursion, crownDepth, trunkSegments, branchLength, trunkSize, branchThickness, trunkTaper]) {
     input?.addEventListener('input', parametersChanged);
 }
 crownShape?.addEventListener('change', parametersChanged);
@@ -230,6 +250,12 @@ function crownOpacityChanged(): void {
 
 innerCrownOpacity?.addEventListener('input', crownOpacityChanged);
 outerCrownOpacity?.addEventListener('input', crownOpacityChanged);
+
+windStrength?.addEventListener('input', () => {
+    const strength = Number(windStrength.value) / 100;
+    if (windStrengthValue) windStrengthValue.value = `${Math.round(strength * 100)}%`;
+    setDecorationWindStrength(tree, strength);
+});
 
 function setPressed(button: HTMLButtonElement | null, pressed: boolean): void {
     button?.classList.toggle('is-on', pressed);

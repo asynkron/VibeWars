@@ -256,6 +256,7 @@
             <label class="parameter">
                 <span class="parameter-head"><span>Kronform</span></span>
                 <select id="crown-shape">
+                    <option value="none">Ingen</option>
                     <option value="ball" selected>Boll</option>
                     <option value="disk">Disk</option>
                     <option value="dome">Kupa · öppen undertill</option>
@@ -263,44 +264,64 @@
                 </select>
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Storlek på kronor</span><output id="crown-size-value">2.15×</output></span>
-                <input id="crown-size" type="range" min="0.5" max="3" step="0.05" value="2.15">
+                <span class="parameter-head"><span>Storlek på kronor</span><output id="crown-size-value">1.90×</output></span>
+                <input id="crown-size" type="range" min="0.5" max="3" step="0.05" value="1.9">
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Storlek på löv</span><output id="leaf-size-value">0.45×</output></span>
-                <input id="leaf-size" type="range" min="0.35" max="2.5" step="0.05" value="0.45">
+                <span class="parameter-head"><span>Storlek på löv</span><output id="leaf-size-value">1.10×</output></span>
+                <input id="leaf-size" type="range" min="0.35" max="2.5" step="0.05" value="1.1">
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Lövglans</span><output id="leaf-gloss-value">46%</output></span>
-                <input id="leaf-gloss" type="range" min="0" max="100" step="1" value="46">
+                <span class="parameter-head"><span>Lövglans</span><output id="leaf-gloss-value">60%</output></span>
+                <input id="leaf-gloss" type="range" min="0" max="100" step="1" value="60">
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Inre kronans opacitet</span><output id="inner-crown-opacity-value">79%</output></span>
-                <input id="inner-crown-opacity" type="range" min="0" max="100" step="1" value="79">
+                <span class="parameter-head"><span>Inre kronans opacitet</span><output id="inner-crown-opacity-value">75%</output></span>
+                <input id="inner-crown-opacity" type="range" min="0" max="100" step="1" value="75">
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Yttre kronans opacitet</span><output id="outer-crown-opacity-value">49%</output></span>
-                <input id="outer-crown-opacity" type="range" min="0" max="100" step="1" value="49">
+                <span class="parameter-head"><span>Yttre kronans opacitet</span><output id="outer-crown-opacity-value">64%</output></span>
+                <input id="outer-crown-opacity" type="range" min="0" max="100" step="1" value="64">
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Grenarnas gravitation</span><output id="branch-gravity-value">138%</output></span>
-                <input id="branch-gravity" type="range" min="0" max="300" step="1" value="138">
+                <span class="parameter-head"><span>Grenarnas gravitation</span><output id="branch-gravity-value">300%</output></span>
+                <input id="branch-gravity" type="range" min="0" max="300" step="1" value="300">
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Max förgreningar / rekursion</span><output id="branch-count-value">2</output></span>
-                <input id="branch-count" type="range" min="2" max="5" step="1" value="2">
+                <span class="parameter-head"><span>Vindstyrka</span><output id="wind-strength-value">100%</output></span>
+                <input id="wind-strength" type="range" min="0" max="300" step="1" value="100">
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Antal rekursioner</span><output id="recursion-value">3</output></span>
-                <input id="recursion" type="range" min="1" max="4" step="1" value="3">
+                <span class="parameter-head"><span>Sidoförgreningar / rekursion</span><output id="branch-count-value">3</output></span>
+                <input id="branch-count" type="range" min="2" max="5" step="1" value="3">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Antal rekursioner</span><output id="recursion-value">2</output></span>
+                <input id="recursion" type="range" min="1" max="4" step="1" value="2">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Kronans djup från spets</span><output id="crown-depth-value">0</output></span>
+                <input id="crown-depth" type="range" min="0" max="4" step="1" value="0">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Antal stamsegment</span><output id="trunk-segments-value">2</output></span>
+                <input id="trunk-segments" type="range" min="1" max="6" step="1" value="2">
             </label>
             <label class="parameter">
                 <span class="parameter-head"><span>Längd av föregående gren</span><output id="branch-length-value">60%</output></span>
                 <input id="branch-length" type="range" min="35" max="85" step="5" value="60">
             </label>
             <label class="parameter">
-                <span class="parameter-head"><span>Tjocklek på stam</span><output id="trunk-size-value">1.50×</output></span>
-                <input id="trunk-size" type="range" min="0.5" max="1.8" step="0.05" value="1.5">
+                <span class="parameter-head"><span>Tjocklek på stam</span><output id="trunk-size-value">1.15×</output></span>
+                <input id="trunk-size" type="range" min="0.5" max="1.8" step="0.05" value="1.15">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Grenarnas tjocklek mot förälder</span><output id="branch-thickness-value">55%</output></span>
+                <input id="branch-thickness" type="range" min="20" max="90" step="1" value="55">
+            </label>
+            <label class="parameter">
+                <span class="parameter-head"><span>Stammens sluttjocklek</span><output id="trunk-taper-value">22%</output></span>
+                <input id="trunk-taper" type="range" min="10" max="80" step="1" value="22">
             </label>
         </section>
         <section class="statistics" aria-label="Modellstatistik">
