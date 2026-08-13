@@ -14,7 +14,7 @@ const values: Record<MaterialCalibrationTarget, MaterialCalibration> = {
     water: {
         exposure: 0.82,
         contrast: 1,
-        saturation: 0.93,
+        saturation: 1.04,
         gamma: 1,
         balance: [0.92, 1.12, 0.94],
     },

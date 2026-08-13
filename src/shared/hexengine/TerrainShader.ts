@@ -263,6 +263,7 @@ const GROUND_FRAGMENT = /* glsl */ `
         float y = vGroundWorldPos.y;
         gRockSheen = 0.0;
         gShoreStone = 0.0;
+        gGrassSurface = 0.0;
         // Shared border wobble so the band lines meander organically
         // instead of tracing flat contour lines.
         float wob = groundFbm(gp * 2.2) - 0.5;
@@ -306,6 +307,8 @@ const GROUND_FRAGMENT = /* glsl */ `
         // them, so computing them unconditionally costs nothing.
         float fade36 = groundDetailFade(gp * 36.0);
         float fade52 = groundDetailFade(gp * 52.0);
+        float fade11 = groundDetailFade(gp * 11.0);
+        float fade16 = groundDetailFade(gp * 16.0);
 
         // Cheap enough to keep in the open, and the texture-toggle path
         // below needs it whether or not the rock band is live.
@@ -517,6 +520,13 @@ const GROUND_FRAGMENT = /* glsl */ `
                 waterWarmth
             );
             coastStone += scuffLift * paleScuff;
+            // A small contrast lift makes the existing cavities and pale
+            // weathering read more clearly without shifting the established
+            // gray-to-beige coastline palette.
+            coastStone = max(
+                (coastStone - vec3(0.30)) * 1.12 + vec3(0.30),
+                vec3(0.025)
+            );
             coastStone = min(coastStone, vec3(0.58, 0.54, 0.47));
             vec4 coastRoughnessFields = groundFoothillRockFields(gp, warp);
             coastHeight += groundFoothillRockHeight(
@@ -536,9 +546,50 @@ const GROUND_FRAGMENT = /* glsl */ `
             if (soilMask > 0.0 || grassMask > 0.0) {
                 float meadow = groundFbm(gp * 2.6 + warp * 3.0);
                 float blades = mix(0.5, groundNoise(gp * 36.0), fade36);
+                // Fine, band-limited ground variation keeps the tile surface
+                // from reading like soft painted felt. Sparse Voronoi centres
+                // become tiny embedded pebbles; their low amplitude and warm
+                // gray keep this as rough meadow soil, never exposed rock.
+                float grassFine = mix(
+                    0.5,
+                    groundNoise(gp * 16.0 + vec2(19.3, 7.1)),
+                    fade16
+                );
+                vec3 grassPebbleCell = groundVoronoi(
+                    gp * 4.4 + warp * 0.85 + vec2(11.4, 23.7)
+                );
+                float grassPebbles = (1.0 - smoothstep(
+                    0.15,
+                    0.38,
+                    grassPebbleCell.x
+                )) * smoothstep(0.52, 0.82, grassPebbleCell.z);
+                float grassPebbleBreakup = mix(
+                    0.5,
+                    groundNoise(gp * 11.0 + vec2(4.8, 29.1)),
+                    fade11
+                );
+                grassPebbles *= smoothstep(0.42, 0.62, grassPebbleBreakup);
+                float grassBarePatch = smoothstep(
+                    0.60,
+                    0.73,
+                    groundFbm(gp * 3.7 + warp * 2.2 + vec2(28.1, 6.4))
+                );
+                grassBarePatch *= 0.45 + 0.55 * groundNoise(
+                    gp * 8.5 + vec2(2.3, 17.8)
+                );
+                // A few wider worn/gravel patches survive the strategy
+                // camera's downsampling. Their noisy edges and mixed interior
+                // prevent them reading as decals or exposed coastline rock.
+                float grassGravelPatch = smoothstep(
+                    0.62,
+                    0.75,
+                    groundFbm(gp * 2.1 + warp * 2.8 + vec2(37.2, 15.4))
+                        + (grassPebbleBreakup - 0.5) * 0.18
+                );
                 grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
                              uGrassColor * vec3(1.55, 1.45, 1.00), meadow);
                 grassC *= 0.90 + 0.20 * blades;
+                grassC *= 0.84 + 0.30 * grassFine;
                 // Amplify the rounded TERRAIN slope's relation to the sun,
                 // independent of GrassSystem's individual blade shader.
                 // Flat ground is neutral; faces leaning toward the sun
@@ -551,7 +602,28 @@ const GROUND_FRAGMENT = /* glsl */ `
                     uGrassCalibration,
                     uGrassCalibrationBalance
                 );
-                grassH = meadow * 0.30 + blades * 0.10;
+                vec3 grassPebbleColor = mix(
+                    vec3(0.22, 0.225, 0.205),
+                    vec3(0.40, 0.385, 0.34),
+                    grassPebbleCell.z
+                );
+                vec3 wornGrassSoil = mix(
+                    vec3(0.255, 0.235, 0.155),
+                    uGrassColor * vec3(0.72, 0.62, 0.38),
+                    meadow
+                );
+                vec3 meadowGravel = mix(
+                    vec3(0.29, 0.285, 0.255),
+                    vec3(0.39, 0.37, 0.32),
+                    grassFine
+                );
+                grassC = mix(grassC, wornGrassSoil, grassBarePatch * 0.42);
+                grassC = mix(grassC, meadowGravel, grassGravelPatch * 0.46);
+                grassC = mix(grassC, grassPebbleColor, grassPebbles * 0.82);
+                grassH = meadow * 0.30 + blades * 0.10
+                    + (grassFine - 0.5) * 0.22
+                    + grassBarePatch * 0.075 + grassGravelPatch * 0.10
+                    + grassPebbles * 0.28;
             }
 
             // Earth fills the broken interval between stone and full turf.
@@ -595,6 +667,7 @@ const GROUND_FRAGMENT = /* glsl */ `
             float soilH = mix(coastHeight * 0.62, soilPatches * 0.22, soilMask);
             lowH = mix(mix(coastHeight, soilH, soilMask), grassH, grassMask);
             gShoreStone = (1.0 - soilMask) * wLow;
+            gGrassSurface = grassMask * wLow;
         }
 
         // --- Forest floor: the same recipe pitched darker and mossier.
@@ -736,6 +809,7 @@ const GROUND_FRAGMENT = /* glsl */ `
         // grid code below so a concrete quay meets water exactly like land.
         if (uIsConcrete > 0.5) {
             gRockSheen = 0.0;
+            gGrassSurface = 0.0;
             float concreteMottle = groundFbm(gp * 2.6);
             float poreFade = groundDetailFade(gp * 38.0);
             float pores = mix(0.5, groundNoise(gp * 38.0), poreFade);
@@ -850,6 +924,14 @@ const GROUND_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
 `;
 
 const GROUND_SURFACE_ROUGHNESS_FRAGMENT = /* glsl */ `
+    // Meadow is fully matte but still receives shallow normal variation from
+    // its soil grain and embedded pebbles. This removes the polished softness
+    // without borrowing the coastline's heavy rock response.
+    roughnessFactor = mix(
+        roughnessFactor,
+        max(roughnessFactor, 0.93),
+        gGrassSurface
+    );
     // Rock uses the same light-driven response, weighted toward clean
     // higher-altitude stone. Cracks and ridges supply its changing normal.
     roughnessFactor = mix(roughnessFactor, 0.56, gRockSheen);
@@ -960,7 +1042,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 ' uniform vec4 uGrassCalibration;\n uniform vec3 uGrassCalibrationBalance;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
-                ' float gBumpH;\n float gRockSheen;\n float gShoreStone;\n' +
+                ' float gBumpH;\n float gRockSheen;\n float gShoreStone;\n float gGrassSurface;\n' +
                 MATERIAL_CALIBRATION_GLSL + NOISE_GLSL_CORE + PERTURB_GLSL + SHORE_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT)
@@ -988,5 +1070,5 @@ export function applyProceduralGround(material: any, terrainType: string): void 
     };
     // All ground materials share one height-banded program (uniforms
     // differ per material); distinct key from three.js's stock shader.
-    material.customProgramCacheKey = () => 'ground-height-banded-v31-orphan-coast-blend';
+    material.customProgramCacheKey = () => 'ground-height-banded-v34-coast-contrast';
 }
