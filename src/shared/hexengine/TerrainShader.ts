@@ -409,6 +409,31 @@ const GROUND_FRAGMENT = /* glsl */ `
             vec3 waterBeige = vec3(0.34, 0.30, 0.24);
             coastStone = mix(coastStone, neutralGray, 0.44);
             coastStone = mix(coastStone, waterBeige, waterWarmth * 0.68);
+
+            // A restrained layer of pale, weathered scuffs. This is diffuse
+            // colour only -- no specular sparkle -- and reuses the existing
+            // broken rock fields so it follows the surface rather than
+            // reading as dots painted on top.
+            float paleScuff = smoothstep(
+                0.43,
+                0.60,
+                coastMedium * 0.58 + coastMacro * 0.24
+                    + blockCrown * 0.18
+            );
+            float scuffBreakup = smoothstep(0.34, 0.62, coastGrain);
+            paleScuff *= mix(0.45, 1.0, scuffBreakup)
+                * (1.0 - cavity * 0.90);
+            // Keep the pale weathering low on the coast face: almost none on
+            // the upper gray rock, reaching full strength toward the water.
+            float lowerCoastScuff = smoothstep(0.24, 0.82, waterWarmth);
+            paleScuff *= lowerCoastScuff;
+            vec3 scuffLift = mix(
+                vec3(0.13, 0.13, 0.12),
+                vec3(0.15, 0.125, 0.085),
+                waterWarmth
+            );
+            coastStone += scuffLift * paleScuff;
+            coastStone = min(coastStone, vec3(0.58, 0.54, 0.47));
             vec4 coastRoughnessFields = groundFoothillRockFields(gp, warp);
             coastHeight += groundFoothillRockHeight(
                 coastRoughnessFields,
@@ -836,5 +861,5 @@ export function applyProceduralGround(material: any, terrainType: string): void 
     };
     // All ground materials share one height-banded program (uniforms
     // differ per material); distinct key from three.js's stock shader.
-    material.customProgramCacheKey = () => 'ground-height-banded-v21-waterline-beige';
+    material.customProgramCacheKey = () => 'ground-height-banded-v25-low-coast-scuffs';
 }
