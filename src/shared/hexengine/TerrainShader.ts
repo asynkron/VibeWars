@@ -87,6 +87,37 @@ export const NOISE_GLSL_BASE = /* glsl */ `
 // The terrain's own additions on top of that: everything shoreline, plus
 // the richer noises the ground materials build their look from.
 const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
+    // Smooth 3D value noise for rock volumes. Sampling world XYZ instead of
+    // only XZ keeps the same mineral structure across tops and steep faces.
+    float groundNoise3(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        vec3 u = f * f * (3.0 - 2.0 * f);
+        vec2 zStride = vec2(37.0, 17.0);
+        float n000 = groundHash(i.xy + (i.z + 0.0) * zStride);
+        float n100 = groundHash(i.xy + vec2(1.0, 0.0) + (i.z + 0.0) * zStride);
+        float n010 = groundHash(i.xy + vec2(0.0, 1.0) + (i.z + 0.0) * zStride);
+        float n110 = groundHash(i.xy + vec2(1.0, 1.0) + (i.z + 0.0) * zStride);
+        float n001 = groundHash(i.xy + (i.z + 1.0) * zStride);
+        float n101 = groundHash(i.xy + vec2(1.0, 0.0) + (i.z + 1.0) * zStride);
+        float n011 = groundHash(i.xy + vec2(0.0, 1.0) + (i.z + 1.0) * zStride);
+        float n111 = groundHash(i.xy + vec2(1.0, 1.0) + (i.z + 1.0) * zStride);
+        float z0 = mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y);
+        float z1 = mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y);
+        return mix(z0, z1, u.z);
+    }
+
+    float groundFbm3(vec3 p) {
+        float value = 0.0;
+        float amplitude = 0.5;
+        for (int i = 0; i < 4; i++) {
+            value += amplitude * groundNoise3(p);
+            p = p * 2.03 + vec3(17.31, 9.17, 13.73);
+            amplitude *= 0.5;
+        }
+        return value;
+    }
+
     // Cellular (voronoi) noise: x = distance to the nearest feature point,
     // y = to the second nearest, z = the nearest cell's own hash. x makes
     // round things (pebbles), y - x is ~0 along cell borders (rock cracks),
@@ -357,41 +388,26 @@ const GROUND_FRAGMENT = /* glsl */ `
             forestH = moss * 0.35;
         }
 
-        // --- Rock: mostly UNBROKEN stone. Cracks live only in patchy
-        // fracture zones (crackZone gates them off elsewhere), because a
-        // real mountainside is plate on plate of solid rock with the odd
-        // seam -- not a crazed glaze. And the band matures with altitude:
-        // rockAltitude is 0 where the rock has just climbed out of the
-        // forest -- dark gray-brown, mossy, dirt-stained -- and 1 high up
-        // where the stone finally stands clean and neutral gray. That reads
-        // as forest -> dark warm rock -> ordinary mountain gray, instead of
-        // a hard green-to-gray seam.
+        // --- Rock. Preserve the established foothill recipe verbatim: its
+        // dirty, mossy forest-to-stone transition already works. A separate
+        // upperRock mask introduces the smoother brown summit treatment only
+        // after the mountain has risen well above that transition.
         vec3 rockC = vec3(0.0);
         float rockH = 0.0;
         float rockAltitude = smoothstep(1.9, 4.8, y);
         vec3 summitRock = vec3(rockLum * 1.7) * vec3(0.97, 1.0, 1.05);
         vec3 foothillRock = vec3(rockLum * 0.85) * vec3(0.92, 0.80, 0.66);
         if (wRock > 0.0) {
+            // Original lower-mountain material.
             vec3 plate = groundVoronoi(gp * 1.3 + warp * 1.2);
-            // High threshold on purpose: deep seams are fine, MANY seams
-            // are not -- only the strongest patches of the zone field crack
-            // at all, so most faces stay whole.
             float crackZone = smoothstep(0.62, 0.86, groundFbm(gp * 1.3 + warp * 1.6));
             float crack = (1.0 - smoothstep(0.02, 0.14, plate.y - plate.x)) * crackZone;
             float ridge = 1.0 - abs(2.0 * groundFbm(gp * 5.0) - 1.0);
-            // Mossy foothill stone stays mostly matte; clean high rock can
-            // catch a broad sun glint. The perturbed ridge/crack normal
-            // decides exactly which rough faces align with the light.
-            gRockSheen = wRock * mix(0.10, 0.48, rockAltitude) * uShowTextures;
             vec3 rockBase = mix(foothillRock, summitRock, rockAltitude);
             rockC = rockBase * (0.88 + 0.22 * plate.z) * (0.86 + 0.22 * ridge)
                 * (0.90 + 0.20 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6)));
-            // Cracks: shadowed, and floored with dirt rather than black.
             rockC = mix(rockC, rockBase * 0.50, crack * 0.45);
             rockC = mix(rockC, uSandColor * vec3(0.50, 0.44, 0.38), crack * 0.30);
-            // Life on the stone -- moss/lichen carrying the FOREST's tone
-            // up over the transition zone, dirt staining with it, both gone
-            // by the time the rock is bare.
             float stain = smoothstep(0.50, 0.80, groundFbm(gp * 2.0 + warp * 2.5));
             float mossPatch = smoothstep(0.40, 0.75, groundFbm(gp * 3.5 + warp * 1.8));
             rockC = mix(rockC, uForestColor * vec3(1.30, 1.40, 1.00), mossPatch * 0.60 * (1.0 - rockAltitude));
@@ -399,7 +415,52 @@ const GROUND_FRAGMENT = /* glsl */ `
                         stain * 0.35 * (1.0 - rockAltitude));
             rockC += vec3(0.45, 0.47, 0.52) * smoothstep(0.90, 0.98, groundNoise(gp * 52.0))
                 * fade52 * (1.0 - crack) * rockAltitude;
-            rockH = plate.z * 0.5 + ridge * 0.40 - crack * 0.7 + mossPatch * (1.0 - rockAltitude) * 0.3;
+            rockH = plate.z * 0.5 + ridge * 0.40 - crack * 0.7
+                + mossPatch * (1.0 - rockAltitude) * 0.3;
+
+            // Upper mountain only. Keep the established stone itself and
+            // change it gently: warmer mineral balance, softer relief and a
+            // little 3D mottling. There is deliberately no replacement top
+            // material and no seam mask capable of drawing contour lines.
+            float upperRock = smoothstep(3.15, 4.15, y + wob * 0.18);
+            vec3 mineralP = vGroundWorldPos * 0.78;
+            float mineralBroad = groundFbm3(mineralP * 0.72 + vec3(3.7, 11.2, 6.4));
+            float mineralMid = groundFbm3(mineralP * 2.15 + vec3(17.4, 5.1, 23.6));
+            float mineralFine = groundNoise3(mineralP * 8.2 + vec3(31.0, 47.0, 59.0));
+            vec3 upperC = rockC;
+            vec3 warmRock = upperC * vec3(1.07, 0.97, 0.86);
+            float warmAmount = 0.34 + mineralBroad * 0.22;
+            upperC = mix(upperC, warmRock, warmAmount);
+            upperC *= 0.93 + mineralMid * 0.12;
+            upperC *= 0.985 + mineralFine * 0.030;
+
+            // Sparse moss/grass islands survive only on upward-facing upper
+            // surfaces. The high threshold prevents the former green rivers.
+            vec3 mountainWorldNormal = inverseTransformDirection(normalize(vTileNormal), viewMatrix);
+            float upperFacing = smoothstep(0.48, 0.82, mountainWorldNormal.y);
+            float upperMossField = groundFbm(gp * 0.48 + warp * 0.65 + vec2(4.8, 11.2));
+            float upperMossEdge = groundFbm(gp * 2.3 + warp * 1.4 + vec2(17.1, 3.6));
+            float upperMoss = smoothstep(0.79, 0.86,
+                upperMossField + (upperMossEdge - 0.5) * 0.06) * upperFacing;
+            vec3 upperMossColor = mix(
+                uForestColor * vec3(0.82, 0.88, 0.58),
+                uGrassColor * vec3(0.50, 0.46, 0.30),
+                upperMossEdge * 0.28
+            );
+            upperC = mix(upperC, upperMossColor, upperMoss * 0.42);
+
+            // Retain the old rock shape but soften it toward the summit;
+            // the 3D field adds shallow, continuous surface weathering.
+            float upperH = rockH * 0.46
+                + mineralBroad * 0.12 + mineralMid * 0.055
+                + mineralFine * 0.012;
+            rockC = mix(rockC, upperC, upperRock);
+            rockH = mix(rockH, upperH, upperRock);
+            gRockSheen = wRock * mix(
+                mix(0.10, 0.48, rockAltitude),
+                0.12,
+                upperRock
+            ) * uShowTextures;
         }
 
         // Climb the ladder.
