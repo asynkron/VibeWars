@@ -483,7 +483,9 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     }
 
     vec3 decorAdjustCanopyColor(vec3 color) {
-        vec4 colorAdjust = vDecorCanopyColorProfile > 1.5
+        vec4 colorAdjust = vDecorCanopyColorProfile > 2.5
+            ? vec4(1.0, 1.0, 1.10, 0.139626340)
+            : vDecorCanopyColorProfile > 1.5
             ? vec4(1.88, 1.05, 0.40, -1.082104136)
             : vDecorCanopyColorProfile > 0.5
                 ? vec4(2.0, 1.15, 0.37, -0.663225115)
@@ -936,7 +938,7 @@ const DECOR_LEAF_GLINT_FRAGMENT = /* glsl */ `
         float crownHighlight = leafLightMask
             * smoothstep(0.38, 0.86, leafSunFacing);
         float coniferMask = 1.0 - step(1.5, vDecorCanopyTexture);
-        float crownHighlightStrength = mix(0.26, 0.72, coniferMask);
+        float crownHighlightStrength = mix(0.26, 0.60, coniferMask);
         float crownShadow = leafLightMask * (1.0 - leafSunWash);
         reflectedLight.directDiffuse *= sunBoost;
         reflectedLight.directDiffuse *= 1.0
@@ -2152,7 +2154,7 @@ function makeDeciduous(
         child.userData.decorCanopyShape = resolvedParameters.canopy.shape;
         child.userData.decorCanopyColorProfile = resolvedParameters.canopy.colorProfile ?? 0;
         if (resolvedParameters.canopy.texture === 'spruce-2x2') {
-            // Color profile 2 is pine; profile 0 is spruce. The merge pass
+            // Color profile 2 is pine; profile 3 is spruce. The merge pass
             // adds normalized tree height to this integer profile id.
             child.userData.decorSpruceBark = resolvedParameters.canopy.colorProfile === 2 ? 2 : 1;
         } else if (resolvedParameters.canopy.barkProfile) {
