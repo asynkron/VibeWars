@@ -32,6 +32,7 @@ describe('concrete terrain shader', () => {
 
     it('replaces the complete former sand material with coastline stone', () => {
         const shader = compile('SAND');
+        expect(shader.uniforms.uIsCoastTile.value).toBe(1);
         expect(shader.fragmentShader).toContain('groundTriplanarVoronoi');
         expect(shader.fragmentShader).toContain('float coastHeight =');
         expect(shader.fragmentShader).toContain('groundFoothillRockFields');
@@ -39,13 +40,25 @@ describe('concrete terrain shader', () => {
             'vec4 coastRoughnessFields = groundFoothillRockFields(gp, warp)',
         );
         expect(shader.fragmentShader).toContain(
-            'lowC = mix(coastStone, grassC, grassMask)',
+            'vec3 stoneAndSoil = mix(coastStone, earthC, soilMask)',
         );
         expect(shader.fragmentShader).toContain(
-            'lowH = mix(coastHeight, grassH, grassMask)',
+            'lowC = mix(stoneAndSoil, grassC, grassMask)',
         );
         expect(shader.fragmentShader).toContain(
-            'gShoreStone = (1.0 - grassMask) * wLow',
+            'if (soilMask > 0.0 || grassMask > 0.0)',
+        );
+        expect(shader.fragmentShader).toContain(
+            'gShoreStone = (1.0 - soilMask) * wLow',
+        );
+        expect(shader.fragmentShader).toContain(
+            'float orphanCoast = uIsCoastTile * (1.0 - shorePresence)',
+        );
+        expect(shader.fragmentShader).toContain(
+            'hexEdgeDistance(vTileLocal / uHexRadius)',
+        );
+        expect(shader.fragmentShader).toContain(
+            'float orphanProgress = mix(1.15, 0.54, orphanInterior)',
         );
         expect(shader.uniforms.uSandColor).toBeUndefined();
         expect(shader.fragmentShader).not.toMatch(
@@ -57,5 +70,9 @@ describe('concrete terrain shader', () => {
         expect(shader.fragmentShader).toContain(
             'metalnessFactor = mix(metalnessFactor, 0.0, gShoreStone)',
         );
+    });
+
+    it('does not apply the inland coastline fallback to grass tiles', () => {
+        expect(compile('GRASS').uniforms.uIsCoastTile.value).toBe(0);
     });
 });

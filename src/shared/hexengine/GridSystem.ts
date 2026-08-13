@@ -196,6 +196,11 @@ class GridSystem {
         // reflection read as an ordinary cast shadow.
         mesh.receiveShadow = type !== 'water';
         mesh.userData.isTerrainTile = true;
+        // Geometry consumers such as GrassSystem operate on the render mesh,
+        // after the surrounding hex group has been discarded. Keep the
+        // logical terrain type here as well so a sparse coastline fringe can
+        // differ from full turf without inferring it from colour or height.
+        mesh.userData.terrainType = type;
         return mesh;
     }
 

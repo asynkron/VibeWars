@@ -44,12 +44,14 @@ const BLADE_HEIGHT = 0.30 * MAP_CONFIG.HEX_RADIUS;
 // really the wind, which swung the tip further than the blade was tall.
 const BLADE_WIDTH = 0.019 * MAP_CONFIG.HEX_RADIUS;
 
-// GRASS GOES ON GRASS TILES. Height used to gate this as well, to follow
-// the ground shader's own coastline-to-grass front -- and it was wrong: on this
-// map it silently threw away 70 of the 168 turf tiles, scattered wherever
-// the ground sat low, so grass came and went across the board for no reason
-// the player could see. The tile's type is the answer to "is this grass".
-const TURF_TYPES = new Set(['grass', 'forest']);
+// Full turf belongs on grass/forest tiles. Coastline tiles get a much sparser
+// inland fringe below: without it, blade geometry stops exactly on the hex
+// boundary while the ground material keeps blending, reintroducing a seam
+// that the terrain shader itself has already removed.
+const FULL_TURF_TYPES = new Set(['grass', 'forest']);
+const COAST_TYPE = 'sand';
+const COAST_BLADES_PER_TILE = 56;
+const COAST_INLAND_MIN = 0.34;
 
 // The palette colour a tile carries is much darker than the turf the ground
 // shader actually draws from it -- that shader mixes grass between 0.55 and
@@ -212,7 +214,7 @@ class GrassSystem {
         const state = getGameStateOrNull();
         const tiles = hexGrid.filter((hex: any) => {
             const { q, r, type } = hex.userData;
-            if (!TURF_TYPES.has(type)) return false;
+            if (!FULL_TURF_TYPES.has(type) && type !== COAST_TYPE) return false;
             return !state?.map?.getTile(q, r)?.hasRoad;
         });
         if (!tiles.length) return;
@@ -310,7 +312,15 @@ class GrassSystem {
         radius += MAP_CONFIG.HEX_RADIUS + BLADE_HEIGHT * 1.35 + 0.05;
         geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), radius);
 
-        const mesh = new THREE.InstancedMesh(geometry, material, tileMeshes.length * BLADES_PER_TILE);
+        const maxBladeCount = tileMeshes.reduce(
+            (sum, tileMesh) => sum + (
+                tileMesh.userData.terrainType === COAST_TYPE
+                    ? COAST_BLADES_PER_TILE
+                    : BLADES_PER_TILE
+            ),
+            0,
+        );
+        const mesh = new THREE.InstancedMesh(geometry, material, maxBladeCount);
         mesh.castShadow = false;
         // The ground underneath already receives the directional shadow,
         // but bright unshadowed blades drawn over it washed that shadow
@@ -330,14 +340,37 @@ class GrassSystem {
         for (const tileMesh of tileMeshes) {
             const position = tileMesh.geometry.attributes.position;
             const vertexColour = tileMesh.geometry.attributes.color;
+            const isCoast = tileMesh.userData.terrainType === COAST_TYPE;
+            const bladesForTile = isCoast ? COAST_BLADES_PER_TILE : BLADES_PER_TILE;
 
-            for (let i = 0; i < BLADES_PER_TILE; i++) {
+            for (let i = 0; i < bladesForTile; i++) {
                 // Uniform inside a disc: sqrt on the radius, or they crowd
                 // the middle.
                 const angle = random() * Math.PI * 2;
                 const radiusIn = Math.sqrt(random()) * PLANT_RADIUS * MAP_CONFIG.HEX_RADIUS;
                 const localX = Math.cos(angle) * radiusIn;
                 const localZ = Math.sin(angle) * radiusIn;
+                let coastInland = 1;
+
+                if (isCoast) {
+                    const shorelineDistance = this.waterEdgeDistance(
+                        tileMesh,
+                        localX / MAP_CONFIG.HEX_RADIUS,
+                        localZ / MAP_CONFIG.HEX_RADIUS,
+                    );
+                    // Only the inland end of the coastline material carries
+                    // geometry. The broad stochastic gate makes isolated
+                    // tufts, not a second continuous row parallel to water.
+                    coastInland = Math.max(0, Math.min(
+                        1,
+                        (shorelineDistance - COAST_INLAND_MIN) / 1.02,
+                    ));
+                    const patch = 0.35 + 0.65 * this.coverageNoise(
+                        tileMesh.position.x + localX,
+                        tileMesh.position.z + localZ,
+                    );
+                    if (random() > coastInland * patch) continue;
+                }
 
                 dummy.position.set(
                     tileMesh.position.x + localX - cx,
@@ -352,19 +385,28 @@ class GrassSystem {
                 // above, a blade standing straight up shows the camera
                 // almost no area at all.
                 dummy.rotation.z = (random() - 0.5) * 0.7;
-                const scale = 0.65 + random() * 0.7;
+                const scale = isCoast
+                    ? (0.22 + coastInland * 0.26) + random() * 0.28
+                    : 0.65 + random() * 0.7;
                 dummy.scale.set(1, scale, 1);
                 dummy.updateMatrix();
                 mesh.setMatrixAt(index, dummy.matrix);
 
                 // The tile's own colour, so blades sit in the band beneath
                 // them rather than in a green of their own.
-                if (vertexColour) {
+                if (isCoast) {
+                    // Young sparse growth in the soil band is shorter and
+                    // darker than meadow grass. Matching full-turf brightness
+                    // would turn these few blades into a luminous shoreline.
+                    colour.setRGB(0.17, 0.205, 0.08);
+                } else if (vertexColour) {
                     colour.setRGB(vertexColour.getX(13), vertexColour.getY(13), vertexColour.getZ(13));
                 } else {
                     colour.setRGB(0.35, 0.5, 0.2);
                 }
-                colour.multiplyScalar(BLADE_BRIGHTEN * (0.85 + random() * 0.35));
+                colour.multiplyScalar(
+                    (isCoast ? 1.05 : BLADE_BRIGHTEN) * (0.85 + random() * 0.35),
+                );
                 mesh.setColorAt(index, colour);
                 index++;
             }
@@ -375,6 +417,32 @@ class GrassSystem {
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
         return mesh;
+    }
+
+    private static coverageNoise(worldX: number, worldZ: number): number {
+        const broad = Math.sin(worldX * 2.37 + worldZ * 1.71) * 0.5 + 0.5;
+        const fine = Math.sin(worldX * 6.19 - worldZ * 4.73 + 1.8) * 0.5 + 0.5;
+        return broad * 0.72 + fine * 0.28;
+    }
+
+    private static waterEdgeDistance(tileMesh: any, x: number, z: number): number {
+        const shoreA = tileMesh.geometry.attributes.aShoreA;
+        const shoreB = tileMesh.geometry.attributes.aShoreB;
+        if (!shoreA || !shoreB) return 10;
+        const flags = [
+            shoreA.getX(0), shoreA.getY(0), shoreA.getZ(0),
+            shoreB.getX(0), shoreB.getY(0), shoreB.getZ(0),
+        ];
+        let distance = 10;
+        for (let edge = 0; edge < 6; edge++) {
+            if (flags[edge] < 0.5) continue;
+            const angle = (edge + 0.5) * Math.PI / 3;
+            distance = Math.min(
+                distance,
+                0.8660254 - (x * Math.cos(angle) + z * Math.sin(angle)),
+            );
+        }
+        return distance;
     }
 
     private static applyGrassShader(material: any): void {

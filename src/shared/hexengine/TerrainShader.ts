@@ -212,6 +212,26 @@ const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
 `;
 
 const SHORE_GLSL = /* glsl */ `
+    // Normalised inward distance from the nearest edge that actually borders
+    // water. A shoreline tile spans roughly 0..1.73 from its water edge to
+    // the opposite land edge. Using that real spatial signal lets rock turn
+    // into soil and then grass *inside* the tile, so the material is already
+    // turf by the time it reaches its inland neighbour.
+    float waterEdgeDistance(vec2 local, vec3 shoreA, vec3 shoreB) {
+        float d = 10.0;
+        d = min(d, mix(10.0, 0.8660254 - dot(local, vec2(cos(0.5 * 1.0471975512), sin(0.5 * 1.0471975512))), step(0.5, shoreA.x)));
+        d = min(d, mix(10.0, 0.8660254 - dot(local, vec2(cos(1.5 * 1.0471975512), sin(1.5 * 1.0471975512))), step(0.5, shoreA.y)));
+        d = min(d, mix(10.0, 0.8660254 - dot(local, vec2(cos(2.5 * 1.0471975512), sin(2.5 * 1.0471975512))), step(0.5, shoreA.z)));
+        d = min(d, mix(10.0, 0.8660254 - dot(local, vec2(cos(3.5 * 1.0471975512), sin(3.5 * 1.0471975512))), step(0.5, shoreB.x)));
+        d = min(d, mix(10.0, 0.8660254 - dot(local, vec2(cos(4.5 * 1.0471975512), sin(4.5 * 1.0471975512))), step(0.5, shoreB.y)));
+        d = min(d, mix(10.0, 0.8660254 - dot(local, vec2(cos(5.5 * 1.0471975512), sin(5.5 * 1.0471975512))), step(0.5, shoreB.z)));
+        return d;
+    }
+
+    float waterEdgePresence(vec3 shoreA, vec3 shoreB) {
+        return step(0.5, max(max(max(shoreA.x, shoreA.y), shoreA.z), max(max(shoreB.x, shoreB.y), shoreB.z)));
+    }
+
     // Distance to the nearest of the six hex edges, used by the grid.
     float hexEdgeDistance(vec2 local) {
         float d = 10.0;
@@ -304,11 +324,75 @@ const GROUND_FRAGMENT = /* glsl */ `
         float grassMask = 0.0;
         vec3 grassC = vec3(0.0);
         if (wLow > 0.0) {
-            // Existing irregular lowland-to-grass front, preserved exactly.
+            // Inland tiles retain the established height-driven front. On a
+            // tile that actually touches water, however, the authoritative
+            // coordinate is distance inward from that water edge. It reaches
+            // full turf before the opposite tile boundary, eliminating the
+            // material seam between coastline and grass tiles.
             float trans = smoothstep(0.70, 0.98, y + wob * 0.10);
             float clump = groundFbm(gp * 4.5 + warp * 3.5);
-            float front = trans * 0.75 + clump * 0.45;
-            grassMask = smoothstep(0.52, 0.72, front);
+            float heightFront = trans * 0.75 + clump * 0.45;
+            // Build an overlapping material transition rather than one
+            // grass/stone contour. Broad patches establish the terrain front;
+            // independent breakup fields will place soil, stone remnants and
+            // grass tufts at different positions inside that front.
+            float materialPatches = groundFbm(
+                gp * 2.15 + warp * 4.2 + vec2(13.7, 4.9)
+            );
+            float materialBreakup = groundFbm(
+                gp * 8.4 + warp * 1.7 + vec2(3.1, 19.6)
+            );
+            float shorePresence = waterEdgePresence(vShoreA, vShoreB);
+            float shoreDistance = waterEdgeDistance(
+                vTileLocal / uHexRadius,
+                vShoreA,
+                vShoreB
+            );
+            float shoreProgress = clamp(
+                (shoreDistance - 0.12) / 1.34
+                    + (materialPatches - 0.5) * 0.20,
+                0.0,
+                1.0
+            );
+            float front = mix(heightFront, shoreProgress, shorePresence);
+
+            // A legacy SAND/coastline tile can sit one row inland, behind
+            // another coastline tile. It then has no water-facing edge, so
+            // shoreDistance carries no useful direction. The old fallback
+            // painted the entire low tile as rock and exposed its exact hex
+            // silhouette. Keep a broken dirty/rocky patch in its interior,
+            // but force full turf around every boundary so it dissolves into
+            // all neighbouring land materials instead of becoming one gray
+            // hex stamped into the meadow.
+            float orphanCoast = uIsCoastTile * (1.0 - shorePresence);
+            float orphanInterior = smoothstep(
+                0.08,
+                0.72,
+                hexEdgeDistance(vTileLocal / uHexRadius)
+            );
+            float orphanProgress = mix(1.15, 0.54, orphanInterior)
+                + (materialPatches - 0.5) * 0.18;
+            front = mix(front, orphanProgress, orphanCoast);
+            float grassCoverageField = front
+                + (materialPatches - 0.5) * 0.20
+                + (materialBreakup - 0.5) * 0.08;
+            float soilPatches = groundFbm(
+                gp * 5.1 + warp * 2.8 + vec2(22.4, 7.6)
+            );
+            float grassTufts = groundFbm(
+                gp * 7.3 + warp * 1.9 + vec2(5.8, 27.1)
+            );
+            float soilField = grassCoverageField
+                + (soilPatches - 0.5) * 0.22;
+            float turfField = grassCoverageField
+                + (grassTufts - 0.5) * 0.20
+                + (materialPatches - 0.5) * 0.08;
+            // Deliberately overlapping, wide masks: scattered soil begins
+            // close to the wet stone, while continuous turf only closes over
+            // it near the inland edge. There is no shared threshold capable
+            // of drawing a dark outline between the two materials.
+            float soilMask = smoothstep(0.14, 0.72, soilField);
+            grassMask = smoothstep(0.60, 0.96, turfField);
 
             // Exact coastline material, now the LOW material itself rather
             // than a later overlay. It is triplanar so the same blocks carry
@@ -445,7 +529,11 @@ const GROUND_FRAGMENT = /* glsl */ `
             // two TINTS of the palette green (not scaling one) is what
             // gives the hue drift real turf has.
             float grassH = 0.0;
-            if (grassMask > 0.0) {
+            // Soil already contains sparse grass flecks before the continuous
+            // turf starts. Build the grass colour throughout that transition;
+            // otherwise those first flecks sample the zero-initialised
+            // grassC and become the dark contour we are trying to avoid.
+            if (soilMask > 0.0 || grassMask > 0.0) {
                 float meadow = groundFbm(gp * 2.6 + warp * 3.0);
                 float blades = mix(0.5, groundNoise(gp * 36.0), fade36);
                 grassC = mix(uGrassColor * vec3(0.55, 0.62, 0.45),
@@ -466,9 +554,47 @@ const GROUND_FRAGMENT = /* glsl */ `
                 grassH = meadow * 0.30 + blades * 0.10;
             }
 
-            lowC = mix(coastStone, grassC, grassMask);
-            lowH = mix(coastHeight, grassH, grassMask);
-            gShoreStone = (1.0 - grassMask) * wLow;
+            // Earth fills the broken interval between stone and full turf.
+            // It deliberately varies from warm mineral dirt to mossy soil,
+            // while fine rock remnants keep it from becoming a brown ribbon.
+            float earthMottle = groundFbm(
+                gp * 3.8 + warp * 3.1 + vec2(31.7, 12.9)
+            );
+            vec3 mineralEarth = mix(
+                coastStone * vec3(1.08, 0.92, 0.74),
+                vec3(0.31, 0.265, 0.17),
+                0.68
+            );
+            vec3 mossEarth = mix(
+                vec3(0.22, 0.215, 0.105),
+                uGrassColor * vec3(0.92, 0.78, 0.46),
+                0.48
+            );
+            vec3 earthC = mix(mineralEarth, mossEarth, earthMottle);
+            earthC *= 0.90 + soilPatches * 0.20;
+            float stoneRemnants = smoothstep(
+                0.73,
+                0.88,
+                groundNoise(gp * 13.0 + warp * 2.2)
+            );
+            earthC = mix(earthC, coastStone, stoneRemnants * 0.42);
+
+            // Sparse turf starts inside the soil before the full grass
+            // material closes over it, so there is no single last row of
+            // dirt separating all grass from all stone.
+            float grassFlecks = smoothstep(
+                0.54,
+                0.72,
+                grassTufts * 0.58 + soilField * 0.42
+            );
+            grassFlecks *= soilMask * (1.0 - grassMask);
+            earthC = mix(earthC, grassC, grassFlecks * 0.58);
+
+            vec3 stoneAndSoil = mix(coastStone, earthC, soilMask);
+            lowC = mix(stoneAndSoil, grassC, grassMask);
+            float soilH = mix(coastHeight * 0.62, soilPatches * 0.22, soilMask);
+            lowH = mix(mix(coastHeight, soilH, soilMask), grassH, grassMask);
+            gShoreStone = (1.0 - soilMask) * wLow;
         }
 
         // --- Forest floor: the same recipe pitched darker and mossier.
@@ -811,6 +937,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uRockColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('MOUNTAIN')) };
         shader.uniforms.uConcreteColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('CONCRETE')) };
         shader.uniforms.uIsConcrete = { value: terrainType === 'CONCRETE' ? 1 : 0 };
+        shader.uniforms.uIsCoastTile = { value: terrainType === 'SAND' ? 1 : 0 };
         shader.uniforms.uSunDirection = { value: SunSystem.getDirection() };
         shader.uniforms.uGrassCalibration = MATERIAL_CALIBRATION_UNIFORMS.grass.parameters;
         shader.uniforms.uGrassCalibrationBalance = MATERIAL_CALIBRATION_UNIFORMS.grass.balance;
@@ -829,7 +956,7 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
                 ' uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
                 ' uniform vec3 uRockColor;\n uniform vec3 uConcreteColor;\n' +
-                ' uniform float uIsConcrete;\n uniform vec3 uSunDirection;\n' +
+                ' uniform float uIsConcrete;\n uniform float uIsCoastTile;\n uniform vec3 uSunDirection;\n' +
                 ' uniform vec4 uGrassCalibration;\n uniform vec3 uGrassCalibrationBalance;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
@@ -861,5 +988,5 @@ export function applyProceduralGround(material: any, terrainType: string): void 
     };
     // All ground materials share one height-banded program (uniforms
     // differ per material); distinct key from three.js's stock shader.
-    material.customProgramCacheKey = () => 'ground-height-banded-v25-low-coast-scuffs';
+    material.customProgramCacheKey = () => 'ground-height-banded-v31-orphan-coast-blend';
 }
