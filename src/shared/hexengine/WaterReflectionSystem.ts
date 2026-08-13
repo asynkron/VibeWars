@@ -39,6 +39,13 @@ const SKY_PLANE_DEPTH = 535;
 const LANDSCAPE_REFLECTION_EXPOSURE = 0.32;
 const WATER_SURFACE_SUBDIVISIONS = 2;
 const WATER_SKY_SHEEN_STRENGTH = 0.58;
+// Carry the visible water surface part-way up the coast itself. A flat apron
+// remains buried below the rising coast mesh and therefore leaves the original
+// hex silhouette untouched. This wider apron follows the coast slope, while a
+// deliberately uneven reach breaks up the otherwise unmistakable hex edge.
+const WATER_SHORE_OVERHANG = MAP_CONFIG.HEX_RADIUS * 0.58;
+const WATER_SHORE_OVERHANG_SEGMENTS = 14;
+const HEX_INRADIUS = MAP_CONFIG.HEX_RADIUS * Math.sqrt(3) * 0.5;
 
 const WATER_REFLECTION_SHADER: any = {
     name: 'VibeWarsWaterReflection',
@@ -63,12 +70,14 @@ const WATER_REFLECTION_SHADER: any = {
     vertexShader: /* glsl */ `
         uniform mat4 textureMatrix;
         attribute float aWaterPin;
+        attribute float aWaterApron;
         attribute vec2 aTileLocal;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
         varying vec3 vWaterLocalPos;
         varying vec2 vTileLocal;
         varying float vWaterPin;
+        varying float vWaterApron;
 
         #include <common>
         ${GERSTNER_WAVE_GLSL}
@@ -78,6 +87,7 @@ const WATER_REFLECTION_SHADER: any = {
             vWaterLocalPos = position.xyz;
             vTileLocal = aTileLocal;
             vWaterPin = aWaterPin;
+            vWaterApron = aWaterApron;
 
             vec3 p = position.xyz;
             vec3 gerstnerOffset = vec3(0.0);
@@ -114,6 +124,7 @@ const WATER_REFLECTION_SHADER: any = {
         varying vec3 vWaterLocalPos;
         varying vec2 vTileLocal;
         varying float vWaterPin;
+        varying float vWaterApron;
 
         #include <common>
         ${WATER_NORMAL_GLSL}
@@ -283,7 +294,8 @@ const WATER_REFLECTION_SHADER: any = {
             albedo = mix(
                 albedo,
                 vec3(0.04, 0.05, 0.07),
-                hexGridLine(vTileLocal / uHexRadius) * 0.8
+                hexGridLine(vTileLocal / uHexRadius)
+                    * (1.0 - vWaterApron) * 0.8
             );
             gl_FragColor = vec4(albedo, alpha);
         }
@@ -502,7 +514,16 @@ export class WaterReflectionSystem {
     private static buildSurfaceGeometry(): any {
         const positions: number[] = [];
         const waterPins: number[] = [];
+        const waterAprons: number[] = [];
         const tileLocals: number[] = [];
+        const gridByCoord = new Map<string, any>();
+        for (const hex of this.grid) {
+            const q = hex.userData.q;
+            const r = hex.userData.r;
+            if (Number.isFinite(q) && Number.isFinite(r)) {
+                gridByCoord.set(`${q},${r}`, hex);
+            }
+        }
         let count = 0;
 
         for (const hex of this.grid) {
@@ -512,6 +533,8 @@ export class WaterReflectionSystem {
             );
             const source = mesh?.geometry?.attributes?.position;
             const sourcePins = mesh?.geometry?.attributes?.aWaterPin;
+            const sourceShoreA = mesh?.geometry?.attributes?.aShoreA;
+            const sourceShoreB = mesh?.geometry?.attributes?.aShoreB;
             if (!source || source.count < 14) continue;
 
             const px = mesh.position.x;
@@ -540,6 +563,7 @@ export class WaterReflectionSystem {
                     + (sourcePins?.getX(cornerA) ?? 0) * cornerAWeight
                     + (sourcePins?.getX(cornerB) ?? 0) * cornerBWeight,
                 );
+                waterAprons.push(0);
                 tileLocals.push(x, z);
             };
 
@@ -569,12 +593,157 @@ export class WaterReflectionSystem {
                     }
                 }
             }
+
+            // The shore flags describe the six edges and are constant across
+            // the source tile. Add a strip beyond every land-facing edge. Its
+            // outer vertices follow the neighbouring land triangle upwards;
+            // a flat strip is immediately buried by that triangle and cannot
+            // alter the visible shoreline at all.
+            const shoreFlags = [
+                sourceShoreA?.getX(0) ?? 0,
+                sourceShoreA?.getY(0) ?? 0,
+                sourceShoreA?.getZ(0) ?? 0,
+                sourceShoreB?.getX(0) ?? 0,
+                sourceShoreB?.getY(0) ?? 0,
+                sourceShoreB?.getZ(0) ?? 0,
+            ];
+            type ApronPoint = { x: number; z: number; height: number };
+            const outerEndpoints: Array<{
+                start: ApronPoint;
+                end: ApronPoint;
+            } | null> = new Array(6).fill(null);
+            const pushApronVertex = (point: ApronPoint) => {
+                // Reflector local Z becomes world Y after its -90 degree X
+                // rotation. WATER_SURFACE_LIFT then keeps the strip just above
+                // the coast instead of fighting the underlying terrain.
+                positions.push(point.x + px, -(point.z + pz), point.height);
+                waterPins.push(1);
+                waterAprons.push(1);
+                tileLocals.push(point.x, point.z);
+            };
+            const pushApronTriangle = (
+                a: ApronPoint,
+                b: ApronPoint,
+                c: ApronPoint,
+            ) => {
+                // Reflector local Y is -world Z. Keep triangles CCW in that
+                // plane so the apron remains visible with front-face culling.
+                const signedArea = (b.x - a.x) * (-(c.z - a.z))
+                    - (-(b.z - a.z)) * (c.x - a.x);
+                pushApronVertex(a);
+                if (signedArea >= 0) {
+                    pushApronVertex(b);
+                    pushApronVertex(c);
+                } else {
+                    pushApronVertex(c);
+                    pushApronVertex(b);
+                }
+            };
+
+            const q = hex.userData.q;
+            const r = hex.userData.r;
+            const isOddColumn = q % 2 === 1;
+            const neighborOffsets = isOddColumn
+                ? [[1, 0], [0, -1], [-1, 0], [-1, 1], [0, 1], [1, 1]]
+                : [[1, -1], [0, -1], [-1, -1], [-1, 0], [0, 1], [1, 0]];
+
+            for (let edge = 0; edge < 6; edge++) {
+                if (shoreFlags[edge] < 0.5) continue;
+                const startIndex = 6 + edge;
+                const endIndex = 6 + ((edge + 1) % 6);
+                const start: ApronPoint = {
+                    x: source.getX(startIndex),
+                    z: source.getZ(startIndex),
+                    height: 0,
+                };
+                const end: ApronPoint = {
+                    x: source.getX(endIndex),
+                    z: source.getZ(endIndex),
+                    height: 0,
+                };
+                const angle = (edge + 0.5) * Math.PI / 3;
+                const outward = { x: Math.cos(angle), z: Math.sin(angle) };
+                let previousInner = start;
+                let previousOuter: ApronPoint | null = null;
+
+                // paintShoreEdges maps source edge e to neighbour 5-e.
+                const neighborOffset = neighborOffsets[5 - edge];
+                const landHex = gridByCoord.get(
+                    `${q + neighborOffset[0]},${r + neighborOffset[1]}`,
+                );
+                const landMesh = landHex?.children.find(
+                    (child: any) => child instanceof THREE.Mesh && !child.userData.isBoundingMesh,
+                );
+                const landPositions = landMesh?.geometry?.attributes?.position;
+                const coastCenterHeight = Math.max(
+                    0,
+                    (landMesh?.position?.y ?? 0) + (landPositions?.getY(13) ?? 0),
+                );
+
+                for (let step = 0; step <= WATER_SHORE_OVERHANG_SEGMENTS; step++) {
+                    const t = step / WATER_SHORE_OVERHANG_SEGMENTS;
+                    const inner: ApronPoint = {
+                        x: THREE.MathUtils.lerp(start.x, end.x, t),
+                        z: THREE.MathUtils.lerp(start.z, end.z, t),
+                        height: 0,
+                    };
+                    // Two deterministic frequencies make the visible edge read
+                    // as water ingress rather than as a displaced hex outline.
+                    const worldX = inner.x + px;
+                    const worldZ = inner.z + pz;
+                    const broad = Math.sin(worldX * 2.91 + worldZ * 3.77);
+                    const detail = Math.sin(worldX * 9.17 - worldZ * 7.31);
+                    const reach = WATER_SHORE_OVERHANG * (
+                        0.78 + broad * 0.32 + detail * 0.18
+                    );
+                    const coastFraction = THREE.MathUtils.clamp(
+                        reach / HEX_INRADIUS,
+                        0,
+                        0.92,
+                    );
+                    const outer: ApronPoint = {
+                        x: inner.x + outward.x * reach,
+                        z: inner.z + outward.z * reach,
+                        height: coastCenterHeight * coastFraction,
+                    };
+                    if (step === 0) {
+                        outerEndpoints[edge] = { start: outer, end: outer };
+                    } else if (previousOuter) {
+                        pushApronTriangle(previousInner, outer, previousOuter);
+                        pushApronTriangle(previousInner, inner, outer);
+                        outerEndpoints[edge]!.end = outer;
+                    }
+                    previousInner = inner;
+                    previousOuter = outer;
+                }
+            }
+
+            // When two adjacent shore edges meet, close the little wedge
+            // between their differently oriented strips. Without this cap a
+            // pinhole could remain exactly at a convex coast corner.
+            for (let corner = 0; corner < 6; corner++) {
+                const previousEdge = (corner + 5) % 6;
+                const previous = outerEndpoints[previousEdge];
+                const current = outerEndpoints[corner];
+                if (!previous || !current) continue;
+                const cornerIndex = 6 + corner;
+                pushApronTriangle(
+                    {
+                        x: source.getX(cornerIndex),
+                        z: source.getZ(cornerIndex),
+                        height: 0,
+                    },
+                    previous.end,
+                    current.start,
+                );
+            }
             count++;
         }
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         geometry.setAttribute('aWaterPin', new THREE.Float32BufferAttribute(waterPins, 1));
+        geometry.setAttribute('aWaterApron', new THREE.Float32BufferAttribute(waterAprons, 1));
         geometry.setAttribute('aTileLocal', new THREE.Float32BufferAttribute(tileLocals, 2));
         geometry.computeVertexNormals();
         geometry.computeBoundingSphere();
