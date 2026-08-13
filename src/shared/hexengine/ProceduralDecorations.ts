@@ -384,6 +384,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     varying float vDecorCanopyAlphaThreshold;
     varying float vDecorCanopyEdgeFade;
     varying vec3 vDecorCanopyTint;
+    varying float vDecorCanopyShape;
 
     // The baked dot fields, and the cell-to-texture scale that indexes
     // them. Kept in step with LEAF_CELLS on the JS side by construction --
@@ -442,20 +443,40 @@ const DECOR_NOISE_GLSL = /* glsl */ `
         return 1.0 - smoothstep(0.8, 1.6, fw);
     }
 
+    vec3 decorCanopyTextureAt(vec2 uv) {
+        return vDecorCanopyTexture < 1.5
+            ? texture2D(uDecorSpruceCanopyTexture, uv).rgb
+            : vDecorCanopyTexture < 2.5
+                ? texture2D(uDecorMapleCanopyTexture, uv).rgb
+                : texture2D(uDecorRowanCanopyTexture, uv).rgb;
+    }
+
     vec4 decorPaintedCanopy() {
         // Polyhedron UVs collapse and overlap across an icosahedron-derived
         // cone. Project from the cluster-local 3D position instead, wrapping
         // the full photograph once around every crown.
         vec3 direction = normalize(vDecorLocalPos + vec3(0.0001));
-        vec2 paintedUv = vec2(
+        vec2 sphericalUv = vec2(
             atan(direction.z, direction.x) / 6.28318530718 + 0.5,
             asin(clamp(direction.y, -1.0, 1.0)) / 3.14159265359 + 0.5
         );
-        vec3 paint = vDecorCanopyTexture < 1.5
-            ? texture2D(uDecorSpruceCanopyTexture, paintedUv).rgb
-            : vDecorCanopyTexture < 2.5
-                ? texture2D(uDecorMapleCanopyTexture, paintedUv).rgb
-                : texture2D(uDecorRowanCanopyTexture, paintedUv).rgb;
+        vec3 paint;
+        if (abs(vDecorCanopyShape - 3.0) < 0.25) {
+            // Triplanar "cloth": horizontal faces read the photograph from
+            // above (XZ). As the dome turns vertical, the local face normal
+            // smoothly transfers weight to ZY or XY side projection. This
+            // retains the draped-over-top direction without smearing a thin
+            // strip of the texture down the hanging rim.
+            vec3 faceNormal = normalize(cross(dFdx(vDecorLocalPos), dFdy(vDecorLocalPos)));
+            vec3 weights = pow(abs(faceNormal), vec3(4.0));
+            weights /= max(weights.x + weights.y + weights.z, 0.0001);
+            vec3 projectedX = decorCanopyTextureAt(direction.zy * 0.5 + 0.5);
+            vec3 projectedY = decorCanopyTextureAt(direction.xz * 0.5 + 0.5);
+            vec3 projectedZ = decorCanopyTextureAt(direction.xy * 0.5 + 0.5);
+            paint = projectedX * weights.x + projectedY * weights.y + projectedZ * weights.z;
+        } else {
+            paint = decorCanopyTextureAt(sphericalUv);
+        }
         float linearLuminance = dot(paint, vec3(0.2126, 0.7152, 0.0722));
         // The texture sampler has already decoded sRGB to linear light.
         // Convert back to perceptual brightness before comparing against a
@@ -1013,11 +1034,11 @@ function applyOrganicDetail(material: any): void {
             )
             .replace(
                 'attribute float aDecorKind;',
-                'attribute vec3 aDecorCanopyTint;\n attribute float aDecorKind;',
+                'attribute vec3 aDecorCanopyTint;\n varying float vDecorCanopyShape;\n attribute float aDecorKind;',
             )
             .replace(
                 'vDecorKind = aDecorKind;',
-                'vDecorCanopyTint = aDecorCanopyTint;\n vDecorKind = aDecorKind;',
+                'vDecorCanopyTint = aDecorCanopyTint;\n vDecorCanopyShape = floor(aDecorCanopyTexture / 10.0);\n vDecorCanopyTexture = mod(vDecorCanopyTexture, 10.0);\n vDecorKind = aDecorKind;',
             );
         shader.fragmentShader = shader.fragmentShader
             // dBumpH is written by the color pass and read by the bump
@@ -1229,6 +1250,15 @@ function growLimb(
 
 export type DeciduousCrownShape = 'none' | 'ball' | 'disk' | 'dome' | 'cone' | 'drop';
 export type DeciduousCanopyTexture = 'spruce-2x2' | 'maple' | 'rowan';
+
+const CANOPY_SHAPE_VALUE: Record<DeciduousCrownShape, number> = {
+    none: 0,
+    ball: 1,
+    disk: 2,
+    dome: 3,
+    cone: 4,
+    drop: 5,
+};
 
 const CANOPY_TEXTURE_VALUE: Record<DeciduousCanopyTexture, number> = {
     'spruce-2x2': 1,
@@ -1933,6 +1963,7 @@ function makeDeciduous(
         child.userData.decorCanopyTexture = resolvedParameters.canopy.texture;
         child.userData.decorCanopyAlphaThreshold = resolvedParameters.canopy.textureAlphaThreshold;
         child.userData.decorCanopyEdgeFade = resolvedParameters.canopy.textureEdgeFade;
+        child.userData.decorCanopyShape = resolvedParameters.canopy.shape;
         if (resolvedParameters.canopy.texture === 'spruce-2x2') child.userData.decorSpruceBark = 1;
     });
     return tree;
@@ -2446,7 +2477,9 @@ function mergeDecorations(group: any): any | null {
         const windWeight = mesh.userData.decorWind ?? 0;
         const authoredWeight = mesh.userData.decorAuthored ?? 0;
         const spruceBarkWeight = mesh.userData.decorSpruceBark ?? 0;
-        const canopyTextureWeight = CANOPY_TEXTURE_VALUE[mesh.userData.decorCanopyTexture as DeciduousCanopyTexture] ?? 0;
+        const canopyTextureValue = CANOPY_TEXTURE_VALUE[mesh.userData.decorCanopyTexture as DeciduousCanopyTexture] ?? 0;
+        const canopyShapeValue = CANOPY_SHAPE_VALUE[mesh.userData.decorCanopyShape as DeciduousCrownShape] ?? 0;
+        const canopyTextureWeight = canopyTextureValue + canopyShapeValue * 10;
         const canopyAlphaThresholdValue = mesh.userData.decorCanopyAlphaThreshold ?? 0.38;
         const canopyEdgeFadeValue = mesh.userData.decorCanopyEdgeFade ?? 0.14;
         const canopyTintValue = mesh.userData.decorCanopyTint ?? [1, 1, 1];
