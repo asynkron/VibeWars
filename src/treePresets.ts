@@ -1,5 +1,6 @@
 import type { DeciduousTreeParameters } from './shared/hexengine/ProceduralDecorations';
 import {
+    BIRCH_TREE_PARAMETERS,
     BROADLEAF_TREE_PARAMETERS,
     PINE_TREE_PARAMETERS,
     SPRUCE_TREE_PARAMETERS,
@@ -34,5 +35,12 @@ export const TREE_PRESETS: readonly TreePreset[] = [
         variant: 'Tall #01',
         windStrength: 1,
         parameters: PINE_TREE_PARAMETERS,
+    },
+    {
+        id: 'birch',
+        name: 'Björk',
+        variant: 'Björk #01',
+        windStrength: 1,
+        parameters: BIRCH_TREE_PARAMETERS,
     },
 ];

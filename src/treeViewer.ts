@@ -124,6 +124,7 @@ const resetButton = document.querySelector<HTMLButtonElement>('#reset-view');
 const presetCards = [...document.querySelectorAll<HTMLButtonElement>('[data-preset]')];
 const presetCount = document.querySelector<HTMLElement>('#preset-count');
 const presetVariant = document.querySelector<HTMLElement>('#preset-variant');
+let activeBarkProfile = 0;
 
 const canopyWidthScale = document.querySelector<HTMLInputElement>('#canopy-width-scale');
 const canopyWidthRatioPerTrunkLevel = document.querySelector<HTMLInputElement>('#canopy-width-ratio-per-trunk-level');
@@ -247,6 +248,11 @@ function readParameters(): DeciduousTreeParameters {
             saturation: Number(canopySaturation?.value ?? 100) / 100,
             hue: Number(canopyHue?.value ?? 0) * Math.PI / 180,
             depthFromTip: Number(canopyDepth?.value ?? 0),
+            // The workbench drives color through live material uniforms.
+            // Packed color profiles are only for batched in-game trees and
+            // would override the sliders in the shader.
+            colorProfile: 0,
+            barkProfile: activeBarkProfile,
         },
     };
 }
@@ -257,6 +263,7 @@ function setInputValue(input: HTMLInputElement | HTMLSelectElement | null, value
 
 function applyPreset(preset: TreePreset): void {
     const { branches, trunk, canopy } = preset.parameters;
+    activeBarkProfile = canopy.barkProfile ?? 0;
     setInputValue(branchCountPerFork, branches.countPerFork);
     setInputValue(branchLevels, branches.levels);
     setInputValue(branchStartLengthRatio, branches.startLengthRatio * 100);

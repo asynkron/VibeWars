@@ -123,7 +123,8 @@ function addTreeCanopyTint(tree: any, q: number, r: number, treeIndex: number): 
         ^ Math.imul(r + 211, 19349663)
         ^ Math.imul(treeIndex + 307, 83492791);
     const warmth = seedT(seed) * 2 - 1;
-    const lightness = 0.91 + seedT(seed ^ 0x68bc21eb) * 0.18;
+    const lightnessRoll = seedT(seed ^ 0x68bc21eb);
+    const lightness = 0.91 + lightnessRoll * 0.18;
     const greenShift = 0.96 + seedT(seed ^ 0x02e5be93) * 0.08;
     const tint = [
         lightness * (1 + warmth * 0.10),
@@ -134,6 +135,12 @@ function addTreeCanopyTint(tree: any, q: number, r: number, treeIndex: number): 
         if (!child.isMesh) return;
         const kind = child.userData?.decorKind;
         if (kind === 2 || kind === 3) child.userData.decorCanopyTint = tint;
+        if (tree.userData?.decorationTreeKind === 'deciduous' && kind === 0) {
+            // Birch belongs to the visibly lightest per-placement canopy
+            // quarter, not to a structural/model profile. This makes the
+            // bark follow the actual crown tint the player sees.
+            child.userData.decorSpruceBark = lightnessRoll >= 0.75 ? 3 : 0;
+        }
     });
 }
 
@@ -413,8 +420,6 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     uniform sampler2D uDecorMaple2CanopyTexture;
     uniform sampler2D uDecorRowanCanopyTexture;
     uniform float uDecorCanopyTextureEnabled;
-    uniform sampler2D uDecorSpruceBarkTexture;
-    uniform float uDecorSpruceBarkTextureEnabled;
     uniform float uDecorCanopyTextureAlphaThreshold;
     uniform float uDecorCanopyTextureEdgeFade;
     uniform float uDecorLeafGloss;
@@ -473,7 +478,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
 
     vec3 decorAdjustCanopyColor(vec3 color) {
         vec4 colorAdjust = vDecorCanopyColorProfile > 1.5
-            ? vec4(1.88, 1.05, 0.64, -1.082104136)
+            ? vec4(1.88, 1.05, 0.40, -1.082104136)
             : vDecorCanopyColorProfile > 0.5
                 ? vec4(2.0, 1.15, 0.37, -0.663225115)
                 : uDecorCanopyColorAdjust;
@@ -682,17 +687,96 @@ const DECOR_FRAGMENT = /* glsl */ `
             dBumpH = plateTint * 0.25 + ridge * 0.18 - crack * 0.40 + mossMask * 0.12;
         } else if (vDecorKind < 0.5) {
             if (vDecorSpruceBark > 0.5) {
-                // CylinderGeometry UVs wrap U around the limb and run V
-                // along it, so the photographed grain follows every trunk
-                // and branch in its own local frame instead of projecting
-                // world-space stripes through the complete tree.
-                vec3 spruceBark = texture2D(
-                    uDecorSpruceBarkTexture,
-                    vDecorUv * vec2(1.35, 1.0)
-                ).rgb;
-                diffuseColor.rgb = spruceBark * vec3(0.72, 0.68, 0.62);
-                float barkLuminance = dot(spruceBark, vec3(0.2126, 0.7152, 0.0722));
-                dBumpH = barkLuminance * 0.34;
+                // Packed per vertex: integer part selects spruce/pine/birch, the
+                // fraction is normalized height through the complete tree.
+                // Unlike cylinder UVs this never restarts at branch joints.
+                float barkProfile = floor(vDecorSpruceBark + 0.001);
+                float treeHeight = fract(vDecorSpruceBark);
+                vec3 barkP = vDecorWorldPos * 6.5;
+                float broad = (
+                    decorFbm(barkP.xy + vec2(1.7, 5.1))
+                    + decorFbm(barkP.yz + vec2(8.3, 2.4))
+                    + decorFbm(barkP.zx + vec2(4.6, 9.2))
+                ) / 3.0;
+                vec3 detailP = vDecorWorldPos * 22.0 + vec3(2.3, 6.7, 10.1);
+                float detail = (
+                    decorFbm(detailP.xy)
+                    + decorFbm(detailP.yz)
+                    + decorFbm(detailP.zx)
+                ) / 3.0;
+                float scab = smoothstep(0.58, 0.74, detail)
+                    * smoothstep(0.40, 0.62, broad);
+
+                // These are linear-light values. Keep them deliberately well
+                // above black: the forest key light and canopy shadow still
+                // darken the final material substantially at gameplay scale.
+                vec3 spruceRoot = vec3(0.15, 0.16, 0.17);
+                vec3 spruceTop = vec3(0.38, 0.235, 0.145);
+                vec3 pineRoot = vec3(0.15, 0.16, 0.17);
+                vec3 pineTop = vec3(0.38, 0.235, 0.145);
+                if (barkProfile > 2.5) {
+                    // BIRCH: a rough charcoal-grey foot gives way to warm,
+                    // weathered ivory. Dark lenticels are irregular patches,
+                    // never pure black stripes or a paper-white base.
+                    float ivoryAmount = smoothstep(0.10, 0.42, treeHeight);
+                    vec3 rootBark = vec3(0.13, 0.145, 0.15);
+                    vec3 ivoryBark = vec3(0.68, 0.64, 0.54);
+                    vec3 birch = mix(rootBark, ivoryBark, ivoryAmount);
+                    birch *= 0.88 + broad * 0.22 + detail * 0.08;
+
+                    float trunkAngle = atan(vDecorWorldPos.z, vDecorWorldPos.x + 0.0008);
+                    float barkY = vDecorWorldPos.y;
+
+                    // Cylinder U runs around the branch. Build thin horizontal
+                    // bands in world Y, then tear each band apart across U.
+                    // Edge noise changes both sides independently, so these
+                    // are ragged bark scars rather than stamped ellipses.
+                    float barkU = fract(vDecorUv.x);
+                    float coarseTear = decorFbm(vec2(barkU * 3.1, barkY * 1.35) + vec2(8.4, 21.7));
+                    float fineTear = decorNoise(vec2(barkU * 11.0, barkY * 4.2) + vec2(37.2, 5.9));
+                    float rowCoord = barkY * 7.2 + (coarseTear - 0.5) * 0.82 + (fineTear - 0.5) * 0.22;
+                    float row = floor(rowCoord);
+                    float rowDistance = abs(fract(rowCoord) - 0.5);
+                    float raggedHalfHeight = 0.045 + coarseTear * 0.060 + fineTear * 0.022;
+                    float crossScar = 1.0 - smoothstep(
+                        raggedHalfHeight,
+                        raggedHalfHeight + 0.050,
+                        rowDistance
+                    );
+
+                    // Coarse breakup gives long sideways fragments, while
+                    // fine breakup bites holes from their edges. The low
+                    // threshold keeps a visible scar on most rows.
+                    float rowHash = decorNoise(vec2(row * 0.73, 61.4));
+                    float lengthField = decorFbm(vec2(barkU * 1.65 + rowHash * 2.0, row * 0.31) + 14.6);
+                    float biteField = decorNoise(vec2(barkU * 8.5, row * 1.7) + 43.1);
+                    float tornPlate = crossScar
+                        * smoothstep(0.40, 0.57, lengthField)
+                        * smoothstep(0.31, 0.51, biteField);
+
+                    float peeledRim = crossScar
+                        * smoothstep(0.31, 0.46, lengthField)
+                        * (1.0 - smoothstep(0.47, 0.61, lengthField));
+                    float lenticels = tornPlate * smoothstep(0.08, 0.22, treeHeight);
+                    float rootCrust = (1.0 - smoothstep(0.08, 0.34, treeHeight))
+                        * smoothstep(0.48, 0.68, detail);
+                    vec3 marking = vec3(0.035, 0.040, 0.038);
+                    birch = mix(birch, marking, lenticels);
+                    birch = mix(birch, ivoryBark * 1.08, peeledRim * 0.34 * ivoryAmount);
+                    birch = mix(birch, rootBark * 0.72, rootCrust * 0.72);
+                    diffuseColor.rgb = birch;
+                    dBumpH = broad * 0.08 + detail * 0.10
+                        + lenticels * 0.20 - peeledRim * 0.10 + rootCrust * 0.18;
+                } else {
+                    vec3 rootColor = barkProfile > 1.5 ? pineRoot : spruceRoot;
+                    vec3 topColor = barkProfile > 1.5 ? pineTop : spruceTop;
+                    float gradient = smoothstep(0.02, 0.92, treeHeight);
+                    vec3 bark = mix(rootColor, topColor, gradient);
+                    bark *= 0.90 + broad * 0.30 + detail * 0.12;
+                    bark = mix(bark, bark * vec3(0.68, 0.70, 0.68), scab * 0.34);
+                    diffuseColor.rgb = bark;
+                    dBumpH = broad * 0.09 + detail * 0.11 + scab * 0.09;
+                }
             } else {
             // BARK and dead wood. Three equally weighted projections make
             // an isotropic 3D-looking field: no axis is privileged, so the
@@ -935,11 +1019,6 @@ export function setDecorationCanopyTexture(model: any, texture: DeciduousCanopyT
                 material.userData.canopyTextureEnabledUniform.value = 1;
             }
             if (material?.userData?.canopyTextureValueUniform) material.userData.canopyTextureValueUniform.value = textureValue;
-            if (material?.userData?.spruceBarkTextureEnabledUniform) {
-                // The Gran preset owns both authored spruce textures. Other
-                // tree presets keep the existing procedural bark.
-                material.userData.spruceBarkTextureEnabledUniform.value = texture === 'spruce-2x2' ? 1 : 0;
-            }
         }
     });
 }
@@ -1049,7 +1128,6 @@ function applyOrganicDetail(material: any): void {
     material.userData.leafScaleUniform = { value: 0.60 };
     material.userData.canopyTextureEnabledUniform = { value: 0 };
     material.userData.canopyTextureValueUniform = { value: CANOPY_TEXTURE_VALUE.maple };
-    material.userData.spruceBarkTextureEnabledUniform = { value: 0 };
     // In-game authored spruce trial values. The workbench replaces these
     // uniforms with its selected preset after building its standalone tree.
     material.userData.canopyTextureAlphaThresholdUniform = { value: 0.38 };
@@ -1070,8 +1148,6 @@ function applyOrganicDetail(material: any): void {
         shader.uniforms.uDecorRowanCanopyTexture = { value: getCanopyTexture('rowan') };
         shader.uniforms.uDecorCanopyTextureEnabled = material.userData.canopyTextureEnabledUniform;
         shader.uniforms.uDecorCanopyTextureValue = material.userData.canopyTextureValueUniform;
-        shader.uniforms.uDecorSpruceBarkTexture = { value: getSpruceBarkTexture() };
-        shader.uniforms.uDecorSpruceBarkTextureEnabled = material.userData.spruceBarkTextureEnabledUniform;
         shader.uniforms.uDecorCanopyTextureAlphaThreshold = material.userData.canopyTextureAlphaThresholdUniform;
         shader.uniforms.uDecorCanopyTextureEdgeFade = material.userData.canopyTextureEdgeFadeUniform;
         shader.uniforms.uDecorLeafGloss = material.userData.leafGlossUniform;
@@ -1345,8 +1421,6 @@ const CANOPY_TEXTURE_URLS: Record<DeciduousCanopyTexture, string> = {
     maple2: new URL('../../../maple2.png', import.meta.url).href,
 };
 const canopyTextures = new Map<DeciduousCanopyTexture, any>();
-let spruceBarkTexture: any = null;
-const SPRUCE_BARK_TEXTURE_URL = new URL('../../../granbark.png', import.meta.url).href;
 
 function getCanopyTexture(texture: DeciduousCanopyTexture): any {
     let loaded = canopyTextures.get(texture);
@@ -1359,17 +1433,6 @@ function getCanopyTexture(texture: DeciduousCanopyTexture): any {
         canopyTextures.set(texture, loaded);
     }
     return loaded;
-}
-
-function getSpruceBarkTexture(): any {
-    if (!spruceBarkTexture) {
-        spruceBarkTexture = new THREE.TextureLoader().load(SPRUCE_BARK_TEXTURE_URL);
-        spruceBarkTexture.colorSpace = THREE.SRGBColorSpace;
-        spruceBarkTexture.wrapS = THREE.RepeatWrapping;
-        spruceBarkTexture.wrapT = THREE.RepeatWrapping;
-        spruceBarkTexture.anisotropy = 8;
-    }
-    return spruceBarkTexture;
 }
 
 function removeDomeBottom(geometry: any, radius: number, seed: number): any {
@@ -1662,6 +1725,8 @@ export interface DeciduousTreeParameters {
         depthFromTip: number;
         /** Internal packed profile used by batched in-game trees. */
         colorProfile?: number;
+        /** Internal procedural bark profile; 3 is birch. */
+        barkProfile?: number;
     };
 }
 
@@ -2065,7 +2130,13 @@ function makeDeciduous(
         child.userData.decorCanopyEdgeFade = resolvedParameters.canopy.textureEdgeFade;
         child.userData.decorCanopyShape = resolvedParameters.canopy.shape;
         child.userData.decorCanopyColorProfile = resolvedParameters.canopy.colorProfile ?? 0;
-        if (resolvedParameters.canopy.texture === 'spruce-2x2') child.userData.decorSpruceBark = 1;
+        if (resolvedParameters.canopy.texture === 'spruce-2x2') {
+            // Color profile 2 is pine; profile 0 is spruce. The merge pass
+            // adds normalized tree height to this integer profile id.
+            child.userData.decorSpruceBark = resolvedParameters.canopy.colorProfile === 2 ? 2 : 1;
+        } else if (resolvedParameters.canopy.barkProfile) {
+            child.userData.decorSpruceBark = resolvedParameters.canopy.barkProfile;
+        }
     });
     return tree;
 }
@@ -2122,6 +2193,7 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
             hue: Math.max(-Math.PI, Math.min(Math.PI, canopyOverrides.hue ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.hue)),
             depthFromTip: Math.max(0, Math.min(4, Math.round(canopyOverrides.depthFromTip ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.depthFromTip))),
             colorProfile: Math.max(0, Math.round(canopyOverrides.colorProfile ?? 0)),
+            barkProfile: Math.max(0, Math.round(canopyOverrides.barkProfile ?? 0)),
         },
     };
     const rng = variantRng('deciduous', 4);
@@ -2154,23 +2226,40 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
 const BUSH_SCALE = 1.35;
 const BUSH_GROUND_SINK = 0.04;
 
-// Bush: 1-3 low blobs, no trunk.
+// Bush: 1-3 low copies of the broadleaf tree's actual textured crown, no
+// trunk. Keeping the canopy metadata on each cluster makes the later tile
+// merge use the same Maple texture, alpha cutoff and dome edge fade as the
+// approved broadleaf preset instead of falling back to procedural blobs.
 function makeBush(rng: () => number): any {
     const bush = new THREE.Group();
-    const blobs = 1 + Math.floor(rng() * 3);
-    for (let i = 0; i < blobs; i++) {
-        const radius = 0.13 + rng() * 0.10;
+    const canopy = BROADLEAF_TREE_PARAMETERS.canopy;
+    const clusters = 1 + Math.floor(rng() * 3);
+    for (let i = 0; i < clusters; i++) {
+        const radius = (0.13 + rng() * 0.10) * canopy.widthScale;
         const bushSeed = Math.floor(radius * 8192);
-        const blob = addMesh(
+        const before = bush.children.length;
+        addCluster(
             bush,
-            roughen(new THREE.IcosahedronGeometry(radius, 1), bushSeed + i, radius * 0.38),
+            rng,
+            new THREE.Vector3(
+                (rng() - 0.5) * 0.2,
+                radius * 0.55,
+                (rng() - 0.5) * 0.2,
+            ),
+            radius,
             vary(lerpHex(0x33512a, 0x567336, seedT(bushSeed * 97)), rng, 0.22),
-            (rng() - 0.5) * 0.2,
-            radius * 0.7,
-            (rng() - 0.5) * 0.2,
-            2
+            bushSeed + i,
+            canopy.shape,
+            canopy.heightScale / canopy.widthScale,
+            1,
         );
-        addFringe(bush, blob);
+        const cluster = bush.children[before];
+        cluster.userData.decorAuthored = 1;
+        cluster.userData.decorCanopyTexture = canopy.texture;
+        cluster.userData.decorCanopyAlphaThreshold = canopy.textureAlphaThreshold;
+        cluster.userData.decorCanopyEdgeFade = canopy.textureEdgeFade;
+        cluster.userData.decorCanopyShape = canopy.shape;
+        cluster.userData.decorCanopyColorProfile = canopy.colorProfile ?? 0;
     }
     bush.scale.setScalar(BUSH_SCALE);
     return bush;
@@ -2570,6 +2659,7 @@ function mergeDecorations(group: any): any | null {
     const vertex = new THREE.Vector3();
     const treeOrigin = new THREE.Vector3();
     const clusterCenter = new THREE.Vector3();
+    const treeWorldBox = new THREE.Box3();
     let vOffset = 0;
     let iOffset = 0;
 
@@ -2600,6 +2690,7 @@ function mergeDecorations(group: any): any | null {
         const canopyTintValue = mesh.userData.decorCanopyTint ?? [1, 1, 1];
         treeOrigin.set(0, 0, 0).applyMatrix4(mesh.parent.matrixWorld);
         clusterCenter.set(0, 0, 0).applyMatrix4(matrix);
+        treeWorldBox.setFromObject(mesh.parent);
         const grayHint = mesh.userData.decorGrayHint ?? 0;
         const cr = c.r + (FOLIAGE_DARK_GRAY.r - c.r) * grayHint;
         const cg = c.g + (FOLIAGE_DARK_GRAY.g - c.g) * grayHint;
@@ -2617,6 +2708,7 @@ function mergeDecorations(group: any): any | null {
             position[(vOffset + i) * 3] = vertex.x;
             position[(vOffset + i) * 3 + 1] = vertex.y;
             position[(vOffset + i) * 3 + 2] = vertex.z;
+            const worldVertexY = vertex.y;
 
             if (srcNormal) {
                 vertex.set(srcNormal.getX(i), srcNormal.getY(i), srcNormal.getZ(i))
@@ -2631,7 +2723,11 @@ function mergeDecorations(group: any): any | null {
             }
             boundary[vOffset + i] = srcBoundary ? srcBoundary.getX(i) : 1;
             authored[vOffset + i] = authoredWeight;
-            spruceBark[vOffset + i] = spruceBarkWeight;
+            const normalizedTreeHeight = spruceBarkWeight > 0
+                ? Math.max(0.001, Math.min(0.999,
+                    (worldVertexY - treeWorldBox.min.y) / Math.max(treeWorldBox.max.y - treeWorldBox.min.y, 0.001)))
+                : 0;
+            spruceBark[vOffset + i] = spruceBarkWeight + normalizedTreeHeight;
             canopyTexture[vOffset + i] = canopyTextureWeight;
             canopyAlphaThreshold[vOffset + i] = canopyAlphaThresholdValue;
             canopyEdgeFade[vOffset + i] = canopyEdgeFadeValue;

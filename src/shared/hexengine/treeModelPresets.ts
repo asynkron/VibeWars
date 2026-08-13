@@ -116,6 +116,18 @@ export const BROADLEAF_TREE_THIRD_PARAMETERS: DeciduousTreeParameters = {
     },
 };
 
+// Explicit workbench definition for the birch population. Its crown starts
+// from the bright broadleaf recipe, while barkProfile selects the dedicated
+// charcoal-to-ivory spotted procedural bark independently of crown color.
+export const BIRCH_TREE_PARAMETERS: DeciduousTreeParameters = {
+    branches: { ...BROADLEAF_TREE_THIRD_PARAMETERS.branches },
+    trunk: { ...BROADLEAF_TREE_THIRD_PARAMETERS.trunk },
+    canopy: {
+        ...BROADLEAF_TREE_THIRD_PARAMETERS.canopy,
+        barkProfile: 3,
+    },
+};
+
 export const SPRUCE_TREE_PARAMETERS: DeciduousTreeParameters = {
     branches: {
         countPerFork: 4,
@@ -136,7 +148,7 @@ export const SPRUCE_TREE_PARAMETERS: DeciduousTreeParameters = {
     canopy: {
         shape: 'cone',
         texture: 'spruce-2x2',
-        textureAlphaThreshold: 0.20,
+        textureAlphaThreshold: 0.25,
         textureEdgeFade: 0.67,
         widthScale: 2.95,
         widthRatioPerTrunkLevel: 0.95,
@@ -182,7 +194,7 @@ export const PINE_TREE_PARAMETERS: DeciduousTreeParameters = {
         innerOpacity: 1,
         brightness: 1.88,
         contrast: 1.05,
-        saturation: 0.64,
+        saturation: 0.40,
         hue: -62 * Math.PI / 180,
         depthFromTip: 0,
         colorProfile: 2,
