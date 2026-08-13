@@ -158,7 +158,7 @@ export const SPRUCE_TREE_PARAMETERS: DeciduousTreeParameters = {
         innerOpacity: 1,
         brightness: 1,
         contrast: 1,
-        saturation: 1,
+        saturation: 1.10,
         hue: 0,
         depthFromTip: 0,
     },

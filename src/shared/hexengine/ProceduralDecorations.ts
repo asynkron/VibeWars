@@ -930,20 +930,19 @@ const DECOR_LEAF_GLINT_FRAGMENT = /* glsl */ `
         float sunBoost = 1.0 + leafLightMask * uDecorLeafGloss * leafSunWash * 0.48;
         float ambientShade = mix(0.58, 0.90, leafSunWash);
         float ambientFactor = mix(1.0, ambientShade, leafLightMask * uDecorLeafGloss);
-        // Spruce and pine share the same source photograph, but pine carries
-        // color profile 2 while spruce keeps profile 0. Lift only the already
-        // sun-facing spruce fragments: this expands its highlight range
-        // without raising the whole conifer canopy or touching pine/broadleaf
-        // foliage. The reference highlight is about 1.8x the rendered one;
-        // direct light gets that contrast while ambient shade stays intact.
-        float spruceMask = leafLightMask
-            * (1.0 - step(1.5, vDecorCanopyTexture))
-            * (1.0 - step(0.5, vDecorCanopyColorProfile));
-        float spruceHighlight = smoothstep(0.38, 0.86, leafSunFacing);
-        float spruceHighlightBoost = spruceMask * spruceHighlight;
+        // Start every textured crown from the measured spruce curve, but keep
+        // broadleaf canopies and bushes restrained: their larger, rounder
+        // surfaces expose much more area to the sun than conifer tiers do.
+        float crownHighlight = leafLightMask
+            * smoothstep(0.38, 0.86, leafSunFacing);
+        float coniferMask = 1.0 - step(1.5, vDecorCanopyTexture);
+        float crownHighlightStrength = mix(0.26, 0.72, coniferMask);
+        float crownShadow = leafLightMask * (1.0 - leafSunWash);
         reflectedLight.directDiffuse *= sunBoost;
-        reflectedLight.directDiffuse *= 1.0 + spruceHighlightBoost * 0.82;
-        reflectedLight.indirectDiffuse *= ambientFactor;
+        reflectedLight.directDiffuse *= 1.0
+            + crownHighlight * crownHighlightStrength;
+        reflectedLight.indirectDiffuse *= ambientFactor
+            * (1.0 - crownShadow * 0.10);
     #endif
 `;
 
@@ -1229,7 +1228,7 @@ function applyOrganicDetail(material: any): void {
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v14';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v20';
 }
 
 function mat(color: number, kind: number = 0) {
