@@ -137,6 +137,19 @@ function addTreeCanopyTint(tree: any, q: number, r: number, treeIndex: number): 
     });
 }
 
+// Most forest conifers keep their mature placement scale. One in five is a
+// uniformly scaled younger tree, ranging from sapling-sized to almost mature.
+// Hashing the tile and slot keeps the population stable without consuming the
+// decoration RNG stream or requiring additional model variants.
+function forestTreeScale(tree: any, q: number, r: number, treeIndex: number, adultScale: number): number {
+    if (tree.userData?.decorationTreeKind !== 'spruce') return adultScale;
+    const seed = Math.imul(q + 419, 73856093)
+        ^ Math.imul(r + 541, 19349663)
+        ^ Math.imul(treeIndex + 659, 83492791);
+    if (seedT(seed) >= 0.20) return adultScale;
+    return 0.35 + seedT(seed ^ 0x51f2d3a7) * (adultScale - 0.35);
+}
+
 // Irregularize a primitive: displace every vertex by a hash of its
 // QUANTIZED POSITION (plus a per-mesh seed). Position-keyed on purpose,
 // twice over: duplicated vertices (polyhedron soups, cone seams) share a
@@ -2743,7 +2756,7 @@ export function createProceduralDecoration(
                 const tree = roll < 0.10 ? pick('deadTree', makeDeadTree, rng)
                     : roll < 0.68 ? pickTree('conifer', rng) : pickTree('deciduous', rng);
                 addTreeCanopyTint(tree, q, r, i);
-                const s = 0.8 + rng() * 0.35;
+                const s = forestTreeScale(tree, q, r, i, 0.8 + rng() * 0.35);
                 tree.scale.set(s, s, s);
                 place(group, rng, tree, fitDeciduousTreeScatter(tree, 0.55));
             }
