@@ -19,12 +19,11 @@ import { viewOptions } from './ViewOptions';
 // NOTHING ELSE DEPENDS ON THIS. It reads the tiles once and adds one mesh;
 // it can be switched off or deleted without the terrain noticing.
 
-// Blades per tile. The honest lever on cost: three triangles each. 250 was
-// not turf -- the blades were countable, and a field you can count reads as
-// scattered debris rather than grass. Down again from 480 once the blades
-// grew tall enough to read from the play camera: each one covers far more
-// ground now, and the draw range below reaches most of the board.
-const BLADES_PER_TILE = 320;
+// The procedural ground shader already carries the turf mass at gameplay
+// distance. These blades contribute close silhouette and motion, so 180
+// broad/tall instances retain that role without spending 960 triangles per
+// tile on detail that resolves below a pixel from the ordinary camera.
+const BLADES_PER_TILE = 180;
 
 // Blades are planted inside this fraction of the hex radius. Short of the
 // rim on purpose -- that is where tiles meet and where smoothHexTile has
@@ -80,11 +79,10 @@ const BLADE_BRIGHTEN = 1.9;
 const FADE_START = 30;
 const FADE_END = 40;
 
-// Side of the square blocks the field is cut into, in world units. About
-// three hexes across: small enough that most of the map falls outside the
-// frustum and is never submitted, large enough that the whole field is a
-// dozen-odd draw calls rather than one per tile.
-const CHUNK_SIZE = 2.5;
+// About three tile centres across. The old 2.5-unit chunks were often just
+// one tile and turned the grass field into hundreds of submissions. Five
+// units retains useful frustum/distance culling while grouping nearby turf.
+const CHUNK_SIZE = 5;
 
 // The narrowest a blade is allowed to get ON SCREEN, in pixels.
 //

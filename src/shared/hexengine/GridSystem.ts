@@ -11,6 +11,7 @@ import { applyProceduralGround, applyWaterSurface } from './TerrainShader';
 import { WATER_TIME_SCALE } from './WaterWaveShader';
 import { createProceduralDecoration } from './ProceduralDecorations';
 import { TerrainChunkSystem } from './TerrainChunkSystem';
+import { RoadChunkSystem } from './RoadChunkSystem';
 import { DecorationChunkSystem } from './DecorationChunkSystem';
 import { markShadowsDirty } from './ShadowBudget';
 import { addColorVariation, getVertexOffsets } from './utils';
@@ -24,7 +25,6 @@ class GridSystem {
     static textureLoader = new THREE.TextureLoader();
     static textures: Record<string, any> = {}; // Cache for loaded textures
     static materialCache = new Map(); // Cache for materials
-    static miniHexGeometry: any = null; // Shared geometry for minimap hexes
 
     static getOption(key: string) {
         const engine = typeof window !== 'undefined' ? window.HEX_ENGINE : null;
@@ -393,41 +393,58 @@ class GridSystem {
         }
     }
 
-    // Creates the mini map hex using shared geometry
-    static createMiniHex(color: number | string, x: number, z: number) {
-        const miniHexGroup = new THREE.Group();
-        if (!this.miniHexGeometry) {
-            const vertices: any[] = [];
-            const indices: any[] = [];
+    // The minimap is one vertex-coloured mesh. Its old representation was
+    // one group + material + mesh per tile, making a 30x30 map submit 900
+    // draws again in the minimap pass after the main terrain had been
+    // carefully chunked.
+    static createMiniMapTerrain(tiles: Array<{ color: number | string; x: number; z: number }>) {
+        const previous = miniMapScene.getObjectByName('miniMapTerrain');
+        if (previous) {
+            miniMapScene.remove(previous);
+            (previous as any).geometry?.dispose?.();
+            (previous as any).material?.dispose?.();
+        }
+        const positions: number[] = [];
+        const colors: number[] = [];
+        const indices: number[] = [];
+        const color = new THREE.Color();
+        const radius = MAP_CONFIG.HEX_RADIUS * 0.8;
+
+        for (const tile of tiles) {
+            const offset = positions.length / 3;
+            color.set(tile.color).multiplyScalar(1.5);
             for (let i = 0; i < 6; i++) {
                 const angle = (i * Math.PI) / 3;
-                vertices.push(
-                    Math.cos(angle) * MAP_CONFIG.HEX_RADIUS * 0.8,
+                positions.push(
+                    tile.x + Math.cos(angle) * radius,
                     0,
-                    Math.sin(angle) * MAP_CONFIG.HEX_RADIUS * 0.8
+                    tile.z + Math.sin(angle) * radius,
                 );
+                colors.push(color.r, color.g, color.b);
             }
-            vertices.push(0, 0, 0);
+            positions.push(tile.x, 0, tile.z);
+            colors.push(color.r, color.g, color.b);
             for (let i = 0; i < 6; i++) {
-                indices.push(6, i, (i + 1) % 6);
+                indices.push(offset + 6, offset + i, offset + ((i + 1) % 6));
             }
-            this.miniHexGeometry = new THREE.BufferGeometry();
-            this.miniHexGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-            this.miniHexGeometry.setIndex(indices);
         }
-        const glowColor = new THREE.Color(color).multiplyScalar(1.5);
-        const mainMaterial = new THREE.MeshBasicMaterial({
-            color: glowColor,
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        geometry.setIndex(indices);
+        geometry.computeBoundingSphere();
+        const material = new THREE.MeshBasicMaterial({
+            vertexColors: true,
             transparent: true,
             opacity: 0.6,
             side: THREE.DoubleSide,
             depthWrite: false,
             depthTest: false,
         });
-        const mainHex = new THREE.Mesh(this.miniHexGeometry, mainMaterial);
-        mainHex.position.set(x, 0, z);
-        miniHexGroup.add(mainHex);
-        return miniHexGroup;
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = 'miniMapTerrain';
+        miniMapScene.add(mesh);
     }
 
     // ---------------------------
@@ -443,6 +460,7 @@ class GridSystem {
         const mapCenterZ = (MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3)) / 2;
 
         const mapData = mapSource?.map ? mapSource.map : mapSource;
+        const miniMapTiles: Array<{ color: number | string; x: number; z: number }> = [];
 
         for (let q = 0; q < MAP_CONFIG.COLS; q++) {
             for (let r = 0; r < MAP_CONFIG.ROWS; r++) {
@@ -465,11 +483,11 @@ class GridSystem {
                     });
                     group.add(hex);
                     this.addHex(hex);
-                    const miniHex = this.createMiniHex(color, x, z);
-                    miniMapScene.add(miniHex);
+                    miniMapTiles.push({ color, x, z });
                 }
             }
         }
+        this.createMiniMapTerrain(miniMapTiles);
 
         return { mapCenterX, mapCenterZ, mapReady: true };
     }
@@ -768,6 +786,7 @@ class GridSystem {
         if (tile?.hasRoad) {
             RoadSystem.removeRoadsAt(q, r);
             RoadSystem.createRoad(hexGroup);
+            RoadChunkSystem.tileGeometryChanged(q, r);
         }
     }
 
@@ -775,6 +794,8 @@ class GridSystem {
         this.hexGrid.forEach((hexGroup: any) => this.smoothHexTile(hexGroup));
         this.smoothTileNormals();
         TerrainChunkSystem.rebuildAll(group, this.hexGrid);
+        const roads = group.getObjectByName('roads');
+        if (roads) RoadChunkSystem.rebuildAll(roads);
     }
 
     // Each top corner is shared by three hexes. Give all three copies the
@@ -1011,6 +1032,7 @@ class GridSystem {
     static clear() {
         TerrainChunkSystem.dispose();
         DecorationChunkSystem.dispose();
+        RoadChunkSystem.dispose();
         this.hexGrid.length = 0;
     }
 }

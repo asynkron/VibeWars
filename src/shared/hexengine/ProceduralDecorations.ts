@@ -113,6 +113,28 @@ function addFoliageGrayHint(tree: any, amount: number, foliageKind: number): voi
     });
 }
 
+// Deterministic per-tree tint, baked into the merged vertex stream. No
+// placement RNG is consumed and differently coloured neighbours still share
+// one material and one draw call.
+function addTreeCanopyTint(tree: any, q: number, r: number, treeIndex: number): void {
+    const seed = Math.imul(q + 101, 73856093)
+        ^ Math.imul(r + 211, 19349663)
+        ^ Math.imul(treeIndex + 307, 83492791);
+    const warmth = seedT(seed) * 2 - 1;
+    const lightness = 0.91 + seedT(seed ^ 0x68bc21eb) * 0.18;
+    const greenShift = 0.96 + seedT(seed ^ 0x02e5be93) * 0.08;
+    const tint = [
+        lightness * (1 + warmth * 0.10),
+        lightness * greenShift,
+        lightness * (1 - warmth * 0.10),
+    ];
+    tree.traverse((child: any) => {
+        if (!child.isMesh) return;
+        const kind = child.userData?.decorKind;
+        if (kind === 2 || kind === 3) child.userData.decorCanopyTint = tint;
+    });
+}
+
 // Irregularize a primitive: displace every vertex by a hash of its
 // QUANTIZED POSITION (plus a per-mesh seed). Position-keyed on purpose,
 // twice over: duplicated vertices (polyhedron soups, cone seams) share a
@@ -361,6 +383,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     varying float vDecorCanopyTexture;
     varying float vDecorCanopyAlphaThreshold;
     varying float vDecorCanopyEdgeFade;
+    varying vec3 vDecorCanopyTint;
 
     // The baked dot fields, and the cell-to-texture scale that indexes
     // them. Kept in step with LEAF_CELLS on the JS side by construction --
@@ -456,7 +479,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
         // The source is a very dark forest photograph. Lift its midtones
         // while retaining the authored branch and needle contrast.
         vec3 liftedPaint = min(vec3(1.0), pow(max(paint, vec3(0.002)), vec3(0.68)) * 1.28);
-        return vec4(liftedPaint, paintedAlpha * boundaryFade);
+        return vec4(liftedPaint * vDecorCanopyTint, paintedAlpha * boundaryFade);
     }
 
     // Cellular noise, the terrain groundVoronoi's construction on the
@@ -987,6 +1010,19 @@ function applyOrganicDetail(material: any): void {
                 // them the merged tile-local position instead would rescale
                 // every pattern on the map.
                 '#include <begin_vertex>\n' + DECOR_WIND_VERTEX + '\n vDecorWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n vDecorLocalPos = aDecorLocal;\n vDecorUv = aDecorTexUv;\n vDecorBoundary = aDecorBoundary;\n vDecorAuthored = aDecorAuthored;\n vDecorSpruceBark = aDecorSpruceBark;\n vDecorCanopyTexture = aDecorAuthored > 0.5 ? aDecorCanopyTexture : uDecorCanopyTextureValue;\n vDecorCanopyAlphaThreshold = aDecorAuthored > 0.5 ? aDecorCanopyAlphaThreshold : uDecorCanopyTextureAlphaThreshold;\n vDecorCanopyEdgeFade = aDecorAuthored > 0.5 ? aDecorCanopyEdgeFade : uDecorCanopyTextureEdgeFade;\n vDecorKind = aDecorKind;'
+            );
+        shader.vertexShader = shader.vertexShader
+            .replace(
+                'varying float vDecorKind;',
+                'varying vec3 vDecorCanopyTint;\n varying float vDecorKind;',
+            )
+            .replace(
+                'attribute float aDecorKind;',
+                'attribute vec3 aDecorCanopyTint;\n attribute float aDecorKind;',
+            )
+            .replace(
+                'vDecorKind = aDecorKind;',
+                'vDecorCanopyTint = aDecorCanopyTint;\n vDecorKind = aDecorKind;',
             );
         shader.fragmentShader = shader.fragmentShader
             // dBumpH is written by the color pass and read by the bump
@@ -2381,6 +2417,7 @@ function mergeDecorations(group: any): any | null {
     const canopyTexture = new Float32Array(vertices);
     const canopyAlphaThreshold = new Float32Array(vertices);
     const canopyEdgeFade = new Float32Array(vertices);
+    const canopyTint = new Float32Array(vertices * 3);
     const color = new Float32Array(vertices * 3);
     const kind = new Float32Array(vertices);
     const wind = new Float32Array(vertices);
@@ -2415,6 +2452,7 @@ function mergeDecorations(group: any): any | null {
         const canopyTextureWeight = CANOPY_TEXTURE_VALUE[mesh.userData.decorCanopyTexture as DeciduousCanopyTexture] ?? 0;
         const canopyAlphaThresholdValue = mesh.userData.decorCanopyAlphaThreshold ?? 0.38;
         const canopyEdgeFadeValue = mesh.userData.decorCanopyEdgeFade ?? 0.14;
+        const canopyTintValue = mesh.userData.decorCanopyTint ?? [1, 1, 1];
         treeOrigin.set(0, 0, 0).applyMatrix4(mesh.parent.matrixWorld);
         clusterCenter.set(0, 0, 0).applyMatrix4(matrix);
         const grayHint = mesh.userData.decorGrayHint ?? 0;
@@ -2452,6 +2490,9 @@ function mergeDecorations(group: any): any | null {
             canopyTexture[vOffset + i] = canopyTextureWeight;
             canopyAlphaThreshold[vOffset + i] = canopyAlphaThresholdValue;
             canopyEdgeFade[vOffset + i] = canopyEdgeFadeValue;
+            canopyTint[(vOffset + i) * 3] = canopyTintValue[0];
+            canopyTint[(vOffset + i) * 3 + 1] = canopyTintValue[1];
+            canopyTint[(vOffset + i) * 3 + 2] = canopyTintValue[2];
 
             color[(vOffset + i) * 3] = cr;
             color[(vOffset + i) * 3 + 1] = cg;
@@ -2488,6 +2529,7 @@ function mergeDecorations(group: any): any | null {
     merged.setAttribute('aDecorCanopyTexture', new THREE.BufferAttribute(canopyTexture, 1));
     merged.setAttribute('aDecorCanopyAlphaThreshold', new THREE.BufferAttribute(canopyAlphaThreshold, 1));
     merged.setAttribute('aDecorCanopyEdgeFade', new THREE.BufferAttribute(canopyEdgeFade, 1));
+    merged.setAttribute('aDecorCanopyTint', new THREE.BufferAttribute(canopyTint, 3));
     merged.setAttribute('color', new THREE.BufferAttribute(color, 3));
     merged.setAttribute('aDecorKind', new THREE.BufferAttribute(kind, 1));
     merged.setAttribute('aDecorWind', new THREE.BufferAttribute(wind, 1));
@@ -2568,6 +2610,7 @@ export function createProceduralDecoration(
                 const roll = rng();
                 const tree = roll < 0.10 ? pick('deadTree', makeDeadTree, rng)
                     : roll < 0.68 ? pickTree('conifer', rng) : pickTree('deciduous', rng);
+                addTreeCanopyTint(tree, q, r, i);
                 const s = 0.8 + rng() * 0.35;
                 tree.scale.set(s, s, s);
                 place(group, rng, tree, fitDeciduousTreeScatter(tree, 0.55));
@@ -2589,6 +2632,7 @@ export function createProceduralDecoration(
             } else if (roll < 0.45) {
                 // A lone deciduous tree.
                 const tree = pickTree('deciduous', rng);
+                addTreeCanopyTint(tree, q, r, 0);
                 place(group, rng, tree, fitDeciduousTreeScatter(tree, 0.4));
             } else if (roll < 0.52) {
                 // A lone dead tree or a fallen log on open ground.
@@ -2628,6 +2672,7 @@ export function createProceduralDecoration(
             // Uncommon but possible: a lone small conifer on the mountain.
             if (rng() < 0.08) {
                 const pine = pickTree('conifer', rng);
+                addTreeCanopyTint(pine, q, r, 0);
                 const s = 0.45 + rng() * 0.2;
                 pine.scale.set(s, s, s);
                 place(group, rng, pine, 0.35);

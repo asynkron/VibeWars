@@ -45,6 +45,7 @@ const miniMapScene = new THREE.Scene();
 let cameraHeight = MAP_CONFIG.CAMERA.INITIAL_HEIGHT;
 let isRendererInitialized = false;
 let cameraTarget = new THREE.Vector3();
+let lastMiniMapCameraState: number[] = [];
 
 // cameraHeight is mutated by game.ts's wheel handler; expose it through
 // accessors instead of a raw exported binding so both files always read
@@ -409,12 +410,21 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
 
 // Update minimap highlights
 function updateMiniMapHighlights(highlightGroup: any, matrices: CameraMatrices) {
-    while (highlightGroup.children.length > 0) {
-        highlightGroup.remove(highlightGroup.children[0]);
-    }
-
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
+
+    // The visible footprint changes only with the main camera. Rebuilding
+    // arrays, geometry and GPU buffers sixty times a second while a
+    // turn-based board stands still was pure allocation churn.
+    const cameraState = [
+        ...camera.projectionMatrix.elements,
+        ...camera.matrixWorld.elements,
+    ];
+    if (
+        cameraState.length === lastMiniMapCameraState.length
+        && cameraState.every((value, i) => value === lastMiniMapCameraState[i])
+    ) return;
+    lastMiniMapCameraState = cameraState;
 
     const frustum = new THREE.Frustum();
     frustum.setFromProjectionMatrix(
@@ -427,20 +437,43 @@ function updateMiniMapHighlights(highlightGroup: any, matrices: CameraMatrices) 
         return frustum.containsPoint(worldPos);
     });
 
-    const highlightGeometry = new THREE.CircleGeometry(MAP_CONFIG.HEX_RADIUS * 1.5, 6);
-    const highlightMaterial = new THREE.MeshBasicMaterial({
-        color: HIGHLIGHT_COLORS.VISIBLE_AREA,
-        transparent: true,
-        opacity: 0.1,
-        side: THREE.DoubleSide
-    });
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const radius = MAP_CONFIG.HEX_RADIUS * 1.5;
+    for (const hex of visibleHexes) {
+        const offset = positions.length / 3;
+        positions.push(hex.userData.x, 0.6, hex.userData.z);
+        for (let i = 0; i < 6; i++) {
+            const angle = (i * Math.PI) / 3;
+            positions.push(
+                hex.userData.x + Math.cos(angle) * radius,
+                0.6,
+                hex.userData.z + Math.sin(angle) * radius,
+            );
+            indices.push(offset, offset + i + 1, offset + ((i + 1) % 6) + 1);
+        }
+    }
 
-    visibleHexes.forEach((hex: any) => {
-        const highlight = new THREE.Mesh(highlightGeometry, highlightMaterial);
-        highlight.position.set(hex.userData.x, 0.6, hex.userData.z);
-        highlight.rotation.x = -Math.PI / 2;
+    let highlight = highlightGroup.children[0] as any;
+    if (!highlight) {
+        highlight = new THREE.Mesh(
+            new THREE.BufferGeometry(),
+            new THREE.MeshBasicMaterial({
+                color: HIGHLIGHT_COLORS.VISIBLE_AREA,
+                transparent: true,
+                opacity: 0.1,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+            }),
+        );
         highlightGroup.add(highlight);
-    });
+    }
+    highlight.geometry.dispose();
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    geometry.computeBoundingSphere();
+    highlight.geometry = geometry;
 }
 
 export {

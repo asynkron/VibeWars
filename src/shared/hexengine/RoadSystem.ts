@@ -106,7 +106,10 @@ class RoadSystem {
                         depthWrite: true,
                         materialType: 'MeshStandardMaterial',  // Use standard material for lighting
                         receiveShadow: true,  // Enable shadow receiving
-                        castShadow: true,  // Enable shadow casting
+                        // A coplanar decal has no volume to cast. Including
+                        // every road arm in a refreshed shadow map doubled
+                        // the same ground surface for no visible result.
+                        castShadow: false,
                         // A hint of sheen: packed, traffic-worn metalling
                         // reflects a little -- full matte read as dead
                         // against the textured terrain. The shader varies
@@ -129,8 +132,10 @@ class RoadSystem {
                 );
                 if (roadMesh) {
                     applyRoadSurface(roadMesh.material, rotation);
-                    // Ensure shadows are enabled on the mesh itself
-                    roadMesh.castShadow = true;
+                    roadMesh.userData.roadDirection = rotation;
+                    // It receives the terrain shadow but contributes no
+                    // duplicate decal surface to the shadow pass.
+                    roadMesh.castShadow = false;
                     roadMesh.receiveShadow = true;
                     roadGroup.add(roadMesh);
                 }
@@ -139,6 +144,9 @@ class RoadSystem {
 
         // Position the road group at the hex's world position
         roadGroup.position.copy(currentPos);
+        roadGroup.userData.isRoadSource = true;
+        roadGroup.userData.q = hex.userData.q;
+        roadGroup.userData.r = hex.userData.r;
 
         roads.add(roadGroup);
 

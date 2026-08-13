@@ -22,7 +22,7 @@ export const BROADLEAF_TREE_PARAMETERS: DeciduousTreeParameters = {
     canopy: {
         shape: 'dome',
         texture: 'maple',
-        textureAlphaThreshold: 0.24,
+        textureAlphaThreshold: 0.49,
         textureEdgeFade: 0.38,
         widthScale: 1.90,
         widthRatioPerTrunkLevel: 1,
@@ -88,7 +88,7 @@ export const SPRUCE_TREE_PARAMETERS: DeciduousTreeParameters = {
     canopy: {
         shape: 'cone',
         texture: 'spruce-2x2',
-        textureAlphaThreshold: 0.11,
+        textureAlphaThreshold: 0.20,
         textureEdgeFade: 0.67,
         widthScale: 2.95,
         widthRatioPerTrunkLevel: 0.95,

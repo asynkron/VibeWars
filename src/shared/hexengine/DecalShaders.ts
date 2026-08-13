@@ -160,6 +160,45 @@ export function applyRoadSurface(material: any, direction: number): void {
     material.customProgramCacheKey = () => 'road-surface';
 }
 
+// Chunked roads contain arms facing several directions in one geometry, so
+// direction cannot be a material uniform there. Every source arm writes the
+// same rotation to all of its vertices and this variant carries it through as
+// an interpolated attribute (constant over each arm's disconnected faces).
+export function applyChunkedRoadSurface(material: any): void {
+    material.onBeforeCompile = (shader: any) => {
+        shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
+        shader.uniforms.uShowTextures = VIEW_UNIFORMS.showTextures;
+
+        const vertexDecl = DECAL_VERTEX_DECL
+            + '\n attribute float aRoadDirection;\n attribute vec2 aRoadLocal;'
+            + '\n varying float vRoadDirection;';
+        const vertexBody = DECAL_VERTEX_BODY
+            + '\n vDecalLocal = aRoadLocal;\n vRoadDirection = aRoadDirection;';
+        const fragmentDecl = DECAL_FRAGMENT_DECL
+            .replace(' uniform float uDirection;\n', '')
+            + '\n varying float vRoadDirection;';
+        const roadFragment = ROAD_FRAGMENT.replace(/uDirection/g, 'vRoadDirection');
+        const roadRoughness = ROAD_ROUGHNESS.replace(/uDirection/g, 'vRoadDirection');
+
+        shader.vertexShader = shader.vertexShader
+            .replace('#include <common>', '#include <common>\n' + vertexDecl)
+            .replace('#include <begin_vertex>', '#include <begin_vertex>\n' + vertexBody);
+
+        shader.fragmentShader = shader.fragmentShader
+            .replace(
+                '#include <common>',
+                '#include <common>\n' + fragmentDecl + '\n' + NOISE_GLSL_BASE + PERTURB_GLSL + HEADING_GLSL
+            )
+            .replace('#include <color_fragment>', '#include <color_fragment>\n' + roadFragment)
+            .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n' + roadRoughness)
+            .replace(
+                '#include <normal_fragment_begin>',
+                '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecalWorldPos, normal, dcBumpH, 0.07);'
+            );
+    };
+    material.customProgramCacheKey = () => 'chunked-road-surface';
+}
+
 // The track a vehicle leaves, built the same way the road is: HALF a tile,
 // running from the tile centre out to one edge along the given direction.
 // Nothing is drawn behind the centre.
