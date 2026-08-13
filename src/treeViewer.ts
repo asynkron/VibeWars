@@ -6,6 +6,7 @@ import {
     setDecorationCanopyTexture,
     setDecorationCanopyTextureAlphaThreshold,
     setDecorationCanopyTextureEdgeFade,
+    setDecorationCanopyColorAdjust,
     setDecorationCrownOpacity,
     setDecorationLeafGloss,
     setDecorationLeafScale,
@@ -134,6 +135,10 @@ const canopyTextureEdgeFade = document.querySelector<HTMLInputElement>('#canopy-
 const canopyLeafScale = document.querySelector<HTMLInputElement>('#canopy-leaf-scale');
 const canopyGloss = document.querySelector<HTMLInputElement>('#canopy-gloss');
 const canopyInnerOpacity = document.querySelector<HTMLInputElement>('#canopy-inner-opacity');
+const canopyBrightness = document.querySelector<HTMLInputElement>('#canopy-brightness');
+const canopyContrast = document.querySelector<HTMLInputElement>('#canopy-contrast');
+const canopySaturation = document.querySelector<HTMLInputElement>('#canopy-saturation');
+const canopyHue = document.querySelector<HTMLInputElement>('#canopy-hue');
 const branchGravityStrength = document.querySelector<HTMLInputElement>('#branch-gravity-strength');
 const windStrength = document.querySelector<HTMLInputElement>('#wind-strength');
 const branchCountPerFork = document.querySelector<HTMLInputElement>('#branch-count-per-fork');
@@ -156,6 +161,10 @@ const canopyGlossValue = document.querySelector<HTMLOutputElement>('#canopy-glos
 const canopyInnerOpacityValue = document.querySelector<HTMLOutputElement>('#canopy-inner-opacity-value');
 const canopyTextureAlphaThresholdValue = document.querySelector<HTMLOutputElement>('#canopy-texture-alpha-threshold-value');
 const canopyTextureEdgeFadeValue = document.querySelector<HTMLOutputElement>('#canopy-texture-edge-fade-value');
+const canopyBrightnessValue = document.querySelector<HTMLOutputElement>('#canopy-brightness-value');
+const canopyContrastValue = document.querySelector<HTMLOutputElement>('#canopy-contrast-value');
+const canopySaturationValue = document.querySelector<HTMLOutputElement>('#canopy-saturation-value');
+const canopyHueValue = document.querySelector<HTMLOutputElement>('#canopy-hue-value');
 const branchGravityStrengthValue = document.querySelector<HTMLOutputElement>('#branch-gravity-strength-value');
 const windStrengthValue = document.querySelector<HTMLOutputElement>('#wind-strength-value');
 const branchCountPerForkValue = document.querySelector<HTMLOutputElement>('#branch-count-per-fork-value');
@@ -233,6 +242,10 @@ function readParameters(): DeciduousTreeParameters {
             leafScale: Number(canopyLeafScale?.value ?? 0.65),
             gloss: Number(canopyGloss?.value ?? 60) / 100,
             innerOpacity: Number(canopyInnerOpacity?.value ?? 75) / 100,
+            brightness: Number(canopyBrightness?.value ?? 100) / 100,
+            contrast: Number(canopyContrast?.value ?? 100) / 100,
+            saturation: Number(canopySaturation?.value ?? 100) / 100,
+            hue: Number(canopyHue?.value ?? 0) * Math.PI / 180,
             depthFromTip: Number(canopyDepth?.value ?? 0),
         },
     };
@@ -267,6 +280,10 @@ function applyPreset(preset: TreePreset): void {
     setInputValue(canopyLeafScale, canopy.leafScale);
     setInputValue(canopyGloss, canopy.gloss * 100);
     setInputValue(canopyInnerOpacity, canopy.innerOpacity * 100);
+    setInputValue(canopyBrightness, canopy.brightness * 100);
+    setInputValue(canopyContrast, canopy.contrast * 100);
+    setInputValue(canopySaturation, canopy.saturation * 100);
+    setInputValue(canopyHue, canopy.hue * 180 / Math.PI);
     setInputValue(windStrength, preset.windStrength * 100);
 
     for (const card of presetCards) {
@@ -307,12 +324,16 @@ function parametersChanged(): void {
     if (canopyInnerOpacityValue) canopyInnerOpacityValue.value = `${Math.round(parameters.canopy.innerOpacity * 100)}%`;
     if (canopyTextureAlphaThresholdValue) canopyTextureAlphaThresholdValue.value = `${Math.round(parameters.canopy.textureAlphaThreshold * 100)}%`;
     if (canopyTextureEdgeFadeValue) canopyTextureEdgeFadeValue.value = `${Math.round(parameters.canopy.textureEdgeFade * 100)}%`;
+    if (canopyBrightnessValue) canopyBrightnessValue.value = `${Math.round(parameters.canopy.brightness * 100)}%`;
+    if (canopyContrastValue) canopyContrastValue.value = `${Math.round(parameters.canopy.contrast * 100)}%`;
+    if (canopySaturationValue) canopySaturationValue.value = `${Math.round(parameters.canopy.saturation * 100)}%`;
+    if (canopyHueValue) canopyHueValue.value = `${Math.round(parameters.canopy.hue * 180 / Math.PI)}°`;
 
     window.clearTimeout(rebuildTimer);
     rebuildTimer = window.setTimeout(() => replaceTree(parameters), 80);
 }
 
-for (const input of [canopyWidthScale, canopyWidthRatioPerTrunkLevel, canopyHeightScale, canopyTextureAlphaThreshold, canopyTextureEdgeFade, branchGravityStrength, branchCountPerFork, branchLevels, canopyDepth, trunkLevels, trunkBaseLengthRatio, branchStartLengthRatio, branchLengthRatioPerTrunkLevel, branchChildLengthRatio, trunkChildLengthRatio, trunkBaseRadiusScale, branchChildRadiusRatio, trunkTipRadiusRatio]) {
+for (const input of [canopyWidthScale, canopyWidthRatioPerTrunkLevel, canopyHeightScale, canopyTextureAlphaThreshold, canopyTextureEdgeFade, canopyBrightness, canopyContrast, canopySaturation, canopyHue, branchGravityStrength, branchCountPerFork, branchLevels, canopyDepth, trunkLevels, trunkBaseLengthRatio, branchStartLengthRatio, branchLengthRatioPerTrunkLevel, branchChildLengthRatio, trunkChildLengthRatio, trunkBaseRadiusScale, branchChildRadiusRatio, trunkTipRadiusRatio]) {
     input?.addEventListener('input', parametersChanged);
 }
 canopyShape?.addEventListener('change', parametersChanged);

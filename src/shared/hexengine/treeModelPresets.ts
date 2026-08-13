@@ -30,6 +30,10 @@ export const BROADLEAF_TREE_PARAMETERS: DeciduousTreeParameters = {
         leafScale: 0.65,
         gloss: 0.60,
         innerOpacity: 1,
+        brightness: 1,
+        contrast: 1,
+        saturation: 1,
+        hue: 0,
         depthFromTip: 0,
     },
 };
@@ -64,7 +68,51 @@ export const BROADLEAF_TREE_WIDE_PARAMETERS: DeciduousTreeParameters = {
         leafScale: 0.65,
         gloss: 0.58,
         innerOpacity: 1,
+        brightness: 1,
+        contrast: 1,
+        saturation: 1,
+        hue: 0,
         depthFromTip: 0,
+    },
+};
+
+// Third in-game broadleaf profile. The color grading is baked into the
+// merged forest geometry through colorProfile, so it remains per tree even
+// when many trees share one material and draw call.
+export const BROADLEAF_TREE_THIRD_PARAMETERS: DeciduousTreeParameters = {
+    branches: {
+        countPerFork: 3,
+        levels: 2,
+        startLengthRatio: 0.38,
+        lengthRatioPerTrunkLevel: 0.75,
+        childLengthRatio: 0.75,
+        childRadiusRatio: 0.59,
+        gravity: 3,
+    },
+    trunk: {
+        levels: 3,
+        baseLengthRatio: 0.75,
+        childLengthRatio: 0.50,
+        baseRadiusScale: 1.10,
+        tipRadiusRatio: 0.26,
+    },
+    canopy: {
+        shape: 'dome',
+        texture: 'maple',
+        textureAlphaThreshold: 0.49,
+        textureEdgeFade: 0.38,
+        widthScale: 2.30,
+        widthRatioPerTrunkLevel: 0.78,
+        heightScale: 2.05,
+        leafScale: 0.65,
+        gloss: 0.60,
+        innerOpacity: 1,
+        brightness: 2,
+        contrast: 1.15,
+        saturation: 0.37,
+        hue: -38 * Math.PI / 180,
+        depthFromTip: 0,
+        colorProfile: 1,
     },
 };
 
@@ -96,6 +144,47 @@ export const SPRUCE_TREE_PARAMETERS: DeciduousTreeParameters = {
         leafScale: 2.30,
         gloss: 0.60,
         innerOpacity: 1,
+        brightness: 1,
+        contrast: 1,
+        saturation: 1,
+        hue: 0,
         depthFromTip: 0,
+    },
+};
+
+export const PINE_TREE_PARAMETERS: DeciduousTreeParameters = {
+    branches: {
+        countPerFork: 3,
+        levels: 2,
+        startLengthRatio: 0.26,
+        lengthRatioPerTrunkLevel: 0.75,
+        childLengthRatio: 0.50,
+        childRadiusRatio: 0.59,
+        gravity: 3,
+    },
+    trunk: {
+        levels: 3,
+        baseLengthRatio: 1.25,
+        childLengthRatio: 0.50,
+        baseRadiusScale: 0.65,
+        tipRadiusRatio: 0.10,
+    },
+    canopy: {
+        shape: 'dome',
+        texture: 'spruce-2x2',
+        textureAlphaThreshold: 0.35,
+        textureEdgeFade: 1,
+        widthScale: 1.90,
+        widthRatioPerTrunkLevel: 0.73,
+        heightScale: 0.90,
+        leafScale: 0.45,
+        gloss: 0.11,
+        innerOpacity: 1,
+        brightness: 1.88,
+        contrast: 1.05,
+        saturation: 0.64,
+        hue: -62 * Math.PI / 180,
+        depthFromTip: 0,
+        colorProfile: 2,
     },
 };

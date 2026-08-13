@@ -17,7 +17,9 @@
 import { PERTURB_GLSL } from './PerturbNormalShader';
 import {
     BROADLEAF_TREE_PARAMETERS,
+    BROADLEAF_TREE_THIRD_PARAMETERS,
     BROADLEAF_TREE_WIDE_PARAMETERS,
+    PINE_TREE_PARAMETERS,
     SPRUCE_TREE_PARAMETERS,
 } from './treeModelPresets';
 import {
@@ -385,6 +387,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     varying float vDecorCanopyEdgeFade;
     varying vec3 vDecorCanopyTint;
     varying float vDecorCanopyShape;
+    varying float vDecorCanopyColorProfile;
 
     // The baked dot fields, and the cell-to-texture scale that indexes
     // them. Kept in step with LEAF_CELLS on the JS side by construction --
@@ -394,6 +397,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     uniform float uDecorLeafScale;
     uniform sampler2D uDecorSpruceCanopyTexture;
     uniform sampler2D uDecorMapleCanopyTexture;
+    uniform sampler2D uDecorMaple2CanopyTexture;
     uniform sampler2D uDecorRowanCanopyTexture;
     uniform float uDecorCanopyTextureEnabled;
     uniform sampler2D uDecorSpruceBarkTexture;
@@ -403,6 +407,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     uniform float uDecorLeafGloss;
     uniform float uDecorInnerCrownOpacity;
     uniform float uDecorOuterCrownOpacity;
+    uniform vec4 uDecorCanopyColorAdjust;
     #define DECOR_LEAF_INV_CELLS ${(1 / LEAF_CELLS).toFixed(6)}
 
     float decorHash(vec2 p) {
@@ -448,7 +453,30 @@ const DECOR_NOISE_GLSL = /* glsl */ `
             ? texture2D(uDecorSpruceCanopyTexture, uv).rgb
             : vDecorCanopyTexture < 2.5
                 ? texture2D(uDecorMapleCanopyTexture, uv).rgb
-                : texture2D(uDecorRowanCanopyTexture, uv).rgb;
+                : vDecorCanopyTexture < 3.5
+                    ? texture2D(uDecorRowanCanopyTexture, uv).rgb
+                    : texture2D(uDecorMaple2CanopyTexture, uv).rgb;
+    }
+
+    vec3 decorAdjustCanopyColor(vec3 color) {
+        vec4 colorAdjust = vDecorCanopyColorProfile > 1.5
+            ? vec4(1.88, 1.05, 0.64, -1.082104136)
+            : vDecorCanopyColorProfile > 0.5
+                ? vec4(2.0, 1.15, 0.37, -0.663225115)
+                : uDecorCanopyColorAdjust;
+        float hue = colorAdjust.w;
+        float cs = cos(hue);
+        float sn = sin(hue);
+        mat3 hueRotation = mat3(
+            0.299 + 0.701 * cs + 0.168 * sn, 0.587 - 0.587 * cs + 0.330 * sn, 0.114 - 0.114 * cs - 0.497 * sn,
+            0.299 - 0.299 * cs - 0.328 * sn, 0.587 + 0.413 * cs + 0.035 * sn, 0.114 - 0.114 * cs + 0.292 * sn,
+            0.299 - 0.300 * cs + 1.250 * sn, 0.587 - 0.588 * cs - 1.050 * sn, 0.114 + 0.886 * cs - 0.203 * sn
+        );
+        color = clamp(hueRotation * color, 0.0, 1.0);
+        float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        color = mix(vec3(luminance), color, colorAdjust.z);
+        color = (color - 0.5) * colorAdjust.y + 0.5;
+        return clamp(color * colorAdjust.x, 0.0, 1.0);
     }
 
     vec4 decorPaintedCanopy() {
@@ -477,6 +505,9 @@ const DECOR_NOISE_GLSL = /* glsl */ `
         } else {
             paint = decorCanopyTextureAt(sphericalUv);
         }
+        // Coverage is derived from the unmodified source photograph. Color
+        // grading below must never change which pixels survive the alpha
+        // cutoff; Brightness/Contrast/Saturation/Hue are appearance only.
         float linearLuminance = dot(paint, vec3(0.2126, 0.7152, 0.0722));
         // The texture sampler has already decoded sRGB to linear light.
         // Convert back to perceptual brightness before comparing against a
@@ -499,6 +530,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
         float boundaryFade = meshBoundaryFade;
         // The source is a very dark forest photograph. Lift its midtones
         // while retaining the authored branch and needle contrast.
+        paint = decorAdjustCanopyColor(paint);
         vec3 liftedPaint = min(vec3(1.0), pow(max(paint, vec3(0.002)), vec3(0.68)) * 1.28);
         return vec4(liftedPaint * vDecorCanopyTint, paintedAlpha * boundaryFade);
     }
@@ -923,6 +955,29 @@ export function setDecorationCanopyTextureEdgeFade(model: any, fade: number): vo
     });
 }
 
+export function setDecorationCanopyColorAdjust(
+    model: any,
+    brightness: number,
+    contrast: number,
+    saturation: number,
+    hue: number,
+): void {
+    const value = new THREE.Vector4(
+        Math.max(0.25, Math.min(2, brightness)),
+        Math.max(0, Math.min(2, contrast)),
+        Math.max(0, Math.min(2, saturation)),
+        Math.max(-Math.PI, Math.min(Math.PI, hue)),
+    );
+    model?.traverse?.((child: any) => {
+        const materials = Array.isArray(child.material) ? child.material : [child.material];
+        for (const material of materials) {
+            if (material?.userData?.canopyColorAdjustUniform) {
+                material.userData.canopyColorAdjustUniform.value.copy(value);
+            }
+        }
+    });
+}
+
 export function setDecorationLeafGloss(model: any, gloss: number): void {
     const value = Math.max(0, Math.min(1, gloss));
     model?.traverse?.((child: any) => {
@@ -989,6 +1044,7 @@ function applyOrganicDetail(material: any): void {
     material.userData.leafGlossUniform = { value: 0.46 };
     material.userData.innerCrownOpacityUniform = { value: 0.95 };
     material.userData.outerCrownOpacityUniform = { value: 1.00 };
+    material.userData.canopyColorAdjustUniform = { value: new THREE.Vector4(1, 1, 1, 0) };
     material.userData.windStrengthUniform = { value: 1.00 };
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.uBurn = material.userData.burnUniform;
@@ -997,6 +1053,7 @@ function applyOrganicDetail(material: any): void {
         shader.uniforms.uDecorLeafScale = material.userData.leafScaleUniform;
         shader.uniforms.uDecorSpruceCanopyTexture = { value: getCanopyTexture('spruce-2x2') };
         shader.uniforms.uDecorMapleCanopyTexture = { value: getCanopyTexture('maple') };
+        shader.uniforms.uDecorMaple2CanopyTexture = { value: getCanopyTexture('maple2') };
         shader.uniforms.uDecorRowanCanopyTexture = { value: getCanopyTexture('rowan') };
         shader.uniforms.uDecorCanopyTextureEnabled = material.userData.canopyTextureEnabledUniform;
         shader.uniforms.uDecorCanopyTextureValue = material.userData.canopyTextureValueUniform;
@@ -1007,6 +1064,7 @@ function applyOrganicDetail(material: any): void {
         shader.uniforms.uDecorLeafGloss = material.userData.leafGlossUniform;
         shader.uniforms.uDecorInnerCrownOpacity = material.userData.innerCrownOpacityUniform;
         shader.uniforms.uDecorOuterCrownOpacity = material.userData.outerCrownOpacityUniform;
+        shader.uniforms.uDecorCanopyColorAdjust = material.userData.canopyColorAdjustUniform;
         // Two textures shared by every decoration material on the map --
         // baked once, referenced here, never per tile.
         const fields = getLeafFields();
@@ -1034,11 +1092,11 @@ function applyOrganicDetail(material: any): void {
             )
             .replace(
                 'attribute float aDecorKind;',
-                'attribute vec3 aDecorCanopyTint;\n varying float vDecorCanopyShape;\n attribute float aDecorKind;',
+                'attribute vec3 aDecorCanopyTint;\n varying float vDecorCanopyShape;\n varying float vDecorCanopyColorProfile;\n attribute float aDecorKind;',
             )
             .replace(
                 'vDecorKind = aDecorKind;',
-                'vDecorCanopyTint = aDecorCanopyTint;\n vDecorCanopyShape = floor(aDecorCanopyTexture / 10.0);\n vDecorCanopyTexture = mod(vDecorCanopyTexture, 10.0);\n vDecorKind = aDecorKind;',
+                'vDecorCanopyTint = aDecorCanopyTint;\n vDecorCanopyColorProfile = floor(aDecorCanopyTexture / 100.0);\n float decorCanopyTextureAndShape = mod(vDecorCanopyTexture, 100.0);\n vDecorCanopyShape = floor(decorCanopyTextureAndShape / 10.0);\n vDecorCanopyTexture = mod(decorCanopyTextureAndShape, 10.0);\n vDecorKind = aDecorKind;',
             );
         shader.fragmentShader = shader.fragmentShader
             // dBumpH is written by the color pass and read by the bump
@@ -1249,7 +1307,7 @@ function growLimb(
 }
 
 export type DeciduousCrownShape = 'none' | 'ball' | 'disk' | 'dome' | 'cone' | 'drop';
-export type DeciduousCanopyTexture = 'spruce-2x2' | 'maple' | 'rowan';
+export type DeciduousCanopyTexture = 'spruce-2x2' | 'maple' | 'maple2' | 'rowan';
 
 const CANOPY_SHAPE_VALUE: Record<DeciduousCrownShape, number> = {
     none: 0,
@@ -1264,12 +1322,14 @@ const CANOPY_TEXTURE_VALUE: Record<DeciduousCanopyTexture, number> = {
     'spruce-2x2': 1,
     maple: 2,
     rowan: 3,
+    maple2: 4,
 };
 
 const CANOPY_TEXTURE_URLS: Record<DeciduousCanopyTexture, string> = {
     'spruce-2x2': new URL('../../../gran_texture_2x2_proof.png', import.meta.url).href,
     maple: new URL('../../../maple.png', import.meta.url).href,
     rowan: new URL('../../../rowan.png', import.meta.url).href,
+    maple2: new URL('../../../maple2.png', import.meta.url).href,
 };
 const canopyTextures = new Map<DeciduousCanopyTexture, any>();
 let spruceBarkTexture: any = null;
@@ -1582,7 +1642,13 @@ export interface DeciduousTreeParameters {
         leafScale: number;
         gloss: number;
         innerOpacity: number;
+        brightness: number;
+        contrast: number;
+        saturation: number;
+        hue: number;
         depthFromTip: number;
+        /** Internal packed profile used by batched in-game trees. */
+        colorProfile?: number;
     };
 }
 
@@ -1614,7 +1680,7 @@ function gameDeciduousParameters(): DeciduousTreeParameters {
 }
 
 function gameDeciduousVariant(index: number): { parameters: DeciduousTreeParameters; windStrength: number } {
-    if (index % 2 === 1) {
+    if (index % 3 === 1) {
         return {
             parameters: {
                 ...BROADLEAF_TREE_WIDE_PARAMETERS,
@@ -1623,6 +1689,17 @@ function gameDeciduousVariant(index: number): { parameters: DeciduousTreeParamet
                 canopy: { ...BROADLEAF_TREE_WIDE_PARAMETERS.canopy },
             },
             windStrength: 3,
+        };
+    }
+    if (index % 3 === 2) {
+        return {
+            parameters: {
+                ...BROADLEAF_TREE_THIRD_PARAMETERS,
+                branches: { ...BROADLEAF_TREE_THIRD_PARAMETERS.branches },
+                trunk: { ...BROADLEAF_TREE_THIRD_PARAMETERS.trunk },
+                canopy: { ...BROADLEAF_TREE_THIRD_PARAMETERS.canopy },
+            },
+            windStrength: 1,
         };
     }
     return {
@@ -1644,6 +1721,16 @@ function gameSpruceParameters(): DeciduousTreeParameters {
             ...SPRUCE_TREE_PARAMETERS.canopy,
             widthRatioPerTrunkLevel: 0.81,
         },
+    };
+}
+
+function gameConiferParameters(index: number): DeciduousTreeParameters {
+    const source = index % 2 === 1 ? PINE_TREE_PARAMETERS : gameSpruceParameters();
+    return {
+        ...source,
+        branches: { ...source.branches },
+        trunk: { ...source.trunk },
+        canopy: { ...source.canopy },
     };
 }
 
@@ -1964,6 +2051,7 @@ function makeDeciduous(
         child.userData.decorCanopyAlphaThreshold = resolvedParameters.canopy.textureAlphaThreshold;
         child.userData.decorCanopyEdgeFade = resolvedParameters.canopy.textureEdgeFade;
         child.userData.decorCanopyShape = resolvedParameters.canopy.shape;
+        child.userData.decorCanopyColorProfile = resolvedParameters.canopy.colorProfile ?? 0;
         if (resolvedParameters.canopy.texture === 'spruce-2x2') child.userData.decorSpruceBark = 1;
     });
     return tree;
@@ -1988,7 +2076,7 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
         },
         trunk: {
             levels: Math.max(1, Math.min(6, Math.round(trunkOverrides.levels ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.levels))),
-            baseLengthRatio: Math.max(0.25, Math.min(0.75, trunkOverrides.baseLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.baseLengthRatio)),
+            baseLengthRatio: Math.max(0.25, Math.min(1.25, trunkOverrides.baseLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.baseLengthRatio)),
             childLengthRatio: Math.max(0.35, Math.min(1, trunkOverrides.childLengthRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.childLengthRatio)),
             baseRadiusScale: Math.max(0.5, Math.min(2, trunkOverrides.baseRadiusScale ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.baseRadiusScale)),
             tipRadiusRatio: Math.max(0.1, Math.min(0.8, trunkOverrides.tipRadiusRatio ?? DEFAULT_DECIDUOUS_PARAMETERS.trunk.tipRadiusRatio)),
@@ -2003,6 +2091,7 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
                 : DEFAULT_DECIDUOUS_PARAMETERS.canopy.shape,
             texture: canopyOverrides.texture === 'spruce-2x2'
                 || canopyOverrides.texture === 'maple'
+                || canopyOverrides.texture === 'maple2'
                 || canopyOverrides.texture === 'rowan'
                 ? canopyOverrides.texture
                 : 'maple',
@@ -2014,7 +2103,12 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
             leafScale: Math.max(0.35, Math.min(2.5, canopyOverrides.leafScale ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.leafScale)),
             gloss: Math.max(0, Math.min(1, canopyOverrides.gloss ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.gloss)),
             innerOpacity: Math.max(0, Math.min(1, canopyOverrides.innerOpacity ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.innerOpacity)),
+            brightness: Math.max(0.25, Math.min(2, canopyOverrides.brightness ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.brightness)),
+            contrast: Math.max(0, Math.min(2, canopyOverrides.contrast ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.contrast)),
+            saturation: Math.max(0, Math.min(2, canopyOverrides.saturation ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.saturation)),
+            hue: Math.max(-Math.PI, Math.min(Math.PI, canopyOverrides.hue ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.hue)),
             depthFromTip: Math.max(0, Math.min(4, Math.round(canopyOverrides.depthFromTip ?? DEFAULT_DECIDUOUS_PARAMETERS.canopy.depthFromTip))),
+            colorProfile: Math.max(0, Math.round(canopyOverrides.colorProfile ?? 0)),
         },
     };
     const rng = variantRng('deciduous', 4);
@@ -2033,6 +2127,13 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
         setDecorationCanopyTextureEdgeFade(merged, resolved.canopy.textureEdgeFade);
         setDecorationLeafGloss(merged, resolved.canopy.gloss);
         setDecorationCrownOpacity(merged, resolved.canopy.innerOpacity, 1);
+        setDecorationCanopyColorAdjust(
+            merged,
+            resolved.canopy.brightness,
+            resolved.canopy.contrast,
+            resolved.canopy.saturation,
+            resolved.canopy.hue,
+        );
     }
     return merged;
 }
@@ -2305,8 +2406,8 @@ function pickTree(kind: 'conifer' | 'deciduous', rng: () => number): any {
         const tree = dead
             ? pick('conifer-dead', (r, i, n) => makeConifer(r, i, n, true), rng)
             : pick(
-                'spruce-tree-model',
-                (r, i, n) => makeDeciduous(r, i, n, false, false, gameSpruceParameters()),
+                'conifer-tree-model',
+                (r, i, n) => makeDeciduous(r, i, n, false, false, gameConiferParameters(i)),
                 rng,
             );
         return tree;
@@ -2479,7 +2580,8 @@ function mergeDecorations(group: any): any | null {
         const spruceBarkWeight = mesh.userData.decorSpruceBark ?? 0;
         const canopyTextureValue = CANOPY_TEXTURE_VALUE[mesh.userData.decorCanopyTexture as DeciduousCanopyTexture] ?? 0;
         const canopyShapeValue = CANOPY_SHAPE_VALUE[mesh.userData.decorCanopyShape as DeciduousCrownShape] ?? 0;
-        const canopyTextureWeight = canopyTextureValue + canopyShapeValue * 10;
+        const canopyColorProfileValue = Math.max(0, Math.round(mesh.userData.decorCanopyColorProfile ?? 0));
+        const canopyTextureWeight = canopyTextureValue + canopyShapeValue * 10 + canopyColorProfileValue * 100;
         const canopyAlphaThresholdValue = mesh.userData.decorCanopyAlphaThreshold ?? 0.38;
         const canopyEdgeFadeValue = mesh.userData.decorCanopyEdgeFade ?? 0.14;
         const canopyTintValue = mesh.userData.decorCanopyTint ?? [1, 1, 1];
