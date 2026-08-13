@@ -389,11 +389,26 @@ const GROUND_FRAGMENT = /* glsl */ `
                 coastStone * vec3(0.48, 0.46, 0.43),
                 cavity * 0.68
             );
-            vec3 wetCoastStone = pow(
+            vec3 dampCoastStone = pow(
                 max(coastStone, vec3(0.0)),
                 vec3(1.18)
             ) * vec3(0.70, 0.73, 0.75);
-            coastStone = mix(coastStone, wetCoastStone, 0.92);
+            coastStone = mix(coastStone, dampCoastStone, 0.72);
+
+            // Colour only: retain the established luminance, neutralise the
+            // upper rock toward gray, then add a restrained beige warmth only
+            // near water level. This deliberately does not brighten the rock.
+            float waterWarmth = 1.0 - smoothstep(0.16, 0.72, y);
+            float coastLuminance = dot(
+                coastStone,
+                vec3(0.299, 0.587, 0.114)
+            );
+            vec3 neutralGray = vec3(coastLuminance);
+            // Fixed mid-light beige target: visibly brighter than the gray
+            // upper rock, but capped far below white.
+            vec3 waterBeige = vec3(0.34, 0.30, 0.24);
+            coastStone = mix(coastStone, neutralGray, 0.44);
+            coastStone = mix(coastStone, waterBeige, waterWarmth * 0.68);
             vec4 coastRoughnessFields = groundFoothillRockFields(gp, warp);
             coastHeight += groundFoothillRockHeight(
                 coastRoughnessFields,
@@ -821,5 +836,5 @@ export function applyProceduralGround(material: any, terrainType: string): void 
     };
     // All ground materials share one height-banded program (uniforms
     // differ per material); distinct key from three.js's stock shader.
-    material.customProgramCacheKey = () => 'ground-height-banded-v18-coastline-lowland';
+    material.customProgramCacheKey = () => 'ground-height-banded-v21-waterline-beige';
 }
