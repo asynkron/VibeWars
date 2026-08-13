@@ -536,13 +536,6 @@ const DECOR_FRAGMENT = /* glsl */ `
             diffuseColor.rgb *= 0.84 + 0.20 * coarse + 0.08 * fine;
         }
 
-        // Crowns are 10% see-through -- REAL alpha, not screen-door
-        // dither (tried, read as pixel noise). The material is transparent
-        // and the shader sets alpha per kind: trunks and rocks stay 1.0,
-        // foliage drops to 0.9. At 90% opacity the merged mesh's internal
-        // sort errors are invisible.
-        if (vDecorKind > 1.5) diffuseColor.a *= 0.90;
-
         if (vDecorKind < -0.5) {
             // ROCK: the terrain mountainside's recipe -- plates, seams,
             // moss, dirt -- but at a STONE's scale, not a mountain's. A
@@ -717,15 +710,17 @@ const DECOR_FRAGMENT = /* glsl */ `
             if (uDecorInnerCrownOpacity < 0.001) discard;
             vec4 paintedCanopy = decorPaintedCanopy();
             diffuseColor.rgb = paintedCanopy.rgb;
-            diffuseColor.a *= paintedCanopy.a * uDecorInnerCrownOpacity;
-            if (diffuseColor.a < 0.002) discard;
+            // Binary alpha cutout. Surviving foliage writes normal depth, so
+            // another tree behind it is visible through the photographic
+            // gaps instead of being rejected by an invisible translucent
+            // face in the same merged mesh.
+            if (paintedCanopy.a * uDecorInnerCrownOpacity < 0.50) discard;
             dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
         } else {
             if (uDecorOuterCrownOpacity < 0.001) discard;
             vec4 paintedCanopy = decorPaintedCanopy();
             diffuseColor.rgb = paintedCanopy.rgb;
-            diffuseColor.a *= paintedCanopy.a * uDecorOuterCrownOpacity;
-            if (diffuseColor.a < 0.002) discard;
+            if (paintedCanopy.a * uDecorOuterCrownOpacity < 0.50) discard;
             dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
         }
     }
@@ -1054,9 +1049,11 @@ function mat(color: number, kind: number = 0) {
         roughness: 0.85,
         flatShading: false,
         side: THREE.FrontSide,
-        // Transparent so the crowns can carry real varying alpha; every
-        // non-foliage fragment writes alpha 1.0 and stays visually opaque.
-        transparent: true,
+        // Crown coverage is a shader discard, not blended transparency.
+        // This keeps correct depth ordering inside a merged tree chunk.
+        // setDecoratorObscured temporarily enables blending only while a
+        // unit needs its owning tile faded.
+        transparent: false,
     });
     applyOrganicDetail(material);
     return material;
