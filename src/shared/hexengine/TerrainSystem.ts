@@ -123,7 +123,7 @@ class TerrainSystem {
 
         // Special handling for water tiles
         if (currentType === 'WATER') {
-            // Calculate lerp factor between water threshold and sand threshold
+            // Calculate lerp factor between water and legacy coastline key.
             const lerpFactor = (noiseValue - currentThreshold) / (this.terrainTypes.SAND.threshold - currentThreshold);
 
             // Get water color and create a lighter blue color for shallow water

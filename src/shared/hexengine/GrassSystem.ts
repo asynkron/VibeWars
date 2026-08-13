@@ -45,7 +45,7 @@ const BLADE_HEIGHT = 0.30 * MAP_CONFIG.HEX_RADIUS;
 const BLADE_WIDTH = 0.019 * MAP_CONFIG.HEX_RADIUS;
 
 // GRASS GOES ON GRASS TILES. Height used to gate this as well, to follow
-// the ground shader's own sand-to-grass front -- and it was wrong: on this
+// the ground shader's own coastline-to-grass front -- and it was wrong: on this
 // map it silently threw away 70 of the 168 turf tiles, scattered wherever
 // the ground sat low, so grass came and went across the board for no reason
 // the player could see. The tile's type is the answer to "is this grass".

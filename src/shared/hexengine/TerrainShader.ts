@@ -2,11 +2,11 @@
 // materials via onBeforeCompile. No texture assets: a world-position
 // based value-noise/fbm in the fragment shader paints the ground.
 //
-// THE NATURAL-GROUND RULE: the fragment's WORLD HEIGHT decides the texture, exactly like
-// the terrain ladder that assigns tile types -- sand < grass < forest <
-// rock. Tile MATERIAL no longer matters for the look. This is what
+// THE NATURAL-GROUND RULE: the fragment's WORLD HEIGHT decides the texture.
+// The lowest band is coastline stone, followed by grass, forest and rock.
+// Tile MATERIAL no longer matters for the look. This is what
 // makes the smoothed slopes cohesive: edge smoothing stretches low tiles
-// (sand fords, grass) up the mountainside as steep ramps, and a
+// (lowland fords, grass) up the mountainside as steep ramps, and a
 // height-driven shader recolors those ramps through the whole ladder on
 // the way up instead of dragging their lowland color to the summit.
 //
@@ -15,12 +15,12 @@
 // kept as a DARKENING signal relative to the material's own palette
 // luminance, so crater scorching and shading blends still show through.
 // The water SURFACE has its own shader below; the two meet at the
-// shoreline, where the ground shader builds a static sand/gravel/stone band.
+// shoreline, where the ground shader builds static coastline stone.
 // Near-shore water shading belongs to WaterReflectionSystem, never on land.
 //
 // CONCRETE is the deliberate exception: a building foundation keeps its
 // authored surface at any elevation, and a vertical quay suppresses the
-// land-side run-up that only makes physical sense on a sloped beach.
+// natural lowland treatment that only makes physical sense on terrain.
 
 import { TerrainSystem } from './TerrainSystem';
 import { PERTURB_GLSL } from './PerturbNormalShader';
@@ -212,24 +212,7 @@ const NOISE_GLSL_CORE = NOISE_GLSL_BASE + /* glsl */ `
 `;
 
 const SHORE_GLSL = /* glsl */ `
-    // --- Shoreline geometry ------------------------------------------
-    // Every tile carries a flag per hex edge saying whether that edge
-    // borders the other element (painted by GridSystem.paintShoreEdges).
-    // Distance to one such edge, in hex radii: 0 ON the edge, growing
-    // toward the tile centre. A hexagon's edge e faces the direction
-    // (e + 0.5) * 60 degrees and sits one apothem (cos 30) out from the
-    // centre, so the signed distance is just that minus the projection.
-    // Edges that border nothing return a large number so min() skips them.
-    float shoreEdgeDistance(vec2 local, float borders, float edgeIndex) {
-        if (borders < 0.5) return 10.0;
-        float th = (edgeIndex + 0.5) * 1.0471975512;
-        return 0.8660254 - dot(local, vec2(cos(th), sin(th)));
-    }
-
-    // Distance to the nearest of the SIX hex edges, in hex radii: 0 on the
-    // border, 0.866 at the centre. Same half-plane trick as
-    // shoreEdgeDistance but with no per-edge flags, since the grid overlay
-    // wants every edge rather than only the ones facing water.
+    // Distance to the nearest of the six hex edges, used by the grid.
     float hexEdgeDistance(vec2 local) {
         float d = 10.0;
         for (int i = 0; i < 6; i++) {
@@ -247,21 +230,6 @@ const SHORE_GLSL = /* glsl */ `
         return 1.0 - smoothstep(0.0, 0.05, hexEdgeDistance(local));
     }
 
-    // How far up the beach (or out to sea) this fragment is, 1 right at
-    // the waterline and 0 once it is width hex radii away. Measuring
-    // real distance to the real edges is what makes the band follow the
-    // WHOLE coast -- a per-vertex signal can only pin values at corners,
-    // so it thins out between them and drops edges entirely.
-    float shoreBand(vec2 local, vec3 edgesA, vec3 edgesB, float width) {
-        float d = shoreEdgeDistance(local, edgesA.x, 0.0);
-        d = min(d, shoreEdgeDistance(local, edgesA.y, 1.0));
-        d = min(d, shoreEdgeDistance(local, edgesA.z, 2.0));
-        d = min(d, shoreEdgeDistance(local, edgesB.x, 3.0));
-        d = min(d, shoreEdgeDistance(local, edgesB.y, 4.0));
-        d = min(d, shoreEdgeDistance(local, edgesB.z, 5.0));
-        return clamp(1.0 - d / width, 0.0, 1.0);
-    }
-
 `;
 
 // Colour and strength of the hex grid overlay. Dark rather than bright so
@@ -273,10 +241,8 @@ const GROUND_FRAGMENT = /* glsl */ `
     {
         vec2 gp = vGroundWorldPos.xz;
         float y = vGroundWorldPos.y;
-        gSandSheen = 0.0;
         gRockSheen = 0.0;
         gShoreStone = 0.0;
-        gShoreWetness = 0.0;
         // Shared border wobble so the band lines meander organically
         // instead of tracing flat contour lines.
         float wob = groundFbm(gp * 2.2) - 0.5;
@@ -285,9 +251,8 @@ const GROUND_FRAGMENT = /* glsl */ `
         // TerrainSystem's baseHeight/heightVariation table: the shader
         // decides the look from world height alone, so lifting the terrain
         // without moving these repaints grass as forest and forest as rock.
-        // Current table: sand 0.70-0.85, grass 0.90-1.20, forest 1.10-1.70,
+        // Current table: lowland 0.70-0.85, grass 0.90-1.20, forest 1.10-1.70,
         // mountain 1.60-6.10.
-        float toGrass  = smoothstep(0.80, 0.94, y + wob * 0.10);
         float toForest = smoothstep(1.04, 1.24, y + wob * 0.14);
         float toRock   = smoothstep(1.60, 2.05, y + wob * 0.30);
 
@@ -298,11 +263,10 @@ const GROUND_FRAGMENT = /* glsl */ `
         // and a band whose weight is zero cannot change a single pixel.
         //
         // Every band used to be computed for every fragment and then
-        // multiplied away, which is where this shader's time went: a beach
+        // multiplied away, which is where this shader's time went: a lowland
         // pixel paid for the rock band's voronoi (nine cells, eighteen
         // hashes), its crack zones, its ridges and its lichen; a mountain
-        // top paid for wind ripples in sand it is two kilometres above.
-        // Roughly 250 sin() a fragment, of which a grass pixel needs 68.
+        // top paid for lowland detail it is two kilometres above.
         //
         // The gates are exact, not approximate: smoothstep returns exactly
         // 0 and exactly 1 outside its edges, so this skips only terms that
@@ -320,7 +284,6 @@ const GROUND_FRAGMENT = /* glsl */ `
         // undefined -- the one thing that makes this restructuring unsafe
         // if done carelessly. They are pure gradient math with no hashes in
         // them, so computing them unconditionally costs nothing.
-        float fade42 = groundDetailFade(gp * 42.0);
         float fade36 = groundDetailFade(gp * 36.0);
         float fade52 = groundDetailFade(gp * 52.0);
 
@@ -333,74 +296,114 @@ const GROUND_FRAGMENT = /* glsl */ `
         // of showing value-noise's axis-aligned blobbiness.
         vec2 warp = vec2(groundFbm(gp * 1.1), groundFbm(gp * 1.1 + vec2(5.2, 1.3))) - 0.5;
 
-        // --- The LOW band: sand, the grass front that closes over it, and
-        // the exposed soil along that front. One block, because the grass
-        // mask is what mixes sand into grass and both heights feed the same
-        // relief term.
+        // --- The LOW band: coastline stone closing directly into grass.
+        // This is the old grass-front mask unchanged; only the material on
+        // its low side has been replaced.
         vec3 lowC = vec3(0.0);
         float lowH = 0.0;
+        float grassMask = 0.0;
+        vec3 grassC = vec3(0.0);
         if (wLow > 0.0) {
-        // --- Sand: broad patches, fine grain, and WIND RIPPLES -- a
-        // noise-warped sine so the ridges run in drifts the way windblown
-        // sand actually lies, and they carry most of the band's relief.
-        // (The voronoi pebbles this band used to scatter are gone: at map
-        // scale they read as strewn potatoes, not stones.)
-            // --- Sand -> grass: not a fade but a FRONT. The turf closes in
-            // patches (clump noise pushing against the transition height),
-            // with a strip of exposed earth where the turf thins out. The
-            // window opens at 0.70 -- sand's own base height -- so even
-            // sand tiles a step from the grass line carry some of the
-            // front, not just the narrow smoothed ramps between tiles.
-            //
-            // COMPUTED FIRST, because the mask it produces decides which of
-            // the two halves below is worth computing at all. Sand and
-            // grass are the same band by height, so both used to run on
-            // every low fragment -- and on open turf, where grassMask
-            // saturates at exactly 1, the entire sand half was multiplied
-            // away: patches, grain and ripples, 36 sin() a pixel over more
-            // than half the screen. Same skip as the
-            // outer bands, one level in, and exact for the same reason.
+            // Existing irregular lowland-to-grass front, preserved exactly.
             float trans = smoothstep(0.70, 0.98, y + wob * 0.10);
             float clump = groundFbm(gp * 4.5 + warp * 3.5);
             float front = trans * 0.75 + clump * 0.45;
-            float grassMask = smoothstep(0.52, 0.72, front);
-            // Only textured, exposed sand gets the lower roughness below.
-            // Its actual highlight direction comes from the ripple height
-            // field's perturbed normal, so dune faces glint selectively.
-            gSandSheen = (1.0 - grassMask) * wLow * uShowTextures;
+            grassMask = smoothstep(0.52, 0.72, front);
 
-            // The strip where the front actually is -- 0 < grassMask < 1 --
-            // runs both halves and blends them, exactly as before. Most of
-            // the sand band lives here on purpose (see the 0.70 window
-            // above); the saving is on open grass, not on the beach.
-            vec3 sandC = vec3(0.0);
-            vec3 soilC = vec3(0.0);
-            float sandH = 0.0;
-            float soilBand = 0.0;
-            if (grassMask < 1.0) {
-                float patches = groundFbm(gp * 1.7 + warp * 2.6);
-                // The finest noises are band-limited: past the point where
-                // a pixel can resolve them they collapse to their mean
-                // instead of shimmering. See groundDetailFade.
-                float grain = mix(0.5, groundNoise(gp * 42.0), fade42);
-                float rippleS = sin(dot(gp, vec2(9.0, 4.0)) + groundFbm(gp * 1.2) * 9.0) * 0.5 + 0.5;
-                sandC = uSandColor * (0.80 + 0.40 * patches) * (0.94 + 0.10 * grain)
-                    * (0.90 + 0.14 * rippleS);
-                // A continuous soil strip, never a field of individual
-                // seeds, pebbles or cones. Fixed neutral-brown endpoints
-                // keep this boundary gray-brown even though the beach
-                // palette itself is warm peach.
-                soilBand = smoothstep(0.18, 0.48, front)
-                    * (1.0 - smoothstep(0.72, 0.95, front));
-                soilC = mix(vec3(0.18, 0.16, 0.13), vec3(0.30, 0.26, 0.20), clump);
-                sandH = patches * 0.20 + grain * 0.06 + rippleS * 0.45;
-            }
+            // Exact coastline material, now the LOW material itself rather
+            // than a later overlay. It is triplanar so the same blocks carry
+            // continuously over top faces and the vertical water edge.
+            vec3 coastWorldNormal = normalize(cross(
+                dFdx(vGroundWorldPos),
+                dFdy(vGroundWorldPos)
+            ));
+            float coastMacro = groundFbm3(
+                vGroundWorldPos * 0.42 + vec3(3.8, 7.1, 11.6)
+            );
+            vec3 coastWarp3 = vec3(
+                groundNoise3(vGroundWorldPos * 0.71 + vec3(3.1, 11.7, 5.4)),
+                groundNoise3(vGroundWorldPos * 0.71 + vec3(17.3, 2.8, 9.6)),
+                groundNoise3(vGroundWorldPos * 0.71 + vec3(7.9, 19.4, 1.2))
+            ) - 0.5;
+            vec3 coastCell = groundTriplanarVoronoi(
+                vGroundWorldPos * 1.12 + coastWarp3 * 0.92,
+                coastWorldNormal
+            );
+            float coastMedium = groundTriplanarFbm(
+                vGroundWorldPos * 3.65 + coastWarp3 * 1.8,
+                coastWorldNormal
+            );
+            float coastGrain = groundNoise3(
+                vGroundWorldPos * 11.0 + vec3(12.4, 4.7, 18.1)
+            );
+            float blockCrown = 1.0 - smoothstep(0.10, 0.79, coastCell.x);
+            float cavityLine = 1.0 - smoothstep(
+                0.035,
+                0.145,
+                coastCell.y - coastCell.x
+            );
+            float cavityBreak = smoothstep(
+                0.43,
+                0.62,
+                coastMedium * 0.62 + coastGrain * 0.38
+            );
+            float cavity = cavityLine * cavityBreak;
+            float facet = smoothstep(
+                0.48,
+                0.74,
+                blockCrown * 0.50 + coastMedium * 0.30 + coastMacro * 0.20
+            );
+            float coastHeight = coastMacro * 0.30 + blockCrown * 0.48
+                + coastMedium * 0.14 + facet * 0.15 + coastGrain * 0.025
+                - cavity * 0.54;
+            vec3 coastNormal = groundHeightWorldNormal(
+                vGroundWorldPos,
+                coastWorldNormal,
+                coastHeight,
+                0.74
+            );
+            float coastSun = smoothstep(
+                -0.28,
+                0.76,
+                dot(coastNormal, normalize(uSunDirection))
+            );
+            vec3 coastStone = mix(
+                vec3(0.18, 0.17, 0.155),
+                vec3(0.43, 0.40, 0.35),
+                clamp(
+                    coastCell.z * 0.16 + coastMacro * 0.43
+                        + coastMedium * 0.41,
+                    0.0,
+                    1.0
+                )
+            );
+            coastStone = mix(
+                coastStone,
+                vec3(0.60, 0.56, 0.49),
+                facet * coastSun * 0.30
+            );
+            coastStone *= mix(0.72, 1.10, coastSun);
+            coastStone *= 0.94 + coastGrain * 0.11;
+            coastStone = mix(
+                coastStone,
+                coastStone * vec3(0.48, 0.46, 0.43),
+                cavity * 0.68
+            );
+            vec3 wetCoastStone = pow(
+                max(coastStone, vec3(0.0)),
+                vec3(1.18)
+            ) * vec3(0.70, 0.73, 0.75);
+            coastStone = mix(coastStone, wetCoastStone, 0.92);
+            vec4 coastRoughnessFields = groundFoothillRockFields(gp, warp);
+            coastHeight += groundFoothillRockHeight(
+                coastRoughnessFields,
+                1.0
+            );
 
             // --- Grass: mottled meadow -- dark mossy hollows to worn
             // yellow-green, plus a fine blade-scale shimmer. Mixing between
             // two TINTS of the palette green (not scaling one) is what
             // gives the hue drift real turf has.
-            vec3 grassC = vec3(0.0);
             float grassH = 0.0;
             if (grassMask > 0.0) {
                 float meadow = groundFbm(gp * 2.6 + warp * 3.0);
@@ -423,17 +426,9 @@ const GROUND_FRAGMENT = /* glsl */ `
                 grassH = meadow * 0.30 + blades * 0.10;
             }
 
-            // Exposed soil lies over the blended sand-and-grass so it stays
-            // confined to the irregular turf edge instead of tinting the
-            // whole beach.
-            lowC = mix(sandC, grassC, grassMask);
-            lowC = mix(lowC, soilC, soilBand * 0.85);
-
-            // Relief for the bump pass, reusing the values the colour was
-            // computed from so light and shadow fall exactly where the
-            // colour says they should. The soil stays flush with the sand;
-            // it is a material transition, not scattered geometry.
-            lowH = mix(sandH * 0.6, grassH, grassMask);
+            lowC = mix(coastStone, grassC, grassMask);
+            lowH = mix(coastHeight, grassH, grassMask);
+            gShoreStone = (1.0 - grassMask) * wLow;
         }
 
         // --- Forest floor: the same recipe pitched darker and mossier.
@@ -467,10 +462,10 @@ const GROUND_FRAGMENT = /* glsl */ `
             rockC = rockBase * (0.88 + 0.22 * plateTint) * (0.86 + 0.22 * ridge)
                 * (0.90 + 0.20 * groundNoise(vec2(gp.x * 1.6 + y * 3.0, gp.y * 1.6)));
             rockC = mix(rockC, rockBase * 0.50, crack * 0.45);
-            rockC = mix(rockC, uSandColor * vec3(0.50, 0.44, 0.38), crack * 0.30);
+            rockC = mix(rockC, vec3(0.24, 0.19, 0.15), crack * 0.30);
             float stain = smoothstep(0.50, 0.80, groundFbm(gp * 2.0 + warp * 2.5));
             rockC = mix(rockC, uForestColor * vec3(1.30, 1.40, 1.00), mossPatch * 0.60 * (1.0 - rockAltitude));
-            rockC = mix(rockC, uSandColor * vec3(0.55, 0.50, 0.44) * (0.85 + 0.30 * plateTint),
+            rockC = mix(rockC, vec3(0.29, 0.25, 0.21) * (0.85 + 0.30 * plateTint),
                         stain * 0.35 * (1.0 - rockAltitude));
             rockC += vec3(0.45, 0.47, 0.52) * smoothstep(0.90, 0.98, groundNoise(gp * 52.0))
                 * fade52 * (1.0 - crack) * rockAltitude;
@@ -503,7 +498,7 @@ const GROUND_FRAGMENT = /* glsl */ `
                 dirtLarge + (dirtBreakup - 0.5) * 0.18);
             upperDirt *= mix(0.48, 1.0, upperFacing);
             vec3 dryEarth = mix(
-                uSandColor * vec3(0.48, 0.39, 0.29),
+                vec3(0.28, 0.22, 0.16),
                 uForestColor * vec3(0.48, 0.39, 0.24),
                 dirtBreakup
             );
@@ -560,23 +555,20 @@ const GROUND_FRAGMENT = /* glsl */ `
         gBumpH = mix(mix(lowH, forestH, toForest), rockH * 1.1, toRock);
         gBumpH *= uShowTextures;
 
-        // Texture toggle. The flat version keeps the height LADDER -- sand
-        // still reads as sand and rock as rock -- and drops only the
-        // procedural detail on top of it. Turning the bands off too would
-        // not be "textures off", it would be "terrain off".
-        vec3 flatBand = mix(uSandColor, uGrassColor, toGrass);
+        // Texture toggle preserves the material ladder while dropping its
+        // procedural detail. Low terrain remains coastline stone.
+        vec3 flatBand = mix(vec3(0.31, 0.29, 0.255), uGrassColor, grassMask);
         flatBand = mix(flatBand, uForestColor, toForest);
         flatBand = mix(flatBand, mix(foothillRock, summitRock, rockAltitude), toRock);
         band = mix(flatBand, band, uShowTextures);
 
         // Building foundations are terrain, but they are not part of the
         // natural height ladder above. Their inherited world height may be
-        // sand-low or mountain-high; neither is allowed to repaint concrete
-        // as beach, turf or rock. Override only the base surface here, then
-        // continue through the shared vertex-darkening, shoreline wash and
+        // lowland or mountain-high; neither is allowed to repaint concrete
+        // as turf or rock. Override only the base surface here, then
+        // continue through the shared vertex-darkening and
         // grid code below so a concrete quay meets water exactly like land.
         if (uIsConcrete > 0.5) {
-            gSandSheen = 0.0;
             gRockSheen = 0.0;
             float concreteMottle = groundFbm(gp * 2.6);
             float poreFade = groundDetailFade(gp * 38.0);
@@ -600,157 +592,13 @@ const GROUND_FRAGMENT = /* glsl */ `
         // exactly 1.0 whatever color the map generator gave them, and only
         // crater scorch (which darkens the live color after build) pulls
         // the ratio down. Dividing by the terrain TYPE's palette luminance
-        // instead is what made perlin sand tiles -- whose colors are
+        // instead is what made lowland tiles -- whose colors are
         // lerped toward the darker grass band -- render dimmer than the
         // grass tiles next to them, when both showed the same bands.
         float vLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
         band *= clamp(vLum / max(vPristineLum, 0.001), 0.35, 1.05);
 
-        // ---- Rocky shoreline -----------------------------------------
-        // shore is one at the real water-facing edge and falls inland.
-        // Low-frequency noise tears up both limits, avoiding a clean ribbon.
-        // Crucially, this is LAND only: no blue sheet and no white animated
-        // foam are painted over it. Shallow water lives on the water mesh.
-        float shore = shoreBand(vTileLocal / uHexRadius, vShoreA, vShoreB, 1.06);
-        if (shore > 0.001 && uIsConcrete < 0.5) {
-            vec3 shoreWorldNormal = normalize(cross(
-                dFdx(vGroundWorldPos),
-                dFdy(vGroundWorldPos)
-            ));
-
-            // Original shoreline shader: large triplanar masses, broken
-            // crevices, weathered facets and its own warm mineral palette.
-            float macro = groundFbm3(vGroundWorldPos * 0.42 + vec3(3.8, 7.1, 11.6));
-            float coastWarp = macro - 0.5;
-            float coast = smoothstep(-0.045, 0.15, shore + coastWarp * 0.18);
-
-            vec3 rockWarp = vec3(
-                groundNoise3(vGroundWorldPos * 0.71 + vec3(3.1, 11.7, 5.4)),
-                groundNoise3(vGroundWorldPos * 0.71 + vec3(17.3, 2.8, 9.6)),
-                groundNoise3(vGroundWorldPos * 0.71 + vec3(7.9, 19.4, 1.2))
-            ) - 0.5;
-            vec3 rockCoord = vGroundWorldPos * 1.12 + rockWarp * 0.92;
-            vec3 rockCell = groundTriplanarVoronoi(
-                rockCoord,
-                shoreWorldNormal
-            );
-            float medium = groundTriplanarFbm(
-                vGroundWorldPos * 3.65 + rockWarp * 1.8,
-                shoreWorldNormal
-            );
-            float grain = groundNoise3(
-                vGroundWorldPos * 11.0 + vec3(12.4, 4.7, 18.1)
-            );
-
-            float blockCrown = 1.0 - smoothstep(0.10, 0.79, rockCell.x);
-            float cavityLine = 1.0 - smoothstep(
-                0.035,
-                0.145,
-                rockCell.y - rockCell.x
-            );
-            float cavityBreak = smoothstep(
-                0.43,
-                0.62,
-                medium * 0.62 + grain * 0.38
-            );
-            float cavity = cavityLine * cavityBreak;
-            float facet = smoothstep(
-                0.48,
-                0.74,
-                blockCrown * 0.50 + medium * 0.30 + macro * 0.20
-            );
-
-            float shoreRockHeight = macro * 0.30 + blockCrown * 0.48
-                + medium * 0.14 + facet * 0.15 + grain * 0.025
-                - cavity * 0.54;
-            vec3 rockNormal = groundHeightWorldNormal(
-                vGroundWorldPos,
-                shoreWorldNormal,
-                shoreRockHeight,
-                0.74
-            );
-            float rockSun = smoothstep(
-                -0.28,
-                0.76,
-                dot(rockNormal, normalize(uSunDirection))
-            );
-
-            vec3 stone = mix(
-                vec3(0.18, 0.17, 0.155),
-                vec3(0.43, 0.40, 0.35),
-                clamp(rockCell.z * 0.16 + macro * 0.43 + medium * 0.41, 0.0, 1.0)
-            );
-            stone = mix(stone, vec3(0.60, 0.56, 0.49), facet * rockSun * 0.30);
-            stone *= mix(0.72, 1.10, rockSun);
-            stone *= 0.94 + grain * 0.11;
-            // Cavities should read as shaded stone, not soot-black holes.
-            // Preserve the local mineral hue while darkening it moderately.
-            stone = mix(stone, stone * vec3(0.48, 0.46, 0.43), cavity * 0.68);
-
-            // Keep the coastline's original mask exactly. Only its inland
-            // material changes from sand to grass below.
-            float rockCoverage = smoothstep(
-                0.08,
-                0.38,
-                shore * 0.78 + macro * 0.27 + medium * 0.08
-            );
-
-            vec4 mountainRoughnessFields = groundFoothillRockFields(gp, warp);
-            // The coast transition is explicitly GRASS -> ROCK. Low shoreline
-            // tiles are classified as sand by terrain height, so mixing from
-            // band here preserved a pink sand strip. Rebuild the established
-            // grass material at the coast and use it as the only inland side.
-            float coastMeadow = groundFbm(gp * 2.6 + warp * 3.0);
-            float coastBlades = mix(0.5, groundNoise(gp * 36.0), fade36);
-            vec3 coastGrass = mix(
-                uGrassColor * vec3(0.55, 0.62, 0.45),
-                uGrassColor * vec3(1.55, 1.45, 1.00),
-                coastMeadow
-            );
-            coastGrass *= 0.90 + 0.20 * coastBlades;
-            vec3 coastGrassWorldNormal = inverseTransformDirection(
-                normalize(vTileNormal),
-                viewMatrix
-            );
-            float coastGrassSunDelta = dot(coastGrassWorldNormal, uSunDirection)
-                - uSunDirection.y;
-            coastGrass *= clamp(1.0 + coastGrassSunDelta * 0.90, 0.68, 1.22);
-            coastGrass = calibrateMaterialColor(
-                coastGrass,
-                uGrassCalibration,
-                uGrassCalibrationBalance
-            );
-            vec3 beach = mix(coastGrass, stone, rockCoverage);
-
-            // The exposed rock mass above the water gets the wet material,
-            // not merely a thin strip at the waterline. rockCoverage excludes
-            // the inland earth pockets, so soil remains dry.
-            float exposedRockWetness = rockCoverage;
-            vec3 wetStone = pow(max(beach, vec3(0.0)), vec3(1.18))
-                * vec3(0.70, 0.73, 0.75);
-            beach = mix(beach, wetStone, exposedRockWetness * 0.92);
-
-            // Preserve the coastline's original final mask so its water-facing
-            // edge remains untouched. Only the inland side inside beach is new.
-            band = mix(band, beach, coast * 0.97);
-            // Combination, not replacement: preserve the shoreline's whole
-            // height field and add the mountain's full established roughness
-            // into the lighting normal. This changes relief only, never color.
-            float mountainRoughness = groundFoothillRockHeight(
-                mountainRoughnessFields,
-                1.0
-            );
-            gBumpH = mix(
-                gBumpH,
-                shoreRockHeight + mountainRoughness,
-                coast
-            );
-            gSandSheen *= 1.0 - coast * 0.72;
-            gShoreStone = coast * uShowTextures;
-            gShoreWetness = coast * exposedRockWetness * uShowTextures;
-        }
-
-        // Grid last, so it draws over the beach wash rather than under it.
+        // Grid last, so it draws over every ground material.
         band = mix(band, ${GRID_COLOR}, hexGridLine(vTileLocal / uHexRadius, uShowGrid) * ${GRID_STRENGTH});
 
         diffuseColor.rgb = band;
@@ -836,10 +684,6 @@ const GROUND_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
 `;
 
 const GROUND_SURFACE_ROUGHNESS_FRAGMENT = /* glsl */ `
-    // Dry dune sand is still broadly rough, but not perfectly chalk-matte.
-    // Lowering roughness only for the procedural sand band lets the normal
-    // perturbation place a soft glint on dune faces aligned with the sun.
-    roughnessFactor = mix(roughnessFactor, 0.52, gSandSheen);
     // Rock uses the same light-driven response, weighted toward clean
     // higher-altitude stone. Cracks and ridges supply its changing normal.
     roughnessFactor = mix(roughnessFactor, 0.56, gRockSheen);
@@ -922,7 +766,6 @@ export function applyProceduralGround(material: any, terrainType: string): void 
     if (!GROUND_TYPES.has(terrainType)) return;
 
     material.onBeforeCompile = (shader: any) => {
-        shader.uniforms.uSandColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('SAND')) };
         shader.uniforms.uGrassColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('GRASS')) };
         shader.uniforms.uForestColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('FOREST')) };
         shader.uniforms.uRockColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('MOUNTAIN')) };
@@ -931,8 +774,6 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uSunDirection = { value: SunSystem.getDirection() };
         shader.uniforms.uGrassCalibration = MATERIAL_CALIBRATION_UNIFORMS.grass.parameters;
         shader.uniforms.uGrassCalibrationBalance = MATERIAL_CALIBRATION_UNIFORMS.grass.balance;
-        shader.uniforms.uBeachCalibration = MATERIAL_CALIBRATION_UNIFORMS.beach.parameters;
-        shader.uniforms.uBeachCalibrationBalance = MATERIAL_CALIBRATION_UNIFORMS.beach.balance;
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         // Shared by reference across every ground material -- see ViewOptions.
         shader.uniforms.uShowGrid = VIEW_UNIFORMS.showGrid;
@@ -946,15 +787,13 @@ export function applyProceduralGround(material: any, terrainType: string): void 
             .replace(
                 '#include <common>',
                 '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
-                ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
+                ' uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
                 ' uniform vec3 uRockColor;\n uniform vec3 uConcreteColor;\n' +
                 ' uniform float uIsConcrete;\n uniform vec3 uSunDirection;\n' +
                 ' uniform vec4 uGrassCalibration;\n uniform vec3 uGrassCalibrationBalance;\n' +
-                ' uniform vec4 uBeachCalibration;\n uniform vec3 uBeachCalibrationBalance;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
-                ' float gBumpH;\n float gSandSheen;\n float gRockSheen;\n' +
-                ' float gShoreStone;\n float gShoreWetness;\n' +
+                ' float gBumpH;\n float gRockSheen;\n float gShoreStone;\n' +
                 MATERIAL_CALIBRATION_GLSL + NOISE_GLSL_CORE + PERTURB_GLSL + SHORE_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT)
@@ -982,5 +821,5 @@ export function applyProceduralGround(material: any, terrainType: string): void 
     };
     // All ground materials share one height-banded program (uniforms
     // differ per material); distinct key from three.js's stock shader.
-    material.customProgramCacheKey = () => 'ground-height-banded-v14-matte-coast';
+    material.customProgramCacheKey = () => 'ground-height-banded-v18-coastline-lowland';
 }

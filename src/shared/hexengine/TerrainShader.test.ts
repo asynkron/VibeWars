@@ -20,37 +20,36 @@ function compile(terrainType: string) {
 }
 
 describe('concrete terrain shader', () => {
-    it('uses the concrete surface override but suppresses land-side wave run-up', () => {
+    it('uses the concrete surface override', () => {
         const shader = compile('CONCRETE');
         expect(shader.uniforms.uIsConcrete.value).toBe(1);
         expect(shader.fragmentShader).toContain('if (uIsConcrete > 0.5)');
-        expect(shader.fragmentShader).toContain('shoreBand(');
-        expect(shader.fragmentShader).toContain('shore > 0.001 && uIsConcrete < 0.5');
     });
 
     it('does not repaint ordinary ground as concrete', () => {
         expect(compile('GRASS').uniforms.uIsConcrete.value).toBe(0);
     });
 
-    it('keeps the shoreline material and layers mountain roughness onto it', () => {
+    it('replaces the complete former sand material with coastline stone', () => {
         const shader = compile('SAND');
         expect(shader.fragmentShader).toContain('groundTriplanarVoronoi');
-        expect(shader.fragmentShader).toContain('float shoreRockHeight =');
+        expect(shader.fragmentShader).toContain('float coastHeight =');
         expect(shader.fragmentShader).toContain('groundFoothillRockFields');
         expect(shader.fragmentShader).toContain(
-            'vec4 mountainRoughnessFields = groundFoothillRockFields(gp, warp)',
+            'vec4 coastRoughnessFields = groundFoothillRockFields(gp, warp)',
         );
         expect(shader.fragmentShader).toContain(
-            'shoreRockHeight + mountainRoughness',
+            'lowC = mix(coastStone, grassC, grassMask)',
         );
         expect(shader.fragmentShader).toContain(
-            'gShoreWetness = coast * exposedRockWetness',
+            'lowH = mix(coastHeight, grassH, grassMask)',
         );
         expect(shader.fragmentShader).toContain(
-            'vec3 beach = mix(coastGrass, stone, rockCoverage)',
+            'gShoreStone = (1.0 - grassMask) * wLow',
         );
-        expect(shader.fragmentShader).toContain(
-            'band = mix(band, beach, coast * 0.97)',
+        expect(shader.uniforms.uSandColor).toBeUndefined();
+        expect(shader.fragmentShader).not.toMatch(
+            /uSandColor|gSandSheen|sandC|sandH|rippleS|uBeachCalibration/,
         );
         expect(shader.fragmentShader).toContain(
             'roughnessFactor = mix(roughnessFactor, 1.0, gShoreStone)',

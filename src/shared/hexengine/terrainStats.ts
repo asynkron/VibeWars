@@ -45,15 +45,17 @@ export const TERRAIN_TYPES = {
         // same color band with different roughness produced visible
         // lighting seams along tile borders. One surface, one response.
         SAND: {
-            name: 'sand',
+            // Legacy terrain key retained for maps, movement tables and save
+            // compatibility. Visually this terrain is coastline stone.
+            name: 'coastline',
             moveCost: 1.5,
-            baseHeight: 0.7,  // Beaches stand clear of the water
+            baseHeight: 0.7,  // Coastline stands clear of the water
             heightVariation: 0.15,
             heightModifier: 1,
             threshold: 0.45,  // Between water (0.4) and grass (0.6)
             impassable: false,
             material: {
-                color: 0xAD8066,  // Muted dark warm-brown sand
+                color: 0x514c42,
                 metalness: 0.1,
                 roughness: 0.7
             }
