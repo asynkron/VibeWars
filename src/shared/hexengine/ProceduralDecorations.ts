@@ -884,8 +884,9 @@ const DECOR_ROUGHNESS_FRAGMENT = /* glsl */ `
     float barkMask = 1.0 - step(0.5, abs(vDecorKind));
     roughnessFactor = mix(roughnessFactor, 0.66, barkMask);
     roughnessFactor = mix(roughnessFactor, 0.76, step(0.5, vDecorKind));
-    float leafRoughness = mix(0.86, 0.08, uDecorLeafGloss);
-    leafRoughness = mix(leafRoughness, 0.94, vDecorAuthored);
+    // Leaves stay matte even at maximum gloss. The control changes their
+    // sun/shade contrast below, not the material into polished metal.
+    float leafRoughness = mix(0.88, 0.62, uDecorLeafGloss);
     roughnessFactor = mix(roughnessFactor, leafRoughness, step(1.5, vDecorKind));
 `;
 
@@ -901,29 +902,21 @@ const DECOR_BARK_VOLUME_FRAGMENT = /* glsl */ `
         * barkVolumeMask * barkSkySheen * 0.34;
 `;
 
-// MeshStandard's dielectric highlight is intentionally restrained. Leaves
-// need an additional very narrow white response so a few fluttering faces
-// flash when their normal, the sun and the camera align -- never a general
-// brightening of the crown.
+// The foliage control expresses directional light contrast, not a polished
+// specular coating: the sun-facing side receives more of its own leaf colour,
+// while ambient fill is reduced on the rear. This preserves green foliage and
+// makes the crown read as a lit volume rather than reflective metal.
 const DECOR_LEAF_GLINT_FRAGMENT = /* glsl */ `
     #if NUM_DIR_LIGHTS > 0
-        float leafGlintMask = step(1.5, vDecorKind) * (1.0 - vDecorAuthored);
+        float leafLightMask = step(1.5, vDecorKind);
         vec3 leafLightDir = normalize(directionalLights[0].direction);
-        vec3 leafViewDir = normalize(vViewPosition);
-        vec3 leafHalfDir = normalize(leafLightDir + leafViewDir);
-        float leafAlignment = saturate(dot(normalize(normal), leafHalfDir));
-        float leafGlintPower = mix(72.0, 220.0, uDecorLeafGloss);
-        float leafGlint = pow(leafAlignment, leafGlintPower);
-        float leafSparkle = mix(0.30, 1.0, smoothstep(
-            0.35,
-            0.80,
-            decorNoise(vDecorLocalPos.xz * 42.0 + vDecorLocalPos.y * 27.0)
-        ));
-        reflectedLight.directSpecular += vec3(1.0)
-            * leafGlintMask
-            * leafGlint
-            * leafSparkle
-            * mix(0.08, 0.78, uDecorLeafGloss);
+        float leafSunFacing = saturate(dot(normalize(normal), leafLightDir));
+        float leafSunWash = smoothstep(0.02, 0.72, leafSunFacing);
+        float sunBoost = 1.0 + leafLightMask * uDecorLeafGloss * leafSunWash * 0.48;
+        float ambientShade = mix(0.58, 0.90, leafSunWash);
+        float ambientFactor = mix(1.0, ambientShade, leafLightMask * uDecorLeafGloss);
+        reflectedLight.directDiffuse *= sunBoost;
+        reflectedLight.indirectDiffuse *= ambientFactor;
     #endif
 `;
 
