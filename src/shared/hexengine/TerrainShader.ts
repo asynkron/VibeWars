@@ -434,26 +434,52 @@ const GROUND_FRAGMENT = /* glsl */ `
             upperC *= 0.93 + mineralMid * 0.12;
             upperC *= 0.985 + mineralFine * 0.030;
 
-            // Sparse moss/grass islands survive only on upward-facing upper
-            // surfaces. The high threshold prevents the former green rivers.
+            // Dirt collects broadly in shallow upper faces and creases. Two
+            // offset scales keep it stained and broken rather than painting
+            // another continuous brown cap over the mountain.
             vec3 mountainWorldNormal = inverseTransformDirection(normalize(vTileNormal), viewMatrix);
-            float upperFacing = smoothstep(0.48, 0.82, mountainWorldNormal.y);
+            float upperFacing = smoothstep(0.30, 0.78, mountainWorldNormal.y);
+            float dirtLarge = groundFbm(gp * 0.64 + warp * 0.92 + vec2(27.6, 8.4));
+            float dirtBreakup = groundFbm(gp * 2.7 + warp * 1.8 + vec2(6.1, 31.7));
+            float upperDirt = smoothstep(0.54, 0.70,
+                dirtLarge + (dirtBreakup - 0.5) * 0.18);
+            upperDirt *= mix(0.48, 1.0, upperFacing);
+            vec3 dryEarth = mix(
+                uSandColor * vec3(0.48, 0.39, 0.29),
+                uForestColor * vec3(0.48, 0.39, 0.24),
+                dirtBreakup
+            );
+            upperC = mix(upperC, dryEarth, upperDirt * 0.52);
+
+            // Dark damp staining follows another field so it overlaps dirt
+            // imperfectly, giving accumulated grime instead of one flat mask.
+            float dampField = groundFbm3(mineralP * 0.86 + vec3(41.0, 7.3, 19.6));
+            float dampStain = smoothstep(0.59, 0.76, dampField)
+                * smoothstep(0.36, 0.72, upperDirt + upperFacing * 0.35);
+            vec3 dampEarth = uForestColor * vec3(0.31, 0.32, 0.20);
+            upperC = mix(upperC, dampEarth, dampStain * 0.48);
+
+            // Moss is more present now, but remains dark olive and heavily
+            // broken by a second field so it cannot read as lime-green rivers.
             float upperMossField = groundFbm(gp * 0.48 + warp * 0.65 + vec2(4.8, 11.2));
             float upperMossEdge = groundFbm(gp * 2.3 + warp * 1.4 + vec2(17.1, 3.6));
-            float upperMoss = smoothstep(0.79, 0.86,
-                upperMossField + (upperMossEdge - 0.5) * 0.06) * upperFacing;
+            float upperMoss = smoothstep(0.66, 0.78,
+                upperMossField + (upperMossEdge - 0.5) * 0.13);
+            upperMoss *= smoothstep(0.36, 0.58, upperMossEdge) * upperFacing;
+            upperMoss *= mix(0.55, 1.0, dampStain);
             vec3 upperMossColor = mix(
-                uForestColor * vec3(0.82, 0.88, 0.58),
-                uGrassColor * vec3(0.50, 0.46, 0.30),
-                upperMossEdge * 0.28
+                uForestColor * vec3(0.56, 0.68, 0.34),
+                uGrassColor * vec3(0.36, 0.39, 0.20),
+                upperMossEdge * 0.42
             );
-            upperC = mix(upperC, upperMossColor, upperMoss * 0.42);
+            upperC = mix(upperC, upperMossColor, upperMoss * 0.68);
 
             // Retain the old rock shape but soften it toward the summit;
             // the 3D field adds shallow, continuous surface weathering.
             float upperH = rockH * 0.46
                 + mineralBroad * 0.12 + mineralMid * 0.055
-                + mineralFine * 0.012;
+                + mineralFine * 0.012 + upperDirt * 0.035
+                + upperMoss * 0.075 - dampStain * 0.025;
             rockC = mix(rockC, upperC, upperRock);
             rockH = mix(rockH, upperH, upperRock);
             gRockSheen = wRock * mix(
