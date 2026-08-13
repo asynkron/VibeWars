@@ -17,6 +17,7 @@ import { MechanicalMotionSystem } from './shared/hexengine/MechanicalMotionSyste
 import { animateDecorationWind } from './shared/hexengine/ProceduralDecorations';
 import { MAP_CONFIG, HIGHLIGHT_COLORS } from './constants';
 import type { CameraMatrices } from './types';
+import { selectedMapProvider } from './systems/maps/mapRegistry';
 
 // Scene Objects
 const scene = new THREE.Scene();
@@ -67,6 +68,7 @@ const mapHeight = MAP_CONFIG.ROWS * MAP_CONFIG.HEX_RADIUS * Math.sqrt(3);  // ~8
 // Post-processing chain for the bloom. Built lazily in initRenderer.
 let composer: any = null;
 let bloomPass: any = null;
+let colorGradePass: any = null;
 let outputPass: any = null;
 
 // What blooms is decided by BRIGHTNESS ABOVE THE THRESHOLD, not by which
@@ -100,6 +102,48 @@ const BLOOM_RADIUS = 0.5;
 const BLOOM_THRESHOLD = 2.20;
 const BLOOM_MSAA_SAMPLES = 4;
 
+interface RuntimeColorGrade {
+    exposure: number;
+    saturation: number;
+    gamma: number;
+    balance: [number, number, number];
+}
+
+const SCENE_COLOR_GRADE_SHADER = {
+    uniforms: {
+        tDiffuse: { value: null },
+        exposure: { value: 1 },
+        saturation: { value: 1 },
+        gamma: { value: 1 },
+        colorBalance: { value: new THREE.Vector3(1, 1, 1) },
+    },
+    vertexShader: /* glsl */`
+        varying vec2 vUv;
+
+        void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: /* glsl */`
+        uniform sampler2D tDiffuse;
+        uniform float exposure;
+        uniform float saturation;
+        uniform float gamma;
+        uniform vec3 colorBalance;
+        varying vec2 vUv;
+
+        void main() {
+            vec4 source = texture2D(tDiffuse, vUv);
+            vec3 color = max(source.rgb * exposure * colorBalance, vec3(0.0));
+            color = pow(color, vec3(gamma));
+            float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+            color = mix(vec3(luminance), color, saturation);
+            gl_FragColor = vec4(color, source.a);
+        }
+    `,
+};
+
 
 function buildComposer() {
     const size = new THREE.Vector2(window.innerWidth, window.innerHeight);
@@ -121,6 +165,17 @@ function buildComposer() {
 
     bloomPass = new THREE.UnrealBloomPass(size, BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD);
     composer.addPass(bloomPass);
+
+    const colorGrade = selectedMapProvider().colorGrade;
+    colorGradePass = new THREE.ShaderPass(SCENE_COLOR_GRADE_SHADER);
+    colorGradePass.enabled = colorGrade !== undefined;
+    if (colorGrade) {
+        colorGradePass.uniforms.exposure.value = colorGrade.exposure;
+        colorGradePass.uniforms.saturation.value = colorGrade.saturation;
+        colorGradePass.uniforms.gamma.value = colorGrade.gamma;
+        colorGradePass.uniforms.colorBalance.value.set(...colorGrade.balance);
+    }
+    composer.addPass(colorGradePass);
     // Modern Three keeps tone mapping and the display colour-space transform
     // in an explicit final pass when post-processing is active. Without it,
     // enabling bloom bypasses the renderer's sRGB output path and produces a
@@ -128,6 +183,27 @@ function buildComposer() {
     outputPass = new THREE.OutputPass();
     composer.addPass(outputPass);
     setBloomEnabled(viewOptions.bloom);
+}
+
+function setRuntimeColorGrade(grade: RuntimeColorGrade): void {
+    if (!colorGradePass) return;
+    colorGradePass.enabled = true;
+    colorGradePass.uniforms.exposure.value = grade.exposure;
+    colorGradePass.uniforms.saturation.value = grade.saturation;
+    colorGradePass.uniforms.gamma.value = grade.gamma;
+    colorGradePass.uniforms.colorBalance.value.set(...grade.balance);
+    if (outputPass) outputPass.enabled = true;
+}
+
+function getRuntimeColorGrade(): RuntimeColorGrade | null {
+    if (!colorGradePass?.enabled) return null;
+    const balance = colorGradePass.uniforms.colorBalance.value;
+    return {
+        exposure: colorGradePass.uniforms.exposure.value,
+        saturation: colorGradePass.uniforms.saturation.value,
+        gamma: colorGradePass.uniforms.gamma.value,
+        balance: [balance.x, balance.y, balance.z],
+    };
 }
 
 // The bloom toggle, and it has to work this way.
@@ -153,7 +229,7 @@ function setBloomEnabled(on: boolean): void {
     // antialiased canvas. Leaving OutputPass enabled forces the scene through
     // a non-multisampled intermediate target even when bloom is off, which
     // softens every otherwise crisp edge.
-    if (outputPass) outputPass.enabled = on;
+    if (outputPass) outputPass.enabled = on || colorGradePass?.enabled === true;
 }
 
 // The composer owns its own render targets, so resizing the renderer alone
@@ -328,9 +404,10 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
 
     // Animate water tiles
     const seconds = performance.now() * 0.001;
+    const waterSeconds = selectedMapProvider().staticWater ? 0 : seconds;
     SunSystem.animate(seconds);
-    GridSystem.animateWater(seconds);
-    WaterReflectionSystem.animate(seconds);
+    GridSystem.animateWater(waterSeconds);
+    WaterReflectionSystem.animate(waterSeconds);
 
     // Wind on the same clock, plus the camera distance that decides which
     // blades are drawn and the viewport height they are kept a pixel wide
@@ -357,7 +434,7 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
 
     GroundInteractionSystem.animate(seconds);
     MechanicalMotionSystem.animate(seconds);
-    WaterUnitMotionSystem.animate(seconds);
+    WaterUnitMotionSystem.animate(waterSeconds);
 
     // Spin the helicopters' rotors. Blades move every frame, so their
     // shadow is stale every frame -- but only while a helicopter is alive.
@@ -482,4 +559,5 @@ export {
     updateCameraZoom, setupMinimap, animate, updateMiniMapHighlights,
     getCameraHeight, setCameraHeight, resizeComposer, markShadowsDirty, renderFrame,
     setBloomEnabled,
+    getRuntimeColorGrade, setRuntimeColorGrade,
 };

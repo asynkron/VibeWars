@@ -24,7 +24,9 @@
 // generate() now samples at a RANDOM OFFSET into the noise field per load
 // (see the seed note in generate()), so every match gets a genuinely new
 // board. The structural tests in randomMaps.test.ts therefore hold for
-// whatever board comes out, not for one memorized layout.
+// whatever board comes out, not for one memorized layout. One additional
+// 30x30 provider deliberately supplies a fixed seed to the same generator,
+// giving us a permanent, linkable random-map layout for repeated playtests.
 
 import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
 import { perlinNoise } from '../../shared/hexengine/perlinNoise';
@@ -33,6 +35,9 @@ import { MapProvider, StartingUnit, Tile } from './MapProvider';
 import type { BuildingSpawn, TileLike } from '../../types';
 import { DEPOT_TURNS, depotCells, depotRotationDeg } from './depotLayout';
 import { cubeRotate60, cubeToHex, hexToCube } from '../../shared/hexengine/hexMath';
+import { seededRandom } from '../../shared/seededRandom';
+
+export const FIXED_RANDOM_30_SEED = 0x30c0ffee;
 
 // One explicit roster per size -- the prefix scheme is gone, because the
 // counts are authored per size now: every size fields Pike (the only
@@ -235,7 +240,7 @@ function baseTargets(cols: number, rows: number, count: number): Array<[number, 
 // together because they must not collide and both need the same mainland.
 function placeEverything(
     tiles: TileLike[][], cols: number, rows: number, roster: readonly string[], baseCount: number,
-    attackBoatsPerSide: number
+    attackBoatsPerSide: number, random: () => number = Math.random
 ): { spawns: { player: StartingUnit[]; cpu: StartingUnit[] }; buildings: BuildingSpawn[] } {
     const open = tiles.length ? mainland(tiles, cols, rows) : new Set<string>();
     const waterway = tiles.length ? mainWaterway(tiles, cols, rows) : new Set<string>();
@@ -270,7 +275,7 @@ function placeEverything(
         }
         const [anchorQ, anchorR] = position;
         const groupId = `hq@player${target.ownerIndex}`;
-        const firstTurn = open.size ? randomBuildingRotationDeg() / 60 : 0;
+        const firstTurn = open.size ? randomBuildingRotationDeg(random) / 60 : 0;
         let turns = firstTurn;
         for (let index = 0; index < DEPOT_TURNS.length; index++) {
             const candidate = (firstTurn + index) % DEPOT_TURNS.length;
@@ -358,10 +363,10 @@ function placeEverything(
             // random offset and taking the first fit means a depot with room
             // on every side is genuinely random, while one wedged against a
             // lake still gets built instead of being skipped for a heading
-            // it could not have used. Math.random is right here for the same
-            // reason it is right for the noise offset above: this is map
-            // generation, not simulation.
-            const first = Math.floor(Math.random() * DEPOT_TURNS.length);
+            // it could not have used. An ordinary random map uses Math.random
+            // here; the fixed map passes its seeded generator through the
+            // same path. Both are generation-time choices, not simulation.
+            const first = Math.floor(random() * DEPOT_TURNS.length);
             let turns = first;
             for (let i = 0; i < DEPOT_TURNS.length; i++) {
                 const candidate = (first + i) % DEPOT_TURNS.length;
@@ -437,7 +442,8 @@ export function islandNoiseValue(
 
 function createRandomMap(
     key: string, name: string, size: number, roster: readonly string[], baseCount: number,
-    attackBoatsPerSide: number
+    attackBoatsPerSide: number, seed?: number,
+    colorGrade?: MapProvider['colorGrade'],
 ): MapProvider {
     // Where everything ended up on the map generate() last produced. Both
     // callers -- GameState and the headless harness -- generate the map and
@@ -448,7 +454,10 @@ function createRandomMap(
     // Before any generate() there is no terrain to consult. The start menu
     // does read spawns then, to show how many units a side gets, and the
     // roster length is right even when the coordinates are placeholders.
-    let placed = placeEverything([], size, size, roster, baseCount, attackBoatsPerSide);
+    let placed = placeEverything(
+        [], size, size, roster, baseCount, attackBoatsPerSide,
+        seed === undefined ? Math.random : seededRandom(seed),
+    );
 
     return {
         key,
@@ -456,6 +465,8 @@ function createRandomMap(
         rows: size,
         cols: size,
         randomRoads: 10,
+        ...(seed === undefined ? {} : { seed, staticWater: true }),
+        ...(colorGrade === undefined ? {} : { colorGrade }),
 
         get spawns() {
             return placed.spawns;
@@ -474,8 +485,11 @@ function createRandomMap(
             // landscape. Math.random is right here and wrong in the
             // simulation, same as the height jitter below: this is the
             // one real board, rolled once.
-            const offsetQ = Math.random() * 4096;
-            const offsetR = Math.random() * 4096;
+            // A seeded provider starts the sequence over on every generate;
+            // an ordinary provider deliberately keeps rolling fresh boards.
+            const random = seed === undefined ? Math.random : seededRandom(seed);
+            const offsetQ = random() * 4096;
+            const offsetR = random() * 4096;
             const tiles: TileLike[][] = [];
             for (let q = 0; q < this.cols; q++) {
                 tiles[q] = [];
@@ -492,7 +506,7 @@ function createRandomMap(
 
                     const terrainType = TerrainSystem.getTerrainTypeFromNoise(noiseValue);
                     const baseHeight = TerrainSystem.getTerrainBaseHeight(terrainType);
-                    const heightVariation = Math.random() * TerrainSystem.getTerrainHeightVariation(terrainType);
+                    const heightVariation = random() * TerrainSystem.getTerrainHeightVariation(terrainType);
 
                     let height: number;
                     if (terrainType === 'WATER') {
@@ -505,11 +519,11 @@ function createRandomMap(
                             TERRAIN_CONFIG.VALLEY_OFFSET;
                     }
 
-                    const color = TerrainSystem.getLerpedTerrainColor(noiseValue);
+                    const color = TerrainSystem.getLerpedTerrainColor(noiseValue, random);
                     tiles[q][r] = new Tile(height, terrainType, color);
                 }
             }
-            placed = placeEverything(tiles, size, size, roster, baseCount, attackBoatsPerSide);
+            placed = placeEverything(tiles, size, size, roster, baseCount, attackBoatsPerSide, random);
             levelBuildingPads(tiles, placed.buildings);
             return tiles;
         },
@@ -519,6 +533,25 @@ function createRandomMap(
 //                                    key         name               size  ground roster  bases  boats/side
 export const randomSmallMapProvider = createRandomMap('random20', 'Random — Small', 20, SMALL_ROSTER, 2, 1);
 export const randomMediumMapProvider = createRandomMap('random30', 'Random — Medium', 30, MEDIUM_ROSTER, 3, 2);
+export const fixedRandomMediumMapProvider = createRandomMap(
+    'random30fixed',
+    'Random — Medium · Fixed seed',
+    30,
+    [],
+    3,
+    0,
+    FIXED_RANDOM_30_SEED,
+    {
+        // Intentionally neutral. Material-specific View 1 calibration is
+        // measured from aligned water/grass/forest/beach crops; a global
+        // scene grade must not hide one material getting worse behind gains
+        // elsewhere.
+        exposure: 1,
+        saturation: 1,
+        gamma: 1,
+        balance: [1, 1, 1],
+    },
+);
 export const randomLargeMapProvider = createRandomMap('random50', 'Random — Large', 50, LARGE_ROSTER, 7, 3);
 
 // The old name, so nothing that imported it has to change. It is the 50x50

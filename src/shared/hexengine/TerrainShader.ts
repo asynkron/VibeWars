@@ -15,8 +15,8 @@
 // kept as a DARKENING signal relative to the material's own palette
 // luminance, so crater scorching and shading blends still show through.
 // The water SURFACE has its own shader below; the two meet at the
-// shoreline, where the ground shader runs the wash up the sand from the
-// same wave phase the water foams with.
+// shoreline, where the ground shader builds a static sand/gravel/stone band.
+// Near-shore water shading belongs to WaterReflectionSystem, never on land.
 //
 // CONCRETE is the deliberate exception: a building foundation keeps its
 // authored surface at any elevation, and a vertical quay suppresses the
@@ -28,6 +28,10 @@ export { PERTURB_GLSL } from './PerturbNormalShader';
 import { MAP_CONFIG } from '../../constants';
 import { VIEW_UNIFORMS } from './ViewOptions';
 import { SunSystem } from './SunSystem';
+import {
+    MATERIAL_CALIBRATION_GLSL,
+    MATERIAL_CALIBRATION_UNIFORMS,
+} from './MaterialCalibration';
 import {
     getWaterNormalTexture,
     WATER_NORMAL_GLSL,
@@ -195,20 +199,6 @@ const SHORE_GLSL = /* glsl */ `
         return clamp(1.0 - d / width, 0.0, 1.0);
     }
 
-    // Shoreline surge phase, 0 = drawn back, 1 = wave at its peak. Both
-    // position and noise offset the rhythm along the beach so waves break at
-    // different moments down the coast. This LAND effect is intentionally
-    // independent of the open-water wave implementation.
-    float shoreLap(vec2 p, float t) {
-        return sin(t * 1.7 + p.x * 2.3 + p.y * 1.9 + groundNoise(p * 4.0) * 5.0) * 0.5 + 0.5;
-    }
-
-    // Broken churn inside the foam -- patches, not a solid blanket. Shared
-    // for the same reason as shoreLap: the same speckle drifts across the
-    // waterline instead of stopping at it.
-    float shoreCaps(vec2 p, float t) {
-        return groundNoise(p * 11.0 + vec2(t * 0.6, -t * 0.35));
-    }
 `;
 
 // Colour and strength of the hex grid overlay. Dark rather than bright so
@@ -220,7 +210,6 @@ const GROUND_FRAGMENT = /* glsl */ `
     {
         vec2 gp = vGroundWorldPos.xz;
         float y = vGroundWorldPos.y;
-        gWaterFilm = 0.0;
         gSandSheen = 0.0;
         gRockSheen = 0.0;
         // Shared border wobble so the band lines meander organically
@@ -361,6 +350,11 @@ const GROUND_FRAGMENT = /* glsl */ `
                 vec3 grassWorldNormal = inverseTransformDirection(normalize(vTileNormal), viewMatrix);
                 float grassSunDelta = dot(grassWorldNormal, uSunDirection) - uSunDirection.y;
                 grassC *= clamp(1.0 + grassSunDelta * 0.90, 0.68, 1.22);
+                grassC = calibrateMaterialColor(
+                    grassC,
+                    uGrassCalibration,
+                    uGrassCalibrationBalance
+                );
                 grassH = meadow * 0.30 + blades * 0.10;
             }
 
@@ -548,80 +542,79 @@ const GROUND_FRAGMENT = /* glsl */ `
         float vLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
         band *= clamp(vLum / max(vPristineLum, 0.001), 0.35, 1.05);
 
-        // ---- Beach: the LAND half of the water's shore foam ----
-        // shore is 1 at the waterline and falls to 0 a fixed distance
-        // inland, measured against this tile's water-facing edges -- so it
-        // reads as "how far up the beach am I". The water shader derives
-        // its foam from the same function against its land-facing edges,
-        // so the two bands meet along the whole shared edge.
-        float shore = shoreBand(vTileLocal / uHexRadius, vShoreA, vShoreB, 0.38);
-        // Concrete foundations are vertical quay walls, not beaches. The
-        // land-side run-up assumes a sloped surface and stretches into a
-        // blue/white curtain on that wall, so suppress it for this terrain
-        // type only. Open water and every natural shoreline stay unchanged.
+        // ---- Beach: coarse sand, gravel and water-darkened stones ----
+        // shore is one at the real water-facing edge and falls inland.
+        // Low-frequency noise tears up both limits, avoiding a clean ribbon.
+        // Crucially, this is LAND only: no blue sheet and no white animated
+        // foam are painted over it. Shallow water lives on the water mesh.
+        float shore = shoreBand(vTileLocal / uHexRadius, vShoreA, vShoreB, 1.06);
         if (shore > 0.001 && uIsConcrete < 0.5) {
-            float lap = shoreLap(gp, uTime);
+            float coastWarp = groundFbm(gp * 1.45 + warp * 1.8) - 0.5;
+            float coast = smoothstep(-0.045, 0.15, shore + coastWarp * 0.14);
+            float wet = smoothstep(0.59, 0.98, shore + coastWarp * 0.08);
 
-            // Permanently damp sand: the strip the waves keep reaching,
-            // darker and cooler, no white. Its edge wobbles with noise so
-            // it does not read as a clean offset of the coastline.
-            float wet = smoothstep(0.30, 0.85, shore + (groundFbm(gp * 3.0) - 0.5) * 0.12);
-            band *= mix(vec3(1.0), vec3(0.60, 0.65, 0.72), wet * 0.9);
+            // Coarse, irregular slabs rather than a field of pebble dots.
+            // Voronoi's cell id colours the whole plate; only the narrow
+            // distance between its two nearest cells becomes a crevice.
+            vec2 slabWarp = vec2(
+                groundFbm(gp * 1.10 + vec2(2.7, 8.4)),
+                groundFbm(gp * 1.10 + vec2(7.1, 1.9))
+            ) - 0.5;
+            vec3 slabCell = groundVoronoi(gp * 2.35 + slabWarp * 2.25);
+            float strata = groundFbm(gp * 1.55 + vec2(slabCell.z * 3.1, coastWarp));
+            float granular = groundFbm(gp * 6.8 + slabWarp * 1.7 + vec2(5.6, 2.3));
+            float mineral = smoothstep(0.27, 0.72,
+                strata * 0.62 + slabCell.z * 0.38 + coastWarp * 0.12);
 
-            // The sheet surges: a high lap pushes the water further UP the
-            // beach, i.e. down to a lower shore. Even fully drawn back it
-            // stops at 0.92 rather than 1.0, so a thin lip of water always
-            // sits against the waterline -- a shore that empties completely
-            // between waves reads as the effect switching off. The withdrawn
-            // limit is 0.82 because the crest itself extends 0.17 farther
-            // seaward: 0.82 + 0.17 = 0.99, so the complete white line always
-            // remains inside the land tile instead of being clipped away at
-            // shore == 1. The 0.82..1.0 remainder stays as visible blue film.
-            float reach = mix(0.82, 0.62, lap);
-            float sheet = smoothstep(reach, min(reach + 0.12, 1.0), shore);
-            // Flatten over the whole remaining run to the coast rather than
-            // switching normal at the sheet's inner edge. This feathers the
-            // sloped land geometry into the flat lake normal.
-            gWaterFilm = smoothstep(reach, 1.0, shore);
+            vec3 sand = mix(
+                vec3(0.48, 0.41, 0.33),
+                vec3(0.66, 0.58, 0.47),
+                groundFbm(gp * 3.0 + warp)
+            );
+            vec3 stone = mix(
+                vec3(0.34, 0.34, 0.32),
+                vec3(0.61, 0.58, 0.52),
+                clamp(slabCell.z * 0.68 + strata * 0.32, 0.0, 1.0)
+            );
+            // Every directly coastal tile is predominantly mineral. Broad
+            // patches of compacted sand break it up, but never form the old
+            // smooth pink ribbon between grass and water.
+            float stoneCoverage = clamp(0.70 + shore * 0.18 + mineral * 0.22, 0.0, 1.0);
+            vec3 beach = mix(sand, stone, stoneCoverage);
+            // Broken, non-continuous mineral seams. They are gated by a
+            // second broad field, so no Voronoi cell can acquire a complete
+            // cartoon outline or read as laid paving.
+            float fractureLine = 1.0 - smoothstep(
+                0.016,
+                0.052,
+                slabCell.y - slabCell.x
+            );
+            float fractureGate = smoothstep(0.58, 0.74,
+                groundFbm(gp * 1.9 + slabWarp * 1.4 + vec2(8.1, 3.4)));
+            float brokenFracture = fractureLine * fractureGate;
+            beach = mix(beach, vec3(0.28, 0.28, 0.26), brokenFracture * 0.20);
+            // Broad pale facets and fine grain share continuous noise rather
+            // than isolated feature points: texture, not a ring of pebbles.
+            float exposedFacet = smoothstep(0.64, 0.82,
+                strata * 0.72 + granular * 0.28);
+            beach = mix(beach, vec3(0.71, 0.68, 0.61), exposedFacet * 0.27);
+            beach *= 0.955 + granular * 0.09;
+            vec3 wetStone = beach * vec3(0.56, 0.61, 0.64);
+            beach = mix(beach, wetStone, wet * 0.82);
+            beach = calibrateMaterialColor(
+                beach,
+                uBeachCalibration,
+                uBeachCalibrationBalance
+            );
 
-            // What runs up the sand is WATER, not foam: a film carrying the
-            // sea's own blue with the sand showing through it, so the beach
-            // reads as the sea stretching a little way up the land.
-            // Whitening the whole sheet instead just draws a pale ribbon
-            // winding along the coast.
-            // The little run-up strip deliberately has no planar reflection,
-            // but raw water albedo is darker than the reflected lake beside
-            // it. Ease toward the lake's average daylight value at the outer
-            // edge so the two separate meshes do not meet as a hard navy line.
-            float waterEdgeBlend = smoothstep(reach + 0.04, 1.0, shore);
-            vec3 filmWater = mix(uWaterColor, uWaterColor * 1.36, waterEdgeBlend);
-            band = mix(band, filmWater, sheet);
-
-            // White surf rides the FRONT of that film -- a band at the top
-            // of its run, with the blue trailing back down to the sea
-            // behind it. front is 0 at the leading edge and grows
-            // seaward, so the surf band sits just inside the water's reach.
-            float front = shore - reach;
-            float caps = shoreCaps(gp, uTime);
-            // A slightly broader crest than the old 0.13..-0.05 strip. It
-            // remains a line rather than turning the whole wash white.
-            float surf = smoothstep(0.17, 0.025, front) * smoothstep(-0.07, 0.025, front);
-            // Churn breaks up the intensity without punching holes through
-            // the whole crest. Keeping a brighter floor is what makes the
-            // slightly wider white line read continuously along the coast.
-            surf *= mix(0.35, 1.0, smoothstep(0.30, 0.70, caps + 0.30))
-                * mix(0.65, 1.0, smoothstep(0.0, 0.45, lap));
-
-            // A soft shader-local halo keeps the foam luminous while the
-            // expensive full-screen bloom toggle is off. The HDR-white core
-            // deliberately crosses render.ts's bloom threshold when that
-            // pass is enabled; ordinary sunlit sand remains below it.
-            float surfHalo = (1.0 - smoothstep(0.07, 0.25, abs(front - 0.035)))
-                * smoothstep(0.18, 0.62, caps + 0.22)
-                * mix(0.45, 1.0, lap);
-            band += vec3(0.22, 0.27, 0.34) * surfHalo;
-            band = mix(band, vec3(1.62, 1.69, 1.78), clamp(surf, 0.0, 0.84));
-
+            band = mix(band, beach, coast * 0.97);
+            gBumpH = mix(
+                gBumpH,
+                slabCell.z * 0.13 + strata * 0.17 + granular * 0.08
+                    + exposedFacet * 0.16 - brokenFracture * 0.14,
+                coast
+            );
+            gSandSheen *= 1.0 - coast * 0.72;
         }
 
         // Grid last, so it draws over the beach wash rather than under it.
@@ -673,7 +666,7 @@ const SHORE_VERTEX_BODY =
 const SHORE_FRAGMENT_DECL =
     ' varying vec3 vGroundWorldPos;\n varying vec3 vShoreA;\n varying vec3 vShoreB;\n' +
     ' varying vec2 vTileLocal;\n varying vec3 vTileNormal;\n uniform float uHexRadius;\n' +
-    ' uniform float uTime;\n uniform float uShowGrid;\n uniform float uShowTextures;\n' +
+    ' uniform float uShowGrid;\n uniform float uShowTextures;\n' +
     ' varying float vPristineLum;';
 
 
@@ -699,16 +692,10 @@ const TILE_NORMAL_FRAGMENT = /* glsl */ `
 // surface, not fight it.
 const GROUND_NORMAL_FRAGMENT = TILE_NORMAL_FRAGMENT + /* glsl */ `
     {
-        vec3 groundBaseNormal = normal;
-        vec3 flatWaterNormal = normalize(mat3(viewMatrix) * vec3(0.0, 1.0, 0.0));
         normal = groundPerturbNormal(vGroundWorldPos, normal, gBumpH, 0.22);
-        normal = normalize(mix(normal, flatWaterNormal, gWaterFilm));
     }
 `;
 
-// Match the film to the water material's surface response as well as its
-// colour. These run after GROUND_FRAGMENT has written gWaterFilm and before
-// lighting consumes roughnessFactor / metalnessFactor.
 const GROUND_SURFACE_ROUGHNESS_FRAGMENT = /* glsl */ `
     // Dry dune sand is still broadly rough, but not perfectly chalk-matte.
     // Lowering roughness only for the procedural sand band lets the normal
@@ -717,11 +704,6 @@ const GROUND_SURFACE_ROUGHNESS_FRAGMENT = /* glsl */ `
     // Rock uses the same light-driven response, weighted toward clean
     // higher-altitude stone. Cracks and ridges supply its changing normal.
     roughnessFactor = mix(roughnessFactor, 0.56, gRockSheen);
-    roughnessFactor = mix(roughnessFactor, 0.68, gWaterFilm);
-`;
-
-const GROUND_WATER_METALNESS_FRAGMENT = /* glsl */ `
-    metalnessFactor = mix(metalnessFactor, 0.0, gWaterFilm);
 `;
 
 // The reference shader derives its small-scale surface normal from the same
@@ -744,7 +726,6 @@ export function applyWaterSurface(material: any): void {
 
     material.onBeforeCompile = (shader: any) => {
         shader.uniforms.time = { value: 0 };
-        shader.uniforms.uTime = { value: 0 };
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         shader.uniforms.size = { value: WATER_NORMAL_SIZE };
         shader.uniforms.normalSampler = { value: getWaterNormalTexture() };
@@ -772,7 +753,6 @@ export function applyWaterSurface(material: any): void {
                 '#include <normal_fragment_begin>',
                 '#include <normal_fragment_begin>\n' + WATER_NORMAL_FRAGMENT
             );
-        // Expose the shader so animateWater can drive uTime each frame.
         material.userData.shader = shader;
     };
     material.customProgramCacheKey = () => 'water-surface-flat-proxy-v3';
@@ -792,10 +772,10 @@ export function applyProceduralGround(material: any, terrainType: string): void 
         shader.uniforms.uConcreteColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('CONCRETE')) };
         shader.uniforms.uIsConcrete = { value: terrainType === 'CONCRETE' ? 1 : 0 };
         shader.uniforms.uSunDirection = { value: SunSystem.getDirection() };
-        // Same source as the water material's own color, so the film
-        // running up the beach is the sea, not a blue of its own.
-        shader.uniforms.uWaterColor = { value: new THREE.Color(TerrainSystem.getTerrainColor('WATER')) };
-        shader.uniforms.uTime = { value: 0 };
+        shader.uniforms.uGrassCalibration = MATERIAL_CALIBRATION_UNIFORMS.grass.parameters;
+        shader.uniforms.uGrassCalibrationBalance = MATERIAL_CALIBRATION_UNIFORMS.grass.balance;
+        shader.uniforms.uBeachCalibration = MATERIAL_CALIBRATION_UNIFORMS.beach.parameters;
+        shader.uniforms.uBeachCalibrationBalance = MATERIAL_CALIBRATION_UNIFORMS.beach.balance;
         shader.uniforms.uHexRadius = { value: MAP_CONFIG.HEX_RADIUS };
         // Shared by reference across every ground material -- see ViewOptions.
         shader.uniforms.uShowGrid = VIEW_UNIFORMS.showGrid;
@@ -810,12 +790,14 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 '#include <common>',
                 '#include <common>\n' + SHORE_FRAGMENT_DECL + '\n' +
                 ' uniform vec3 uSandColor;\n uniform vec3 uGrassColor;\n uniform vec3 uForestColor;\n' +
-                ' uniform vec3 uRockColor;\n uniform vec3 uConcreteColor;\n uniform vec3 uWaterColor;\n' +
+                ' uniform vec3 uRockColor;\n uniform vec3 uConcreteColor;\n' +
                 ' uniform float uIsConcrete;\n uniform vec3 uSunDirection;\n' +
+                ' uniform vec4 uGrassCalibration;\n uniform vec3 uGrassCalibrationBalance;\n' +
+                ' uniform vec4 uBeachCalibration;\n uniform vec3 uBeachCalibrationBalance;\n' +
                 // Written by the color pass, read by the bump pass below --
                 // GLSL globals are how the two injection points share state.
-                ' float gBumpH;\n float gWaterFilm;\n float gSandSheen;\n float gRockSheen;\n' +
-                NOISE_GLSL_CORE + PERTURB_GLSL + SHORE_GLSL
+                ' float gBumpH;\n float gSandSheen;\n float gRockSheen;\n' +
+                MATERIAL_CALIBRATION_GLSL + NOISE_GLSL_CORE + PERTURB_GLSL + SHORE_GLSL
             )
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + GROUND_FRAGMENT)
             .replace(
@@ -823,15 +805,9 @@ export function applyProceduralGround(material: any, terrainType: string): void 
                 '#include <roughnessmap_fragment>\n' + GROUND_SURFACE_ROUGHNESS_FRAGMENT
             )
             .replace(
-                '#include <metalnessmap_fragment>',
-                '#include <metalnessmap_fragment>\n' + GROUND_WATER_METALNESS_FRAGMENT
-            )
-            .replace(
                 '#include <normal_fragment_begin>',
                 '#include <normal_fragment_begin>\n' + GROUND_NORMAL_FRAGMENT
             );
-        // Expose the shader so animateWater can drive uTime each frame --
-        // the beach wash animates on the same clock as the water.
         material.userData.shader = shader;
     };
     // All ground materials share one height-banded program (uniforms

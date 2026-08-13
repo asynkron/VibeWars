@@ -10,6 +10,13 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "capture:view1": "node scripts/capture-fixed-view.mjs",
+    "compare:view1": "node scripts/optimize-view1-colors.mjs --iterations=0",
+    "compare:view1:regions": "node scripts/extract-view1-regions.mjs",
+    "compare:view1:candidates": "node scripts/view1-region-candidates.mjs",
+    "optimize:view1:regions": "node scripts/optimize-view1-regions.mjs",
+    "optimize:view1:materials": "node scripts/optimize-view1-materials.mjs",
+    "optimize:view1": "node scripts/optimize-view1-colors.mjs",
     "models:optimize": "./scripts/optimize-unit-models.sh",
     "simulate": "MATCHES=${MATCHES:-10} vitest run --disable-console-intercept src/systems/sim/matchReport.test.ts",
     "tournament": "ROUNDS=${ROUNDS:-20} vitest run --disable-console-intercept src/systems/sim/ai/tournamentReport.test.ts"
@@ -18,6 +25,8 @@
   "devDependencies": {
     "@types/three": "^0.185.0",
     "jsdom": "^29.1.1",
+    "playwright": "^1.62.1",
+    "pngjs": "^7.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.0",
     "vitest": "^4.1.10"

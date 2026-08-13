@@ -11,6 +11,7 @@ import { rotor12x18MapProvider } from './Rotor12x18MapProvider';
 import { chokeMapProvider, chokeRetreatMapProvider, chokeTwinMapProvider } from './ChokeMapProvider';
 import { groveMapProvider } from './GroveMapProvider';
 import {
+    fixedRandomMediumMapProvider,
     randomLargeMapProvider,
     randomMediumMapProvider,
     randomSmallMapProvider,
@@ -32,6 +33,7 @@ export const AUTHORED_PROVIDERS: MapProvider[] = [
 export const RANDOM_PROVIDERS: MapProvider[] = [
     randomSmallMapProvider,
     randomMediumMapProvider,
+    fixedRandomMediumMapProvider,
     randomLargeMapProvider,
 ];
 

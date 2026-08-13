@@ -1,6 +1,8 @@
 import { MAP_CONFIG } from '../../constants';
 import { getGameStateOrNull } from '../../systems/gameStateStore';
 import { viewOptions } from './ViewOptions';
+import { selectedMapProvider } from '../../systems/maps/mapRegistry';
+import { seededRandom } from '../seededRandom';
 
 // Real grass blades on grass tiles, close up.
 //
@@ -216,6 +218,10 @@ class GrassSystem {
         if (!tiles.length) return;
 
         const baseGeometry = bladeGeometry();
+        const mapSeed = selectedMapProvider().seed;
+        const random = mapSeed === undefined
+            ? Math.random
+            : seededRandom(mapSeed ^ 0x67726173);
         const material = new THREE.MeshStandardMaterial({
             // Lit from both sides: a blade is one sheet, and half of them
             // face away from the sun at any moment.
@@ -231,7 +237,7 @@ class GrassSystem {
         this.applyGrassShader(material);
 
         for (const chunk of this.chunkTiles(tiles)) {
-            const mesh = this.buildChunk(chunk, baseGeometry, material);
+            const mesh = this.buildChunk(chunk, baseGeometry, material, random);
             if (mesh) {
                 mesh.userData.excludeFromWaterReflection = true;
                 this.meshes.push(mesh);
@@ -267,7 +273,12 @@ class GrassSystem {
         );
     }
 
-    private static buildChunk(tileMeshes: any[], baseGeometry: any, material: any): any {
+    private static buildChunk(
+        tileMeshes: any[],
+        baseGeometry: any,
+        material: any,
+        random: () => number,
+    ): any {
         // The block's own origin. Instances are placed relative to it so the
         // bounding sphere below can sit at the geometry's local origin --
         // which is what three tests the frustum against.
@@ -323,8 +334,8 @@ class GrassSystem {
             for (let i = 0; i < BLADES_PER_TILE; i++) {
                 // Uniform inside a disc: sqrt on the radius, or they crowd
                 // the middle.
-                const angle = Math.random() * Math.PI * 2;
-                const radiusIn = Math.sqrt(Math.random()) * PLANT_RADIUS * MAP_CONFIG.HEX_RADIUS;
+                const angle = random() * Math.PI * 2;
+                const radiusIn = Math.sqrt(random()) * PLANT_RADIUS * MAP_CONFIG.HEX_RADIUS;
                 const localX = Math.cos(angle) * radiusIn;
                 const localZ = Math.sin(angle) * radiusIn;
 
@@ -333,15 +344,15 @@ class GrassSystem {
                     this.surfaceY(position, localX, localZ) - cy,
                     tileMesh.position.z + localZ - cz
                 );
-                dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+                dummy.rotation.set(0, random() * Math.PI * 2, 0);
                 // Vary height, and lean each blade a little off vertical so
                 // the field has some disorder standing still -- without it a
                 // still frame is a bed of identical spikes.
                 // A good lean off vertical, not a token one: seen from
                 // above, a blade standing straight up shows the camera
                 // almost no area at all.
-                dummy.rotation.z = (Math.random() - 0.5) * 0.7;
-                const scale = 0.65 + Math.random() * 0.7;
+                dummy.rotation.z = (random() - 0.5) * 0.7;
+                const scale = 0.65 + random() * 0.7;
                 dummy.scale.set(1, scale, 1);
                 dummy.updateMatrix();
                 mesh.setMatrixAt(index, dummy.matrix);
@@ -353,7 +364,7 @@ class GrassSystem {
                 } else {
                     colour.setRGB(0.35, 0.5, 0.2);
                 }
-                colour.multiplyScalar(BLADE_BRIGHTEN * (0.85 + Math.random() * 0.35));
+                colour.multiplyScalar(BLADE_BRIGHTEN * (0.85 + random() * 0.35));
                 mesh.setColorAt(index, colour);
                 index++;
             }

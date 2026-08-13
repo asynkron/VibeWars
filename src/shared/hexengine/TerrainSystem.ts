@@ -91,7 +91,7 @@ class TerrainSystem {
         return this.terrainTypesRecord[terrainType]?.material || this.terrainTypes.GRASS.material;
     }
 
-    static getLerpedTerrainColor(noiseValue: number): number {
+    static getLerpedTerrainColor(noiseValue: number, random: () => number = Math.random): number {
         // Convert terrainTypes to array and sort by threshold
         const sortedTypes = Object.entries(this.terrainTypesRecord)
             .filter(([type]) => type !== 'CONCRETE')
@@ -147,7 +147,7 @@ class TerrainSystem {
         resultColor.g = currentColor.g + (nextColor.g - currentColor.g) * lerpFactor;
         resultColor.b = currentColor.b + (nextColor.b - currentColor.b) * lerpFactor;
 
-        return addColorVariation(resultColor).getHex();
+        return addColorVariation(resultColor, 0.05, random).getHex();
     }
 }
 

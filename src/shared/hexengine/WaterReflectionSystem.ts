@@ -5,6 +5,10 @@ import { SunSystem } from './SunSystem';
 import { getTerrainColor } from './terrainStats';
 import { VIEW_UNIFORMS } from './ViewOptions';
 import {
+    MATERIAL_CALIBRATION_GLSL,
+    MATERIAL_CALIBRATION_UNIFORMS,
+} from './MaterialCalibration';
+import {
     createGerstnerUniforms,
     GERSTNER_BASIS_GLSL,
     GERSTNER_DISPLACEMENT_SCALE,
@@ -53,6 +57,8 @@ const WATER_REFLECTION_SHADER: any = {
         sunDirection: { value: new THREE.Vector3(0.70707, 0.70707, 0) },
         eye: { value: new THREE.Vector3() },
         waterColor: { value: new THREE.Color(getTerrainColor('WATER')) },
+        waterCalibration: MATERIAL_CALIBRATION_UNIFORMS.water.parameters,
+        waterCalibrationBalance: MATERIAL_CALIBRATION_UNIFORMS.water.balance,
     },
     vertexShader: /* glsl */ `
         uniform mat4 textureMatrix;
@@ -96,6 +102,8 @@ const WATER_REFLECTION_SHADER: any = {
         uniform vec3 sunDirection;
         uniform vec3 eye;
         uniform vec3 waterColor;
+        uniform vec4 waterCalibration;
+        uniform vec3 waterCalibrationBalance;
         uniform vec4 waveA;
         uniform vec4 waveB;
         uniform vec4 waveC;
@@ -110,6 +118,7 @@ const WATER_REFLECTION_SHADER: any = {
         #include <common>
         ${WATER_NORMAL_GLSL}
         ${GERSTNER_BASIS_GLSL}
+        ${MATERIAL_CALIBRATION_GLSL}
 
         float hexEdgeDistance(vec2 local) {
             float d = 10.0;
@@ -265,6 +274,11 @@ const WATER_REFLECTION_SHADER: any = {
             );
             float whiteHighlight = smoothstep(0.38, 0.78, gradedLuminance);
             albedo = mix(albedo, vec3(1.0), whiteHighlight);
+            albedo = calibrateMaterialColor(
+                albedo,
+                waterCalibration,
+                waterCalibrationBalance
+            );
 
             albedo = mix(
                 albedo,
@@ -318,6 +332,14 @@ export class WaterReflectionSystem {
         reflector.material.transparent = false;
         reflector.material.depthWrite = true;
         reflector.material.uniforms.uShowGrid = VIEW_UNIFORMS.showGrid;
+        // Reflector clones the shader-uniform template in its constructor.
+        // Reattach the two live calibration objects afterwards; otherwise
+        // the optimizer updates the template while the GPU keeps rendering
+        // the cloned neutral values forever.
+        reflector.material.uniforms.waterCalibration =
+            MATERIAL_CALIBRATION_UNIFORMS.water.parameters;
+        reflector.material.uniforms.waterCalibrationBalance =
+            MATERIAL_CALIBRATION_UNIFORMS.water.balance;
         reflector.material.side = THREE.DoubleSide;
         reflector.material.toneMapped = false;
         reflector.userData.excludeFromWaterReflection = true;

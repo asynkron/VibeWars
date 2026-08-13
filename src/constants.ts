@@ -14,6 +14,7 @@ const MAP_SIZES: Record<string, { rows: number; cols: number }> = {
     // Random, perlin-generated. One generator, three sizes.
     random20: { rows: 20, cols: 20 },
     random30: { rows: 30, cols: 30 },
+    random30fixed: { rows: 30, cols: 30 },
     random50: { rows: 50, cols: 50 },
     // Scenario boards -- asymmetric tactical questions. See
     // maps/ChokeMapProvider.ts and systems/sim/scenarios/.

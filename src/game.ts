@@ -15,6 +15,7 @@ import {
     initRenderer, setupCamera, setCameraPosition, updateCameraPosition,
     updateCameraZoom, setupMinimap, animate, getCameraHeight, setCameraHeight,
     resizeComposer,
+    getRuntimeColorGrade, setRuntimeColorGrade,
 } from './render';
 import { WaterReflectionSystem } from './shared/hexengine/WaterReflectionSystem';
 import { SunSystem } from './shared/hexengine/SunSystem';
@@ -43,6 +44,11 @@ import { AUTHORED_PROVIDERS, RANDOM_PROVIDERS, SCENARIO_PROVIDERS, selectedMapPr
 import { armedSkill, setArmedListener } from './systems/skillBar';
 import { skillReady, inSkillRange, skillAccepts } from './shared/hexengine/skills';
 import type { CameraMatrices, GameUnit, PlayerController } from './types';
+import { seededRandom } from './shared/seededRandom';
+import {
+    getRuntimeMaterialCalibration,
+    setRuntimeMaterialCalibration,
+} from './shared/hexengine/MaterialCalibration';
 
 // Terrain viewer (terrain.html): the page sets this flag before loading
 // this module, and initGame then builds the world exactly as a match would
@@ -624,6 +630,10 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
         const r = renderer.info.render;
         return { calls: r.calls, triangles: r.triangles };
     };
+    (window as any).getRuntimeColorGrade = getRuntimeColorGrade;
+    (window as any).setRuntimeColorGrade = setRuntimeColorGrade;
+    (window as any).getRuntimeMaterialCalibration = getRuntimeMaterialCalibration;
+    (window as any).setRuntimeMaterialCalibration = setRuntimeMaterialCalibration;
 
     // Kick off the first turn (starts the AI immediately in AI-vs-AI mode).
     // The viewer never starts it: no turns, no production, no AI -- the
@@ -1036,20 +1046,26 @@ if ((import.meta as any).env?.DEV) {
 function createRoads(gameState: GameState) {
     // Authored maps bake their roads as tile.hasRoad and set randomRoads
     // to 0; the random wilderness sprinkles this many on top.
-    const roadCount = selectedMapProvider().randomRoads;
+    const provider = selectedMapProvider();
+    const roadCount = provider.randomRoads;
+    // Keep roads on a separate deterministic stream so changing how many
+    // terrain samples generation consumes cannot silently move every road.
+    const random = provider.seed === undefined
+        ? Math.random
+        : seededRandom(provider.seed ^ 0x726f6164);
     for (let i = 0; i < roadCount; i++) {
         // Find a random valid start point (not water)
         let startQ, startR;
         do {
-            startQ = Math.floor(Math.random() * MAP_CONFIG.COLS);
-            startR = Math.floor(Math.random() * MAP_CONFIG.ROWS);
+            startQ = Math.floor(random() * MAP_CONFIG.COLS);
+            startR = Math.floor(random() * MAP_CONFIG.ROWS);
         } while (gameState.map.getTile(startQ, startR)!.type === 'WATER');
 
         // Find a random valid end point (not water)
         let endQ, endR;
         do {
-            endQ = Math.floor(Math.random() * MAP_CONFIG.COLS);
-            endR = Math.floor(Math.random() * MAP_CONFIG.ROWS);
+            endQ = Math.floor(random() * MAP_CONFIG.COLS);
+            endR = Math.floor(random() * MAP_CONFIG.ROWS);
         } while (gameState.map.getTile(endQ, endR)!.type === 'WATER');
 
         // Generate the road between these points

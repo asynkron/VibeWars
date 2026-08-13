@@ -16,6 +16,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 // The existing battlefield palette was authored against Three r128's
@@ -43,6 +44,7 @@ if (!(globalThis as any).THREE) {
         EffectComposer,
         OutputPass,
         RenderPass,
+        ShaderPass,
         UnrealBloomPass,
     };
 }

@@ -1,11 +1,15 @@
 // Shared helper utilities for the hex engine.
 import { GridSystem } from './GridSystem';
 
-function addColorVariation(color: number | string, variation: number = 0.05) {
+function addColorVariation(
+  color: number | string,
+  variation: number = 0.05,
+  random: () => number = Math.random
+) {
   const baseColor = new THREE.Color(color);
-  baseColor.r += (Math.random() - 0.5) * variation;
-  baseColor.g += (Math.random() - 0.5) * variation;
-  baseColor.b += (Math.random() - 0.5) * variation;
+  baseColor.r += (random() - 0.5) * variation;
+  baseColor.g += (random() - 0.5) * variation;
+  baseColor.b += (random() - 0.5) * variation;
   return baseColor;
 }
 

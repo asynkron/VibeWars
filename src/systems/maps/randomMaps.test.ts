@@ -32,8 +32,31 @@ const EXPECTED = {
     // in PerlinMapProvider.
     random20: { units: 4, boats: 1, depots: 2 },
     random30: { units: 10, boats: 2, depots: 3 },
+    random30fixed: { units: 0, boats: 0, depots: 3 },
     random50: { units: 16, boats: 3, depots: 7 },
 } as const;
+
+function generatedSignature(provider: (typeof RANDOM_PROVIDERS)[number]): string {
+    const tiles = provider.generate();
+    return JSON.stringify({
+        tiles: tiles.map((column) => column.map((tile) => [
+            tile.type,
+            tile.height,
+            tile.color,
+        ])),
+        spawns: provider.spawns,
+        buildings: provider.buildings,
+    });
+}
+
+describe('fixed random 30x30 map', () => {
+    it('recreates identical terrain, placements, and rotations from its hard seed', () => {
+        const provider = RANDOM_PROVIDERS.find((candidate) => candidate.key === 'random30fixed')!;
+        expect(provider.seed).toBeDefined();
+        expect(provider.staticWater).toBe(true);
+        expect(generatedSignature(provider)).toBe(generatedSignature(provider));
+    });
+});
 
 const neighbourOffsets = (q: number) => (q % 2 === 0
     ? [[0, -1], [1, -1], [1, 0], [0, 1], [-1, 0], [-1, -1]]
@@ -143,6 +166,7 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
         for (const boat of [...playerBoats, ...cpuBoats]) {
             expect(tiles[boat.q][boat.r].type).toBe('WATER');
         }
+        if (!expected.boats) return;
         const first = playerBoats[0];
         const connected = reachable(tiles, cols, rows, first.type, [first.q, first.r]);
         for (const boat of [...playerBoats, ...cpuBoats]) {
@@ -151,6 +175,7 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
     });
 
     it('gives each side infantry, or the depots are scenery', () => {
+        if (!expected.units) return;
         // Only canCapture units take a building, so a roster without one
         // makes every depot on the map unwinnable furniture. This is why
         // Pike is third in the roster rather than fifth.
@@ -209,6 +234,7 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
             expect(hexDistance(entranceQ, entranceR, doorQ, doorR)).toBe(1);
 
             for (const side of [spawns.player, spawns.cpu]) {
+                if (!side.length) continue;
                 const walker = side[0];
                 const canReach = reachable(tiles, cols, rows, walker.type, [walker.q, walker.r]);
                 expect(canReach.has(doorKey), `${walker.type} cannot drive to HQ door at ${doorKey}`).toBe(true);
@@ -336,7 +362,8 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
         // Doors specifically, and with the capturing class, since reaching a
         // depot with a tank proves nothing about taking it.
         for (const side of [spawns.player, spawns.cpu]) {
-            const capturer = side.find((u) => unitTypesRecord[u.type]?.canCapture)!;
+            const capturer = side.find((u) => unitTypesRecord[u.type]?.canCapture);
+            if (!capturer) continue;
             const canReach = reachable(tiles, cols, rows, capturer.type, [capturer.q, capturer.r]);
             for (const door of doors) {
                 expect(canReach.has(`${door.q},${door.r}`), `no route to the door at ${door.q},${door.r}`)
@@ -349,6 +376,7 @@ describe.each(RANDOM_PROVIDERS.map((p) => [p.key, p] as const))('random map: %s'
         // armies. Otherwise a side could receive an unreachable objective.
         const headquarters = buildings.filter((building) => building.type === 'hq');
         for (const side of [spawns.player, spawns.cpu]) {
+            if (!side.length) continue;
             const walker = side[0];
             const canReach = reachable(tiles, cols, rows, walker.type, [walker.q, walker.r]);
             for (const headquartersBuilding of headquarters) {

@@ -19,6 +19,14 @@ export interface StartingUnit {
     r: number;
 }
 
+export interface SceneColorGrade {
+    readonly exposure: number;
+    readonly saturation: number;
+    readonly gamma: number;
+    readonly balance: readonly [number, number, number];
+    readonly referenceWaterPalette?: boolean;
+}
+
 export interface MapProvider {
     // Registry key; selectable via the ?map=<key> URL parameter.
     readonly key: string;
@@ -28,6 +36,15 @@ export interface MapProvider {
     // Number of random roads game.ts should generate after map creation.
     // Authored maps bake their roads as tile.hasRoad and use 0.
     readonly randomRoads: number;
+    // When present, every procedural choice owned by the provider -- plus
+    // game.ts's random roads -- restarts from this seed on every load.
+    // Ordinary random maps omit it and continue to use Math.random.
+    readonly seed?: number;
+    // Preserve the wave geometry at time zero but do not advance its clock.
+    readonly staticWater?: boolean;
+    // Optional post-process calibration for authored visual-study maps.
+    // It affects only the rendered scene; HTML controls remain unchanged.
+    readonly colorGrade?: SceneColorGrade;
     readonly spawns: {
         player: StartingUnit[];
         cpu: StartingUnit[];

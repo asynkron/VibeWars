@@ -23,6 +23,10 @@ import {
     SPRUCE_TREE_PARAMETERS,
 } from './treeModelPresets';
 import {
+    MATERIAL_CALIBRATION_GLSL,
+    MATERIAL_CALIBRATION_UNIFORMS,
+} from './MaterialCalibration';
+import {
     canopyWidthAtTrunkLevel,
     childBranchLength,
     firstSideBranchLength,
@@ -426,6 +430,8 @@ const DECOR_NOISE_GLSL = /* glsl */ `
     uniform float uDecorInnerCrownOpacity;
     uniform float uDecorOuterCrownOpacity;
     uniform vec4 uDecorCanopyColorAdjust;
+    uniform vec4 uForestCalibration;
+    uniform vec3 uForestCalibrationBalance;
     #define DECOR_LEAF_INV_CELLS ${(1 / LEAF_CELLS).toFixed(6)}
 
     float decorHash(vec2 p) {
@@ -873,6 +879,15 @@ const DECOR_FRAGMENT = /* glsl */ `
             if (paintedCanopy.a * uDecorOuterCrownOpacity < 0.50) discard;
             dBumpH = dot(paintedCanopy.rgb, vec3(0.2126, 0.7152, 0.0722)) * 0.24;
         }
+
+        if (vDecorKind > 0.5) {
+            diffuseColor.rgb = calibrateMaterialColor(
+                diffuseColor.rgb,
+                uForestCalibration,
+                uForestCalibrationBalance
+            );
+        }
+
     }
 `;
 
@@ -1147,6 +1162,8 @@ function applyOrganicDetail(material: any): void {
         shader.uniforms.uDecorInnerCrownOpacity = material.userData.innerCrownOpacityUniform;
         shader.uniforms.uDecorOuterCrownOpacity = material.userData.outerCrownOpacityUniform;
         shader.uniforms.uDecorCanopyColorAdjust = material.userData.canopyColorAdjustUniform;
+        shader.uniforms.uForestCalibration = MATERIAL_CALIBRATION_UNIFORMS.forest.parameters;
+        shader.uniforms.uForestCalibrationBalance = MATERIAL_CALIBRATION_UNIFORMS.forest.balance;
         // Two textures shared by every decoration material on the map --
         // baked once, referenced here, never per tile.
         const fields = getLeafFields();
@@ -1183,7 +1200,7 @@ function applyOrganicDetail(material: any): void {
         shader.fragmentShader = shader.fragmentShader
             // dBumpH is written by the color pass and read by the bump
             // pass -- a GLSL global, same wiring as the terrain's gBumpH.
-            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n uniform float uBurn;\n float dBumpH;\n' + DECOR_NOISE_GLSL + PERTURB_GLSL)
+            .replace('#include <common>', '#include <common>\n varying float vDecorKind;\n uniform float uBurn;\n float dBumpH;\n' + MATERIAL_CALIBRATION_GLSL + DECOR_NOISE_GLSL + PERTURB_GLSL)
             .replace('#include <color_fragment>', '#include <color_fragment>\n' + DECOR_FRAGMENT + DECOR_BURN_GLSL)
             .replace(
                 '#include <roughnessmap_fragment>',

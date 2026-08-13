@@ -19,6 +19,16 @@ import { MAP_CONFIG, CRATER_COLOR } from '../../constants';
 import { getGameState, getGameStateOrNull } from '../../systems/gameStateStore';
 import { selectedMapProvider } from '../../systems/maps/mapRegistry';
 import type { GameUnit } from '../../types';
+import { seededRandom } from '../seededRandom';
+
+function waterPhase(q: number, r: number): number {
+    const mapSeed = selectedMapProvider().seed;
+    if (mapSeed === undefined) return Math.random() * Math.PI * 2;
+    const tileSeed = mapSeed
+        ^ Math.imul(q + 1, 0x9e3779b1)
+        ^ Math.imul(r + 1, 0x85ebca6b);
+    return seededRandom(tileSeed)() * Math.PI * 2;
+}
 
 class GridSystem {
     static hexGrid: any[] = [];
@@ -307,7 +317,7 @@ class GridSystem {
         // Set up shared userData for this hex group
         const userData: any = { x, z, height, moveCost, type, q, r };
         if (type === 'water') {
-            userData.timeOffset = Math.random() * Math.PI * 2;
+            userData.timeOffset = waterPhase(q, r);
             userData.originalHeight = height;
         }
         hexGroup.userData = userData;
@@ -941,7 +951,7 @@ class GridSystem {
         hex.userData.type = 'water';
         hex.userData.height = waterHeight;
         hex.userData.originalHeight = waterHeight;
-        hex.userData.timeOffset = Math.random() * Math.PI * 2;
+        hex.userData.timeOffset = waterPhase(hex.userData.q, hex.userData.r);
         if (hex.userData.decorator) {
             hex.remove(hex.userData.decorator);
             hex.userData.decorator = null;
