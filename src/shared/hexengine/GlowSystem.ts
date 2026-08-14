@@ -16,15 +16,84 @@
 // material's authored strength to reach that and to read as lit rather
 // than merely painted.
 const GLOW_BOOST = 3.0;
+// The panels stay authored cyan, but their bounced environmental light is
+// heavily desaturated. A saturated cyan wash made grass and concrete look
+// painted rather than illuminated.
+const LOCAL_LIGHT_COLOR = 0xe1edf0;
+const LOCAL_LIGHT_INTENSITY = 32;
+const LOCAL_LIGHT_DISTANCE = 6;
 
 interface Glow {
     material: any;
     base: number;
 }
 
+interface LocalGlowSource {
+    root: any;
+    position: any;
+}
+
 class GlowSystem {
     static glows: Glow[] = [];
     private static sharedMaterial: any = null;
+    private static localLights: any[] = [];
+    private static localSources: LocalGlowSource[] = [];
+
+    // Keep the exact building-light count in the scene from the first frame.
+    // BuildingSystem has already placed every renderable structure before
+    // this runs, so there is no reason to guess or cap the number.
+    // Adding or removing Three lights later changes shader defines and forces
+    // every material to recompile; changing intensity and position does not.
+    static initLocalLights(home: any): void {
+        if (!home || this.localLights.length > 0) return;
+        for (let i = 0; i < this.localSources.length; i++) {
+            const light = new THREE.PointLight(
+                LOCAL_LIGHT_COLOR,
+                0,
+                LOCAL_LIGHT_DISTANCE,
+                2,
+            );
+            light.castShadow = false;
+            light.userData.glowEnvironmentLight = true;
+            home.add(light);
+            this.localLights.push(light);
+        }
+        this.syncLocalLights();
+    }
+
+    // A building calls this after it has reached its final world transform.
+    // The source stays static, so calculate its useful light origin once
+    // instead of rescanning every mesh in every animation frame.
+    static illuminateSurroundings(root: any): void {
+        if (!root || this.localSources.some((source) => source.root === root)) return;
+        root.updateWorldMatrix?.(true, true);
+        const bounds = new THREE.Box3().setFromObject(root);
+        const position = new THREE.Vector3();
+        const size = new THREE.Vector3();
+        if (bounds.isEmpty()) {
+            root.getWorldPosition?.(position);
+            position.y += 0.35;
+        } else {
+            bounds.getCenter(position);
+            bounds.getSize(size);
+            // Low inside the structure: close enough to wash the ground,
+            // but above it so the radial falloff does not collapse to a dot.
+            position.y = bounds.min.y + THREE.MathUtils.clamp(
+                size.y * 0.24,
+                0.30,
+                0.72,
+            );
+        }
+        this.localSources.push({ root, position });
+        this.syncLocalLights();
+    }
+
+    static stopIlluminatingSurroundings(root: any): void {
+        const index = this.localSources.findIndex((source) => source.root === root);
+        if (index < 0) return;
+        this.localSources.splice(index, 1);
+        this.syncLocalLights();
+    }
 
     static isGlowMaterial(material: any): boolean {
         return !!material?.emissive && material.emissive.getHex() !== 0x000000;
@@ -75,12 +144,39 @@ class GlowSystem {
     // The one global material has no time-dependent or per-object state.
     static animate(_time: number): void {
         if (this.sharedMaterial) this.sharedMaterial.emissiveIntensity = GLOW_BOOST;
+        // A destroyed or replaced building may leave through a terrain path
+        // before its bookkeeping callback. Parentless roots cannot emit.
+        let removed = false;
+        for (let i = this.localSources.length - 1; i >= 0; i--) {
+            if (this.localSources[i].root?.parent) continue;
+            this.localSources.splice(i, 1);
+            removed = true;
+        }
+        if (removed) this.syncLocalLights();
+    }
+
+    private static syncLocalLights(): void {
+        for (let i = 0; i < this.localLights.length; i++) {
+            const light = this.localLights[i];
+            const source = this.localSources[i];
+            if (!source || !source.root?.parent) {
+                light.intensity = 0;
+                continue;
+            }
+            light.color.setHex(LOCAL_LIGHT_COLOR);
+            light.position.copy(source.position);
+            light.distance = LOCAL_LIGHT_DISTANCE;
+            light.decay = 2;
+            light.intensity = LOCAL_LIGHT_INTENSITY;
+        }
     }
 
     static clear(): void {
         this.sharedMaterial?.dispose?.();
         this.sharedMaterial = null;
         this.glows.length = 0;
+        this.localSources.length = 0;
+        for (const light of this.localLights) light.intensity = 0;
     }
 }
 

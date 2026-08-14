@@ -465,7 +465,7 @@ function createRandomMap(
         rows: size,
         cols: size,
         randomRoads: 10,
-        ...(seed === undefined ? {} : { seed, staticWater: true }),
+        ...(seed === undefined ? {} : { seed }),
         ...(colorGrade === undefined ? {} : { colorGrade }),
 
         get spawns() {

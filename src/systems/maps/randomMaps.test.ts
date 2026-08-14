@@ -53,7 +53,6 @@ describe('fixed random 30x30 map', () => {
     it('recreates identical terrain, placements, and rotations from its hard seed', () => {
         const provider = RANDOM_PROVIDERS.find((candidate) => candidate.key === 'random30fixed')!;
         expect(provider.seed).toBeDefined();
-        expect(provider.staticWater).toBe(true);
         expect(generatedSignature(provider)).toBe(generatedSignature(provider));
     });
 });

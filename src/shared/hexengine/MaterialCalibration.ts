@@ -12,9 +12,9 @@ const values: Record<MaterialCalibrationTarget, MaterialCalibration> = {
     // Calibrated against the fixed View 1 reference using identical material
     // rectangles downsampled into 4x4 average-colour blocks before scoring.
     water: {
-        exposure: 0.82,
+        exposure: 0.95,
         contrast: 1,
-        saturation: 1.04,
+        saturation: 1.15,
         gamma: 1,
         balance: [0.92, 1.12, 0.94],
     },

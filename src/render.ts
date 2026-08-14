@@ -22,7 +22,7 @@ import { selectedMapProvider } from './systems/maps/mapRegistry';
 // Scene Objects
 const scene = new THREE.Scene();
 // scene.background = new THREE.Color(0xffffff); // Remove white background
-const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 10000); // Increased far plane
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 10000); // Increased far plane
 camera.position.set(20, 20, 20);
 
 // three's loaders only reuse a file they have already fetched when this is
@@ -404,10 +404,9 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
 
     // Animate water tiles
     const seconds = performance.now() * 0.001;
-    const waterSeconds = selectedMapProvider().staticWater ? 0 : seconds;
     SunSystem.animate(seconds);
-    GridSystem.animateWater(waterSeconds);
-    WaterReflectionSystem.animate(waterSeconds);
+    GridSystem.animateWater(seconds);
+    WaterReflectionSystem.animate(seconds);
 
     // Wind on the same clock, plus the camera distance that decides which
     // blades are drawn and the viewport height they are kept a pixel wide
@@ -434,7 +433,7 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
 
     GroundInteractionSystem.animate(seconds);
     MechanicalMotionSystem.animate(seconds);
-    WaterUnitMotionSystem.animate(waterSeconds);
+    WaterUnitMotionSystem.animate(seconds);
 
     // Spin the helicopters' rotors. Blades move every frame, so their
     // shadow is stale every frame -- but only while a helicopter is alive.

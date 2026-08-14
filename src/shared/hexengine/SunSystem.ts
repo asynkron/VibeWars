@@ -4,8 +4,9 @@ import { markShadowsDirty } from './ShadowBudget';
 // drives the directional light, the photographed sun in the reflection sky,
 // and the highlight on the water. Lower than the old 13:00 position for
 // longer shadows, while light intensity stays full daylight.
-const DAYLIGHT_AZIMUTH_DEGREES = 118;
-const DAYLIGHT_ELEVATION_DEGREES = 53;
+const DAYLIGHT_AZIMUTH_DEGREES = 173;
+const DAYLIGHT_ELEVATION_DEGREES = 46;
+const DAYLIGHT_STRENGTH = 1.48;
 const LIGHT_DISTANCE = 100;
 
 export class SunSystem {
@@ -15,12 +16,16 @@ export class SunSystem {
     private static color = new THREE.Color(0xffffff);
     private static azimuthDegrees = DAYLIGHT_AZIMUTH_DEGREES;
     private static elevationDegrees = DAYLIGHT_ELEVATION_DEGREES;
+    private static baseIntensity = 0;
+    private static strength = DAYLIGHT_STRENGTH;
 
     static init(scene: any, light: any): void {
         this.light = light;
+        this.baseIntensity = light.intensity;
         light.target.position.copy(this.center);
         if (!light.target.parent) scene.add(light.target);
         this.setDaylightDirection();
+        this.applyStrength();
     }
 
     static setCenter(x: number, y: number, z: number): void {
@@ -62,6 +67,15 @@ export class SunSystem {
         return this.light?.intensity ?? 0;
     }
 
+    static getStrength(): number {
+        return this.strength;
+    }
+
+    static setStrength(strength: number): void {
+        this.strength = THREE.MathUtils.clamp(strength, 0, 3);
+        this.applyStrength();
+    }
+
     // Intersection between the sun ray and the horizontal reflection-sky
     // plane. This keeps the visible photographed sun on the exact same ray
     // as the light and water highlight.
@@ -97,5 +111,10 @@ export class SunSystem {
             .add(this.center);
         this.light.target.position.copy(this.center);
         this.light.target.updateMatrixWorld();
+    }
+
+    private static applyStrength(): void {
+        if (!this.light) return;
+        this.light.intensity = this.baseIntensity * this.strength;
     }
 }

@@ -17,6 +17,7 @@
 // ownership/tint.
 
 import { GridSystem } from './GridSystem';
+import { GlowSystem } from './GlowSystem';
 import { applyBuildingWeathering } from './BuildingWeatheringShader';
 import { HexCoord } from './HexCoord';
 import { ModelSystem } from './ModelSystem';
@@ -123,6 +124,9 @@ class BuildingSystem {
         const base = ModelSystem.getModel(spec.model);
         if (!hex || !base) return;
 
+        if (building.visual) {
+            GlowSystem.stopIlluminatingSurroundings(building.visual);
+        }
         if (building.visual && hex.userData.decorator === building.visual) {
             hex.remove(building.visual);
             hex.userData.decorator = null;
@@ -161,6 +165,7 @@ class BuildingSystem {
         );
         hex.userData.decorator = visual;
         hex.add(visual);
+        GlowSystem.illuminateSurroundings(visual);
         building.visual = visual;
         // Replacing or retinting this reflected shadow-caster invalidates
         // both the cached shadow map and the cached water reflection.
@@ -296,6 +301,7 @@ class BuildingSystem {
             : [building];
         for (const piece of pieces) {
             if (piece.visual) {
+                GlowSystem.stopIlluminatingSurroundings(piece.visual);
                 const hex = HexCoord.findHex(piece.q, piece.r);
                 if (hex?.userData.decorator === piece.visual) {
                     hex.remove(piece.visual);

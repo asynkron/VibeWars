@@ -7,6 +7,10 @@
 // whatever the markup happened to say.
 
 import { MAP_CONFIG, MAP_KEY } from '../constants';
+import {
+    getRuntimeMaterialCalibration,
+    setRuntimeMaterialCalibration,
+} from '../shared/hexengine/MaterialCalibration';
 import { SunSystem } from '../shared/hexengine/SunSystem';
 import { viewOptions, toggleViewOption, ViewOptions } from '../shared/hexengine/ViewOptions';
 import { FrameStats } from './frameStats';
@@ -63,7 +67,7 @@ const SAVED_CAMERA_VIEWS: SavedCameraView[] = [{
     scale: [1, 1, 1],
     cameraHeight: 26,
     zoom: 1,
-    fov: 45,
+    fov: 70,
     aspect: 1.6,
     near: 1,
     far: 10000,
@@ -80,7 +84,7 @@ const SAVED_CAMERA_VIEWS: SavedCameraView[] = [{
     scale: [1, 1, 1],
     cameraHeight: 15,
     zoom: 1,
-    fov: 45,
+    fov: 70,
     aspect: 1.6,
     near: 1,
     far: 10000,
@@ -108,6 +112,7 @@ function applySavedCameraView(view: SavedCameraView): void {
     camera.clearViewOffset();
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld(true);
+    window.dispatchEvent(new Event('vibewars-camera-view-changed'));
 }
 
 function xyz(vector: { x: number; y: number; z: number }) {
@@ -200,15 +205,19 @@ function syncMinimapOverlay(options: ViewOptions): void {
     overlay.style.display = options.minimap ? 'block' : 'none';
 }
 
-function createSunControls(): HTMLElement {
+function createSceneControls(): HTMLElement {
     const controls = document.createElement('div');
     controls.className = 'sun-controls';
+    controls.id = 'scene-controls';
 
     const angles = SunSystem.getAngles();
+    const waterCalibration = getRuntimeMaterialCalibration('water');
     const makeRange = (
         label: string,
+        min: number,
         max: number,
         value: number,
+        format: (rangeValue: number) => string,
     ): { row: HTMLLabelElement; input: HTMLInputElement; output: HTMLOutputElement } => {
         const row = document.createElement('label');
         row.className = 'sun-control';
@@ -218,34 +227,81 @@ function createSunControls(): HTMLElement {
 
         const input = document.createElement('input');
         input.type = 'range';
-        input.min = '0';
+        input.min = String(min);
         input.max = String(max);
         input.step = '1';
         input.value = String(value);
 
         const output = document.createElement('output');
-        output.value = `${Math.round(value)}°`;
+        output.value = format(value);
 
         row.append(text, input, output);
         return { row, input, output };
     };
 
-    const azimuth = makeRange('Solrotation', 360, angles.azimuth);
-    const elevation = makeRange('Sol över plan', 180, angles.elevation);
+    const degrees = (value: number): string => `${Math.round(value)}°`;
+    const percent = (value: number): string => `${Math.round(value)}%`;
+    const azimuth = makeRange('Solrotation', 0, 360, angles.azimuth, degrees);
+    const elevation = makeRange('Sol över plan', 0, 180, angles.elevation, degrees);
+    const strength = makeRange('Solstyrka', 0, 300, SunSystem.getStrength() * 100, percent);
+    const perspective = makeRange('Perspektiv', 20, 100, camera.fov, degrees);
+    const waterSaturation = makeRange('Vattenmättnad', 0, 300, waterCalibration.saturation * 100, percent);
+    const waterContrast = makeRange('Vattenkontrast', 0, 300, waterCalibration.contrast * 100, percent);
+    const waterBrightness = makeRange('Vattenljushet', 0, 300, waterCalibration.exposure * 100, percent);
     azimuth.input.title = 'Rotate the directional light around the battlefield';
     elevation.input.title = 'Move the directional light over the battlefield';
+    strength.input.title = 'Adjust the strength of the directional sunlight';
+    perspective.input.title = 'Adjust camera lens: low is flatter telephoto, high is stronger wide-angle perspective';
+    waterSaturation.input.title = 'Adjust saturation of the final rendered water colour';
+    waterContrast.input.title = 'Adjust contrast of the final rendered water colour';
+    waterBrightness.input.title = 'Adjust brightness of the final rendered water colour';
 
-    const update = (): void => {
+    const updateSun = (): void => {
         const azimuthDegrees = Number(azimuth.input.value);
         const elevationDegrees = Number(elevation.input.value);
-        azimuth.output.value = `${Math.round(azimuthDegrees)}°`;
-        elevation.output.value = `${Math.round(elevationDegrees)}°`;
+        const strengthPercent = Number(strength.input.value);
+        azimuth.output.value = degrees(azimuthDegrees);
+        elevation.output.value = degrees(elevationDegrees);
+        strength.output.value = percent(strengthPercent);
         SunSystem.setAngles(azimuthDegrees, elevationDegrees);
+        SunSystem.setStrength(strengthPercent / 100);
     };
-    azimuth.input.addEventListener('input', update);
-    elevation.input.addEventListener('input', update);
+    const updatePerspective = (): void => {
+        camera.fov = Number(perspective.input.value);
+        perspective.output.value = degrees(camera.fov);
+        camera.updateProjectionMatrix();
+    };
+    const syncPerspective = (): void => {
+        perspective.input.value = String(camera.fov);
+        perspective.output.value = degrees(camera.fov);
+    };
+    const updateWater = (): void => {
+        waterCalibration.saturation = Number(waterSaturation.input.value) / 100;
+        waterCalibration.contrast = Number(waterContrast.input.value) / 100;
+        waterCalibration.exposure = Number(waterBrightness.input.value) / 100;
+        waterSaturation.output.value = percent(waterCalibration.saturation * 100);
+        waterContrast.output.value = percent(waterCalibration.contrast * 100);
+        waterBrightness.output.value = percent(waterCalibration.exposure * 100);
+        setRuntimeMaterialCalibration('water', waterCalibration);
+    };
+    azimuth.input.addEventListener('input', updateSun);
+    elevation.input.addEventListener('input', updateSun);
+    strength.input.addEventListener('input', updateSun);
+    perspective.input.addEventListener('input', updatePerspective);
+    waterSaturation.input.addEventListener('input', updateWater);
+    waterContrast.input.addEventListener('input', updateWater);
+    waterBrightness.input.addEventListener('input', updateWater);
+    window.addEventListener('vibewars-camera-view-changed', syncPerspective);
 
-    controls.append(azimuth.row, elevation.row);
+    controls.append(
+        azimuth.row,
+        elevation.row,
+        strength.row,
+        perspective.row,
+        waterSaturation.row,
+        waterContrast.row,
+        waterBrightness.row,
+    );
     return controls;
 }
 
@@ -319,7 +375,22 @@ export function initViewToolbar(): void {
         toolbar.appendChild(viewButton);
     }
 
-    if (MAP_KEY === 'random30fixed') toolbar.appendChild(createSunControls());
+    const sceneControls = createSceneControls();
+    sceneControls.hidden = true;
+
+    const sceneControlsButton = document.createElement('button');
+    sceneControlsButton.className = 'view-toggle';
+    sceneControlsButton.textContent = '…';
+    sceneControlsButton.title = 'Show or hide scene controls';
+    sceneControlsButton.setAttribute('aria-controls', sceneControls.id);
+    sceneControlsButton.setAttribute('aria-expanded', 'false');
+    sceneControlsButton.addEventListener('click', () => {
+        sceneControls.hidden = !sceneControls.hidden;
+        const open = !sceneControls.hidden;
+        sceneControlsButton.classList.toggle('is-on', open);
+        sceneControlsButton.setAttribute('aria-expanded', String(open));
+    });
+    toolbar.append(sceneControlsButton, sceneControls);
 
     document.body.appendChild(toolbar);
     syncMinimapOverlay(viewOptions);

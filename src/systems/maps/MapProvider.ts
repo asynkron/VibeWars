@@ -40,8 +40,6 @@ export interface MapProvider {
     // game.ts's random roads -- restarts from this seed on every load.
     // Ordinary random maps omit it and continue to use Math.random.
     readonly seed?: number;
-    // Preserve the wave geometry at time zero but do not advance its clock.
-    readonly staticWater?: boolean;
     // Optional post-process calibration for authored visual-study maps.
     // It affects only the rendered scene; HTML controls remain unchanged.
     readonly colorGrade?: SceneColorGrade;

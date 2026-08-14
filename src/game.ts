@@ -39,6 +39,7 @@ import { MAP_CONFIG, MAP_KEY, START_MODE, AI_DIFFICULTY} from './constants';
 import { initViewToolbar } from './systems/viewToolbar';
 import { renderFrame } from './render';
 import { LightPool } from './shared/hexengine/LightPool';
+import { GlowSystem } from './shared/hexengine/GlowSystem';
 import { setGameState, getGameState } from './systems/gameStateStore';
 import { AUTHORED_PROVIDERS, RANDOM_PROVIDERS, SCENARIO_PROVIDERS, selectedMapProvider } from './systems/maps/mapRegistry';
 import { armedSkill, setArmedListener } from './systems/skillBar';
@@ -613,6 +614,7 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // BEFORE the first frame. The pool's lights have to be present for the
     // initial shader compile, or adding them later costs the very stall
     // they exist to remove.
+    GlowSystem.initLocalLights(group);
     LightPool.init(group);
 
     animate(miniMapCamera, matrices, mapWidth, mapHeight, highlightGroup);
