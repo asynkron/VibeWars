@@ -187,8 +187,8 @@ function roughen(geometry: any, seed: number, amount: number, facet: boolean = f
     // computeVertexNormals can only give per-face facets -- exactly the
     // cut-gem look we are leaving. Radial normals make a blob shade as one
     // round canopy however lumpy the jitter left it. Indexed geometry
-    // (cones) averages properly, and rocks OPT INTO facets: a boulder
-    // should read as split stone, not a pillow.
+    // averages normals across shared vertices; custom rocks intentionally
+    // stay indexed so their triangular silhouette does not imply flat faces.
     if (facet || geometry.index) {
         geometry.computeVertexNormals();
     } else {
@@ -649,7 +649,7 @@ const DECOR_FRAGMENT = /* glsl */ `
                 * (0.85 + 0.30 * plateTint)
                 * (0.88 + 0.20 * ridge)
                 * (0.90 + 0.20 * grain);
-            stone *= mix(vec3(0.93, 0.98, 1.08), vec3(1.08, 1.00, 0.88), plateTint);
+            stone *= mix(vec3(1.02, 1.00, 0.94), vec3(1.10, 0.99, 0.84), plateTint);
 
             // FLAT per-face contrast: the facet normal is constant across
             // each chipped face (screen-space derivatives of the local
@@ -672,7 +672,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // whole rock into mud.
             float stain = smoothstep(0.55, 0.85,
                 decorFbm(vDecorLocalPos.xy * 5.0 + vDecorLocalPos.z * 3.0 + 2.3));
-            stone = mix(stone, vec3(0.42, 0.36, 0.27) * (0.75 + 0.45 * plateTint), stain * 0.38);
+            stone = mix(stone, vec3(0.24, 0.21, 0.17) * (0.82 + 0.28 * plateTint), stain * 0.52);
 
             // Moss in LARGE readable patches on upward faces; sub-pixel
             // moss merely averages back into brown at map scale.
@@ -686,7 +686,7 @@ const DECOR_FRAGMENT = /* glsl */ `
             // high mountainside -- band-limited, and kept off the moss.
             vec2 lichP = vDecorLocalPos.xz * 26.0 + vDecorLocalPos.y * 19.0;
             float lich = smoothstep(0.88, 0.96, decorNoise(lichP)) * decorDetailFade(lichP);
-            diffuseColor.rgb += vec3(0.20, 0.21, 0.19) * lich * (1.0 - mossMask);
+            diffuseColor.rgb += vec3(0.13, 0.135, 0.12) * lich * (1.0 - mossMask);
 
             // Relief reuses the fields the color came from: plates and
             // ridges raised, seams recessed, moss a soft cushion on top.
@@ -925,6 +925,8 @@ const DECOR_FRAGMENT = /* glsl */ `
 // response across the cylinder is what lets its roundness survive the
 // game's strong ambient light.
 const DECOR_ROUGHNESS_FRAGMENT = /* glsl */ `
+    float rockRoughnessMask = 1.0 - step(-0.5, vDecorKind);
+    roughnessFactor = mix(roughnessFactor, 0.96, rockRoughnessMask);
     float barkMask = 1.0 - step(0.5, abs(vDecorKind));
     roughnessFactor = mix(roughnessFactor, 0.66, barkMask);
     roughnessFactor = mix(roughnessFactor, 0.76, step(0.5, vDecorKind));
@@ -932,6 +934,12 @@ const DECOR_ROUGHNESS_FRAGMENT = /* glsl */ `
     // sun/shade contrast below, not the material into polished metal.
     float leafRoughness = mix(0.88, 0.62, uDecorLeafGloss);
     roughnessFactor = mix(roughnessFactor, leafRoughness, step(1.5, vDecorKind));
+`;
+
+const DECOR_METALNESS_FRAGMENT = /* glsl */ `
+    // Decorative stone is weathered mineral, never metal. Keep the small
+    // dielectric response broad and matte through the roughness pass above.
+    metalnessFactor *= step(-0.5, vDecorKind);
 `;
 
 // The game's ambient light is deliberately strong and directionless. On the
@@ -1247,6 +1255,10 @@ function applyOrganicDetail(material: any): void {
                 '#include <roughnessmap_fragment>\n' + DECOR_ROUGHNESS_FRAGMENT
             )
             .replace(
+                '#include <metalnessmap_fragment>',
+                '#include <metalnessmap_fragment>\n' + DECOR_METALNESS_FRAGMENT
+            )
+            .replace(
                 '#include <lights_fragment_end>',
                 '#include <lights_fragment_end>\n'
                     + DECOR_BARK_VOLUME_FRAGMENT
@@ -1257,7 +1269,7 @@ function applyOrganicDetail(material: any): void {
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v25';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v27';
 }
 
 function mat(color: number, kind: number = 0) {
@@ -1629,6 +1641,38 @@ function orientCrownFacesOutward(geometry: any): any {
     return geometry;
 }
 
+function orientIndexedFacesOutward(geometry: any): any {
+    const position = geometry.attributes.position;
+    const index = geometry.index;
+    if (!index) return orientCrownFacesOutward(geometry);
+
+    const a = new THREE.Vector3();
+    const b = new THREE.Vector3();
+    const c = new THREE.Vector3();
+    const edge = new THREE.Vector3();
+    const faceNormal = new THREE.Vector3();
+    const faceCenter = new THREE.Vector3();
+
+    for (let i = 0; i < index.count; i += 3) {
+        const ia = index.getX(i);
+        const ib = index.getX(i + 1);
+        const ic = index.getX(i + 2);
+        a.fromBufferAttribute(position, ia);
+        b.fromBufferAttribute(position, ib);
+        c.fromBufferAttribute(position, ic);
+        faceNormal.subVectors(b, a).cross(edge.subVectors(c, a));
+        faceCenter.copy(a).add(b).add(c).multiplyScalar(1 / 3);
+        if (faceNormal.dot(faceCenter) >= 0) continue;
+
+        index.setX(i + 1, ic);
+        index.setX(i + 2, ib);
+    }
+
+    index.needsUpdate = true;
+    geometry.computeVertexNormals();
+    return geometry;
+}
+
 function crownGeometry(
     shape: DeciduousCrownShape,
     radius: number,
@@ -1667,6 +1711,70 @@ function crownGeometry(
     if (shape === 'dome' || shape === 'cone') geometry = markOpenBoundaryVertices(geometry);
     geometry = roughen(geometry, seed, radius * (fringe ? 0.10 : shape === 'drop' ? 0.10 : shape === 'dome' || shape === 'cone' ? 0.12 : 0.20));
     return shape === 'cone' ? orientCrownFacesOutward(geometry) : geometry;
+}
+
+// A bush is ground cover, not a miniature tree crown. This low radial patch
+// has an uneven perimeter and a ring of independently raised inner points,
+// so its silhouette reads as spreading vegetation instead of a sphere. The
+// outer ring is tagged for the same texture edge fade used by dome crowns.
+function bushClusterGeometry(radius: number, seed: number): any {
+    const segments = 8;
+    const positions: number[] = [];
+    const boundary: number[] = [];
+    const indices: number[] = [];
+    const sample = (index: number, salt: number) => seedT(
+        seed ^ Math.imul(index + 1, salt),
+    );
+
+    positions.push(
+        (sample(0, 0x45d9f3b) - 0.5) * radius * 0.14,
+        radius * (0.30 + sample(0, 0x119de1f3) * 0.12),
+        (sample(0, 0x27d4eb2d) - 0.5) * radius * 0.14,
+    );
+    boundary.push(1);
+
+    for (let i = 0; i < segments; i++) {
+        const angle = i * Math.PI * 2 / segments
+            + (sample(i, 0x165667b1) - 0.5) * 0.18;
+        const innerRadius = radius * (0.36 + sample(i, 0x1b873593) * 0.14);
+        positions.push(
+            Math.cos(angle) * innerRadius,
+            radius * (0.20 + sample(i, 0x5bd1e995) * 0.22),
+            Math.sin(angle) * innerRadius,
+        );
+        boundary.push(1);
+    }
+
+    for (let i = 0; i < segments; i++) {
+        const angle = i * Math.PI * 2 / segments
+            + (sample(i, 0x165667b1) - 0.5) * 0.18;
+        const outerRadius = radius * (0.82 + sample(i, 0x7feb352d) * 0.30);
+        positions.push(
+            Math.cos(angle) * outerRadius,
+            radius * (-0.10 + sample(i, 0x846ca68b) * 0.18),
+            Math.sin(angle) * outerRadius,
+        );
+        boundary.push(0);
+    }
+
+    for (let i = 0; i < segments; i++) {
+        const next = (i + 1) % segments;
+        const inner = 1 + i;
+        const innerNext = 1 + next;
+        const outer = 1 + segments + i;
+        const outerNext = 1 + segments + next;
+        // Clockwise in XZ gives an upward-facing front side in Three.js.
+        indices.push(0, innerNext, inner);
+        indices.push(inner, outerNext, outer);
+        indices.push(inner, innerNext, outerNext);
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('aDecorBoundary', new THREE.Float32BufferAttribute(boundary, 1));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    return geometry;
 }
 
 // A leaf cluster: one textured crown mesh hung on a branch tip. Every crown
@@ -2274,36 +2382,47 @@ export function createDeciduousTreeModel(parameters: DeciduousTreeParameterOverr
 }
 
 const BUSH_SCALE = 1.35;
-const BUSH_GROUND_SINK = 0.04;
+const BUSH_CLUSTER_WIDTH_SCALE = 1.30;
 
-// Bush: 1-3 low copies of the broadleaf tree's actual textured crown, no
-// trunk. Keeping the canopy metadata on each cluster makes the later tile
-// merge use the same Maple texture, alpha cutoff and dome edge fade as the
-// approved broadleaf preset instead of falling back to procedural blobs.
+// Bush: a loose ground-level patch of the broadleaf tree's actual textured
+// crowns, no trunk. The clusters are deliberately separated horizontally;
+// overlapping several domes at one point only rebuilds the spherical blob
+// silhouette this profile is meant to avoid.
 function makeBush(rng: () => number): any {
     const bush = new THREE.Group();
     const canopy = BROADLEAF_TREE_PARAMETERS.canopy;
-    const clusters = 1 + Math.floor(rng() * 3);
+    const clusters = 2 + Math.floor(rng() * 3);
+    const radii = Array.from(
+        { length: clusters },
+        () => (0.09 + rng() * 0.06) * canopy.widthScale,
+    );
+    const largestRadius = Math.max(...radii);
+    const phase = rng() * Math.PI * 2;
+    // Four clusters need a wider ring because adjacent centres are closer
+    // than in a pair or triangle. Small angular/radial jitter prevents a
+    // planted flower-bed pattern while retaining guaranteed separation.
+    const spread = largestRadius * BUSH_CLUSTER_WIDTH_SCALE
+        * (clusters === 4 ? 1.50 : 1.22);
+
     for (let i = 0; i < clusters; i++) {
-        const radius = (0.13 + rng() * 0.10) * canopy.widthScale;
+        const radius = radii[i];
         const bushSeed = Math.floor(radius * 8192);
-        const before = bush.children.length;
-        addCluster(
+        const angle = phase + i * Math.PI * 2 / clusters
+            + (rng() - 0.5) * 0.18;
+        const distance = spread * (0.92 + rng() * 0.16);
+        const cluster = addMesh(
             bush,
-            rng,
-            new THREE.Vector3(
-                (rng() - 0.5) * 0.2,
-                radius * 0.55,
-                (rng() - 0.5) * 0.2,
-            ),
-            radius,
+            bushClusterGeometry(radius, bushSeed + i),
             vary(lerpHex(0x33512a, 0x567336, seedT(bushSeed * 97)), rng, 0.22),
-            bushSeed + i,
-            canopy.shape,
-            canopy.heightScale / canopy.widthScale,
-            1,
+            Math.cos(angle) * distance,
+            radius * 0.32,
+            Math.sin(angle) * distance,
+            2,
         );
-        const cluster = bush.children[before];
+        cluster.userData.decorWind = 1;
+        cluster.rotation.y = rng() * Math.PI * 2;
+        cluster.scale.x = BUSH_CLUSTER_WIDTH_SCALE * (0.90 + rng() * 0.20);
+        cluster.scale.z = BUSH_CLUSTER_WIDTH_SCALE * (0.90 + rng() * 0.20);
         cluster.userData.decorAuthored = 1;
         cluster.userData.decorCanopyTexture = canopy.texture;
         cluster.userData.decorCanopyAlphaThreshold = canopy.textureAlphaThreshold;
@@ -2311,6 +2430,16 @@ function makeBush(rng: () => number): any {
         cluster.userData.decorCanopyShape = canopy.shape;
         cluster.userData.decorCanopyColorProfile = canopy.colorProfile ?? 0;
     }
+
+    // Align the measured bottom to the terrain, then push one third of the
+    // complete patch below it. Measuring rather than using a fixed offset
+    // keeps the visible fraction stable across differently sized variants.
+    bush.updateMatrixWorld(true);
+    const bounds = new THREE.Box3().setFromObject(bush);
+    const height = Math.max(0, bounds.max.y - bounds.min.y);
+    const verticalOffset = -bounds.min.y - height / 3;
+    for (const cluster of bush.children) cluster.position.y += verticalOffset;
+
     bush.scale.setScalar(BUSH_SCALE);
     return bush;
 }
@@ -2380,37 +2509,125 @@ function makeTuft(rng: () => number): any {
 
 // Rock: one low angular stone, occasionally two -- a lone stone reads as
 // geology, a pile of three read as scattered litter.
-function makeRocks(rng: () => number, base: number): any {
+function irregularRockGeometry(radius: number, seed: number): any {
+    const segments = 7 + (hash(seed ^ 0x51f2d3a7) & 1);
+    const positions: number[] = [];
+    const indices: number[] = [];
+    const sample = (index: number, salt: number) => seedT(
+        seed ^ Math.imul(index + 1, salt),
+    );
+
+    // A buried lower point, a wide broken waist, a narrower offset shoulder
+    // and an off-centre top. None of these rings is circular or level.
+    positions.push(
+        (sample(0, 0x45d9f3b) - 0.5) * radius * 0.20,
+        -radius * (0.60 + sample(0, 0x27d4eb2d) * 0.16),
+        (sample(0, 0x165667b1) - 0.5) * radius * 0.20,
+    );
+
+    for (let i = 0; i < segments; i++) {
+        const angle = i * Math.PI * 2 / segments
+            + (sample(i, 0x1b873593) - 0.5) * 0.24;
+        const ringRadius = radius * (0.78 + sample(i, 0x5bd1e995) * 0.38);
+        positions.push(
+            Math.cos(angle) * ringRadius - radius * 0.06,
+            radius * (-0.28 + (sample(i, 0x7feb352d) - 0.5) * 0.24),
+            Math.sin(angle) * ringRadius + radius * 0.04,
+        );
+    }
+
+    for (let i = 0; i < segments; i++) {
+        const angle = i * Math.PI * 2 / segments
+            + 0.16 + (sample(i, 0x846ca68b) - 0.5) * 0.28;
+        const ringRadius = radius * (0.54 + sample(i, 0x9e3779b) * 0.38);
+        positions.push(
+            Math.cos(angle) * ringRadius + radius * 0.10,
+            radius * (0.28 + (sample(i, 0x6c8e9cf5) - 0.5) * 0.30),
+            Math.sin(angle) * ringRadius - radius * 0.08,
+        );
+    }
+
+    const top = positions.length / 3;
+    positions.push(
+        (sample(0, 0x85ebca6b) - 0.42) * radius * 0.34,
+        radius * (0.66 + sample(0, 0xc2b2ae35) * 0.26),
+        (sample(0, 0x68bc21eb) - 0.58) * radius * 0.34,
+    );
+
+    for (let i = 0; i < segments; i++) {
+        const next = (i + 1) % segments;
+        const lower = 1 + i;
+        const lowerNext = 1 + next;
+        const upper = 1 + segments + i;
+        const upperNext = 1 + segments + next;
+        indices.push(0, lower, lowerNext);
+        indices.push(lower, upper, upperNext);
+        indices.push(lower, upperNext, lowerNext);
+        indices.push(top, upperNext, upper);
+    }
+
+    const indexed = new THREE.BufferGeometry();
+    indexed.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    indexed.setIndex(indices);
+    return orientIndexedFacesOutward(indexed);
+}
+
+function makeRocks(rng: () => number, base: number, variantSeed: number): any {
     const rocks = new THREE.Group();
     const count = rng() < 0.25 ? 2 : 1;
     for (let i = 0; i < count; i++) {
-        const radius = 0.12 + rng() * 0.13;
+        // Two overlapping size populations rather than one narrow uniform
+        // interval: mostly loose little stones, occasionally a clearly larger
+        // block. Each stone rolls independently, so a pair can mix scales.
+        const radius = rng() < 0.68
+            ? 0.05 + rng() * 0.11
+            : 0.20 + rng() * 0.24;
+        const formSeed = Math.imul(variantSeed + 1, 0x45d9f3b)
+            ^ Math.imul(i + 1, 0x27d4eb2d);
+        const deformation = radius * (0.06 + rng() * 0.12);
         // kind -1: the shader gives rock its own craggy treatment, and the
         // burn check (vDecorKind > 0.5 discards foliage) leaves it standing.
         const rock = addMesh(
             rocks,
-            // Detail 0 keeps broad chipped faces; detail 1 plus radial
-            // normals produced smooth round lumps. Rocks explicitly use
-            // faceted normals so light catches their planes as stone.
-            roughen(new THREE.DodecahedronGeometry(radius, 0), i, radius * 0.22, true),
+            // A purpose-built asymmetric boulder plus a unique displacement
+            // field: no recognisable primitive survives into the silhouette.
+            roughen(irregularRockGeometry(radius, formSeed), formSeed, deformation),
             vary(base, rng, 0.18),
             (rng() - 0.5) * 0.3,
             0,
             (rng() - 0.5) * 0.3,
             -1
         );
-        const yScale = 0.28 + rng() * 0.16;
-        // A visibly asymmetric footprint is required for yaw randomisation
-        // to mean anything. Near-circular dodecahedra look identical after
-        // rotation, which was the original same-direction complaint hiding
-        // behind a nominally random angle.
-        const longAxis = 1.0 + rng() * 0.55;
-        const shortAxis = 0.55 + rng() * 0.25;
-        rock.scale.set(longAxis, yScale, shortAxis);
+        // Three genuinely different volumes. Previously every stone used a
+        // 0.28-0.44 Y scale and could only become a longer flat wafer.
+        const shapeRoll = rng();
+        let xScale: number;
+        let yScale: number;
+        let zScale: number;
+        if (shapeRoll < 0.30) {
+            // A standing weathered shard, visibly emerging from the ground.
+            xScale = 0.68 + rng() * 0.30;
+            yScale = 0.90 + rng() * 0.50;
+            zScale = 0.62 + rng() * 0.30;
+        } else if (shapeRoll < 0.72) {
+            // A chunky boulder with volume in every direction.
+            xScale = 0.82 + rng() * 0.38;
+            yScale = 0.58 + rng() * 0.34;
+            zScale = 0.78 + rng() * 0.38;
+        } else {
+            // Keep some low slabs for variety, but no longer make every rock
+            // one of them.
+            xScale = 1.00 + rng() * 0.45;
+            yScale = 0.32 + rng() * 0.22;
+            zScale = 0.58 + rng() * 0.28;
+        }
+        rock.scale.set(xScale, yScale, zScale);
         // Sink the bottom edge slightly into the ground instead of balancing
         // a round body on top of it.
-        rock.position.y = radius * yScale * 0.78;
+        rock.position.y = radius * yScale * 0.68;
         rock.rotation.y = rng() * Math.PI;
+        rock.rotation.x = (rng() - 0.5) * 0.18;
+        rock.rotation.z = (rng() - 0.5) * 0.18;
     }
     return rocks;
 }
@@ -2918,7 +3135,7 @@ export function createProceduralDecoration(
                 const bushes = 1 + Math.floor(rng() * 2);
                 for (let i = 0; i < bushes; i++) {
                     const bush = pick('bush', makeBush, rng);
-                    place(group, rng, bush, 0.5, false, -BUSH_GROUND_SINK);
+                    place(group, rng, bush, 0.5, false);
                 }
             } else if (roll < 0.45) {
                 // A lone deciduous tree.
@@ -2928,17 +3145,23 @@ export function createProceduralDecoration(
             } else if (roll < 0.52) {
                 // A lone dead tree or a fallen log on open ground.
                 place(group, rng, rng() < 0.5 ? pick('deadTree', makeDeadTree, rng) : pick('log', makeLog, rng), 0.45);
-            } else {
-                return null; // open grassland
             }
+
+            // Stone is an independent ground-detail layer, so it can sit
+            // beside vegetation instead of replacing the whole tile's decor.
+            if (rng() < 0.16) {
+                const rocks = pick('rocks-grass', (r, i) => makeRocks(r, 0x67645a, i), rng);
+                orientRocksForTile(rocks, q, r);
+                place(group, rng, rocks, 0.48, false);
+            }
+            if (group.children.length === 0) return null;
             break;
         }
         case 'SAND': {
-            // Rare on purpose: sand tiles cluster into beaches, and at 35%
-            // a beach carried ten stones -- reading as gravel spill, not
-            // "the odd stone here and there".
-            if (rng() < 0.10) {
-                const rocks = pick('rocks-sand', (r) => makeRocks(r, 0xb8a98c), rng);
+            // Coast stones stay sparse enough to read as individual washed-up
+            // blocks rather than a continuous gravel border.
+            if (rng() < 0.18) {
+                const rocks = pick('rocks-sand', (r, i) => makeRocks(r, 0x777065, i), rng);
                 orientRocksForTile(rocks, q, r);
                 place(group, rng, rocks, 0.45, false);
             } else {
@@ -2957,7 +3180,7 @@ export function createProceduralDecoration(
                 if (rng() < 0.55) place(group, rng, pick('tuft', makeTuft, rng), 0.5);
                 if (rng() < 0.45) {
                     const bush = pick('bush', makeBush, rng);
-                    place(group, rng, bush, 0.5, false, -BUSH_GROUND_SINK);
+                    place(group, rng, bush, 0.5, false);
                 }
             }
             // Uncommon but possible: a lone small conifer on the mountain.

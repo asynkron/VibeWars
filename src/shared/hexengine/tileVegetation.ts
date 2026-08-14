@@ -66,10 +66,10 @@ export function hasVegetation(terrainType: string, q: number, r: number, tileHei
         case 'FOREST':
             return true;
 
-        // One roll decides all four branches, and it is the first draw:
+        // One roll decides all vegetation branches, and it is the first draw:
         // <0.30 bushes, <0.45 a lone deciduous, <0.52 a dead tree or log,
-        // and above that bare grassland. None of them is stone, so here
-        // "has vegetation" really is "has anything".
+        // and above that no greenery. Decorative stones are rolled later and
+        // independently, so they do not change whether the tile can burn.
         case 'GRASS':
             return tileRng(q, r)() < 0.52;
 

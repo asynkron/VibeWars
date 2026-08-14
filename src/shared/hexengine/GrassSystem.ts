@@ -180,6 +180,18 @@ const GRASS_FRAGMENT = /* glsl */ `
     diffuseColor.a *= vGrassFade;
 `;
 
+// MeshStandard already removes direct sunlight inside the shadow map, but
+// the game's strong ambient fill still leaves the thin blades glowing over a
+// darkened ground tile. Apply the same real shadow mask to indirect light so
+// grass and ground agree, retaining a little fill instead of crushing it to
+// black.
+const GRASS_SHADOW_FRAGMENT = /* glsl */ `
+    float grassShadowMask = getShadowMask();
+    float grassAmbientShadow = mix(0.50, 1.0, grassShadowMask);
+    reflectedLight.indirectDiffuse *= grassAmbientShadow;
+    reflectedLight.indirectSpecular *= grassAmbientShadow;
+`;
+
 class GrassSystem {
     static meshes: any[] = [];
     static uniforms: any = { uTime: { value: 0 }, uPxScale: { value: 0.002 } };
@@ -472,9 +484,17 @@ class GrassSystem {
                 );
             shader.fragmentShader = shader.fragmentShader
                 .replace('#include <common>', '#include <common>\n varying float vGrassUp;\n varying float vGrassFade;')
-                .replace('#include <color_fragment>', '#include <color_fragment>\n' + GRASS_FRAGMENT);
+                .replace(
+                    '#include <shadowmap_pars_fragment>',
+                    '#include <shadowmap_pars_fragment>\n#include <shadowmask_pars_fragment>',
+                )
+                .replace('#include <color_fragment>', '#include <color_fragment>\n' + GRASS_FRAGMENT)
+                .replace(
+                    '#include <lights_fragment_end>',
+                    '#include <lights_fragment_end>\n' + GRASS_SHADOW_FRAGMENT,
+                );
         };
-        material.customProgramCacheKey = () => 'grass-blades-wind-v2';
+        material.customProgramCacheKey = () => 'grass-blades-wind-v3';
     }
 
     // Called every frame. The blades are geometry, so the only cheap lever
