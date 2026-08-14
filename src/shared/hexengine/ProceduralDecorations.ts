@@ -486,7 +486,7 @@ const DECOR_NOISE_GLSL = /* glsl */ `
         vec4 colorAdjust = vDecorCanopyColorProfile > 2.5
             ? vec4(1.0, 1.0, 1.10, 0.139626340)
             : vDecorCanopyColorProfile > 1.5
-            ? vec4(1.88, 1.05, 0.40, -1.082104136)
+            ? vec4(1.88, 1.05, 0.48, -1.082104136)
             : vDecorCanopyColorProfile > 0.5
                 ? vec4(2.0, 1.15, 0.37, -0.663225115)
                 : uDecorCanopyColorAdjust;
@@ -888,6 +888,33 @@ const DECOR_FRAGMENT = /* glsl */ `
                 uForestCalibration,
                 uForestCalibrationBalance
             );
+
+            // Forest calibration deliberately desaturates and blue-balances
+            // the whole stand. Correct broadleaf foliage AFTER that shared
+            // pass, otherwise the calibration washes the warm shift away.
+            // Preserve luminance so hue correction cannot undo the separately
+            // approved canopy brightness.
+            float broadleafMask = step(1.5, vDecorKind)
+                * step(1.5, vDecorCanopyTexture);
+            float broadleafLuminance = dot(
+                diffuseColor.rgb,
+                vec3(0.2126, 0.7152, 0.0722)
+            );
+            vec3 warmBroadleaf = diffuseColor.rgb * vec3(1.03, 1.04, 0.88);
+            warmBroadleaf *= broadleafLuminance / max(
+                dot(warmBroadleaf, vec3(0.2126, 0.7152, 0.0722)),
+                0.001
+            );
+            warmBroadleaf = mix(
+                vec3(broadleafLuminance),
+                warmBroadleaf,
+                1.06
+            );
+            diffuseColor.rgb = mix(
+                diffuseColor.rgb,
+                clamp(warmBroadleaf, 0.0, 1.0),
+                broadleafMask
+            );
         }
 
     }
@@ -1230,7 +1257,7 @@ function applyOrganicDetail(material: any): void {
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v21';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v25';
 }
 
 function mat(color: number, kind: number = 0) {

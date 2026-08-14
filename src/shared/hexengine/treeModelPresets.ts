@@ -195,7 +195,7 @@ export const PINE_TREE_PARAMETERS: DeciduousTreeParameters = {
         innerOpacity: 1,
         brightness: 1.88,
         contrast: 1.05,
-        saturation: 0.40,
+        saturation: 0.48,
         hue: -62 * Math.PI / 180,
         depthFromTip: 0,
         colorProfile: 2,
