@@ -71,6 +71,7 @@ const WATER_REFLECTION_SHADER: any = {
         uniform mat4 textureMatrix;
         attribute float aWaterPin;
         attribute float aWaterApron;
+        attribute float aWaterApronDepth;
         attribute vec2 aTileLocal;
         varying vec4 vReflectionCoord;
         varying vec3 vWaterWorldPos;
@@ -78,6 +79,8 @@ const WATER_REFLECTION_SHADER: any = {
         varying vec2 vTileLocal;
         varying float vWaterPin;
         varying float vWaterApron;
+        varying float vWaterApronDepth;
+        varying float vShoreLapHeight;
 
         #include <common>
         ${GERSTNER_WAVE_GLSL}
@@ -88,6 +91,7 @@ const WATER_REFLECTION_SHADER: any = {
             vTileLocal = aTileLocal;
             vWaterPin = aWaterPin;
             vWaterApron = aWaterApron;
+            vWaterApronDepth = aWaterApronDepth;
 
             vec3 p = position.xyz;
             vec3 gerstnerOffset = vec3(0.0);
@@ -97,6 +101,19 @@ const WATER_REFLECTION_SHADER: any = {
             p += gerstnerOffset
                 * ${GERSTNER_DISPLACEMENT_SCALE.toFixed(5)}
                 * (1.0 - aWaterPin);
+
+            // The coast apron follows the static terrain slope. Reuse the
+            // water body's vertical Gerstner component across its depth: the
+            // inner seam stays fixed, while the outer edge rises above and
+            // sinks below the coast mesh. Depth testing then turns that height
+            // motion into a natural advance/recede of the visible waterline.
+            float shoreLapHeight = gerstnerOffset.z
+                * ${GERSTNER_DISPLACEMENT_SCALE.toFixed(5)}
+                * 0.32
+                * aWaterApron
+                * aWaterApronDepth;
+            p.z += shoreLapHeight;
+            vShoreLapHeight = shoreLapHeight;
 
             vec4 displacedPosition = vec4(p, 1.0);
             vReflectionCoord = textureMatrix * displacedPosition;
@@ -125,6 +142,8 @@ const WATER_REFLECTION_SHADER: any = {
         varying vec2 vTileLocal;
         varying float vWaterPin;
         varying float vWaterApron;
+        varying float vWaterApronDepth;
+        varying float vShoreLapHeight;
 
         #include <common>
         ${WATER_NORMAL_GLSL}
@@ -290,6 +309,79 @@ const WATER_REFLECTION_SHADER: any = {
                 waterCalibration,
                 waterCalibrationBalance
             );
+
+            // Recover the signed wave height at the apron edge. The varying
+            // contains that height multiplied by apron depth, so division
+            // gives one shared phase for every fragment across the strip.
+            // On an advancing wave the contact line approaches the outer
+            // edge; while receding it follows the water/terrain intersection
+            // back toward the open water instead of remaining painted inland.
+            float shoreWave = vShoreLapHeight / max(vWaterApronDepth, 0.04);
+            float recedingContactDepth = clamp(
+                ${WATER_SURFACE_LIFT.toFixed(3)} / max(-shoreWave, 0.001),
+                0.30,
+                0.94
+            );
+            float waveIsAdvancing = smoothstep(-0.002, 0.004, shoreWave);
+            float foamCenter = mix(0.94, recedingContactDepth, 1.0 - waveIsAdvancing);
+            float foamWidth = max(fwidth(vWaterApronDepth) * 1.35, 0.020);
+            // This is only an invisible influence zone. The visible mask
+            // below is made of disconnected islands; never expose the zone
+            // itself as another contour line along the coast.
+            float foamZone = 1.0 - smoothstep(
+                foamWidth * 1.4,
+                foamWidth * 5.0,
+                abs(vWaterApronDepth - foamCenter)
+            );
+            foamZone *= smoothstep(0.16, 0.32, vWaterApronDepth);
+            float foamSignal = noise.x * 0.62 + noise.z * 0.38
+                + sin(vWaterWorldPos.x * 8.7 + vWaterWorldPos.z * 6.9) * 0.20
+                + sin(vWaterWorldPos.x * 19.3 - vWaterWorldPos.z * 16.1) * 0.10;
+            float foamClusters = (
+                sin(vWaterWorldPos.x * 12.7 + vWaterWorldPos.z * 9.1) * 0.5 + 0.5
+            ) * 0.58 + (
+                sin(vWaterWorldPos.x * 21.3 - vWaterWorldPos.z * 17.9 + 1.7) * 0.5 + 0.5
+            ) * 0.42;
+            float foamIslands = smoothstep(
+                0.47,
+                0.66,
+                foamClusters + foamSignal * 0.34
+            );
+            // Apron depth grows from open water toward land. Keep the broken
+            // island shapes, but grade their colour contribution across that
+            // direction: pale at the land contact and smoothly back to the
+            // untouched water colour farther out.
+            float landwardFoamFade = smoothstep(
+                foamCenter - foamWidth * 3.8,
+                foamCenter + foamWidth * 0.55,
+                vWaterApronDepth
+            );
+            float foamAmount = vWaterApron
+                * foamZone
+                * foamIslands
+                * landwardFoamFade
+                * mix(0.28, 0.46, smoothstep(0.002, 0.022, abs(shoreWave)));
+            albedo = mix(albedo, vec3(0.78, 0.80, 0.76), foamAmount);
+
+            // Sparse white flecks ride inside the same moving band. A much
+            // higher-frequency threshold keeps them as individual glints,
+            // never another continuous bright shoreline.
+            float glitterSignal = sin(
+                vWaterWorldPos.x * 41.0
+                    + vWaterWorldPos.z * 37.0
+                    - time * 8.0
+            ) * 0.5 + 0.5;
+            glitterSignal *= sin(
+                vWaterWorldPos.x * 23.0
+                    - vWaterWorldPos.z * 29.0
+                    + time * 5.0
+            ) * 0.5 + 0.5;
+            float foamGlitter = foamZone
+                * foamIslands
+                * landwardFoamFade
+                * smoothstep(0.82, 0.97, glitterSignal)
+                * 0.48;
+            albedo = mix(albedo, vec3(0.96, 0.97, 0.93), foamGlitter);
 
             albedo = mix(
                 albedo,
@@ -515,6 +607,7 @@ export class WaterReflectionSystem {
         const positions: number[] = [];
         const waterPins: number[] = [];
         const waterAprons: number[] = [];
+        const waterApronDepths: number[] = [];
         const tileLocals: number[] = [];
         const gridByCoord = new Map<string, any>();
         for (const hex of this.grid) {
@@ -564,6 +657,7 @@ export class WaterReflectionSystem {
                     + (sourcePins?.getX(cornerB) ?? 0) * cornerBWeight,
                 );
                 waterAprons.push(0);
+                waterApronDepths.push(0);
                 tileLocals.push(x, z);
             };
 
@@ -607,7 +701,12 @@ export class WaterReflectionSystem {
                 sourceShoreB?.getY(0) ?? 0,
                 sourceShoreB?.getZ(0) ?? 0,
             ];
-            type ApronPoint = { x: number; z: number; height: number };
+            type ApronPoint = {
+                x: number;
+                z: number;
+                height: number;
+                depth: number;
+            };
             const outerEndpoints: Array<{
                 start: ApronPoint;
                 end: ApronPoint;
@@ -619,6 +718,7 @@ export class WaterReflectionSystem {
                 positions.push(point.x + px, -(point.z + pz), point.height);
                 waterPins.push(1);
                 waterAprons.push(1);
+                waterApronDepths.push(point.depth);
                 tileLocals.push(point.x, point.z);
             };
             const pushApronTriangle = (
@@ -655,11 +755,13 @@ export class WaterReflectionSystem {
                     x: source.getX(startIndex),
                     z: source.getZ(startIndex),
                     height: 0,
+                    depth: 0,
                 };
                 const end: ApronPoint = {
                     x: source.getX(endIndex),
                     z: source.getZ(endIndex),
                     height: 0,
+                    depth: 0,
                 };
                 const angle = (edge + 0.5) * Math.PI / 3;
                 const outward = { x: Math.cos(angle), z: Math.sin(angle) };
@@ -686,6 +788,7 @@ export class WaterReflectionSystem {
                         x: THREE.MathUtils.lerp(start.x, end.x, t),
                         z: THREE.MathUtils.lerp(start.z, end.z, t),
                         height: 0,
+                        depth: 0,
                     };
                     // Two deterministic frequencies make the visible edge read
                     // as water ingress rather than as a displaced hex outline.
@@ -705,6 +808,7 @@ export class WaterReflectionSystem {
                         x: inner.x + outward.x * reach,
                         z: inner.z + outward.z * reach,
                         height: coastCenterHeight * coastFraction,
+                        depth: 1,
                     };
                     if (step === 0) {
                         outerEndpoints[edge] = { start: outer, end: outer };
@@ -732,6 +836,7 @@ export class WaterReflectionSystem {
                         x: source.getX(cornerIndex),
                         z: source.getZ(cornerIndex),
                         height: 0,
+                        depth: 0,
                     },
                     previous.end,
                     current.start,
@@ -744,6 +849,10 @@ export class WaterReflectionSystem {
         geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
         geometry.setAttribute('aWaterPin', new THREE.Float32BufferAttribute(waterPins, 1));
         geometry.setAttribute('aWaterApron', new THREE.Float32BufferAttribute(waterAprons, 1));
+        geometry.setAttribute(
+            'aWaterApronDepth',
+            new THREE.Float32BufferAttribute(waterApronDepths, 1),
+        );
         geometry.setAttribute('aTileLocal', new THREE.Float32BufferAttribute(tileLocals, 2));
         geometry.computeVertexNormals();
         geometry.computeBoundingSphere();
