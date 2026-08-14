@@ -520,13 +520,14 @@ const GROUND_FRAGMENT = /* glsl */ `
                 waterWarmth
             );
             coastStone += scuffLift * paleScuff;
-            // A small contrast lift makes the existing cavities and pale
+            // A modest contrast lift makes the existing cavities and pale
             // weathering read more clearly without shifting the established
             // gray-to-beige coastline palette.
             coastStone = max(
-                (coastStone - vec3(0.30)) * 1.12 + vec3(0.30),
+                (coastStone - vec3(0.30)) * 1.65 + vec3(0.30),
                 vec3(0.025)
             );
+            coastStone *= 1.08;
             coastStone = min(coastStone, vec3(0.58, 0.54, 0.47));
             vec4 coastRoughnessFields = groundFoothillRockFields(gp, warp);
             coastHeight += groundFoothillRockHeight(
@@ -620,6 +621,18 @@ const GROUND_FRAGMENT = /* glsl */ `
                 grassC = mix(grassC, wornGrassSoil, grassBarePatch * 0.42);
                 grassC = mix(grassC, meadowGravel, grassGravelPatch * 0.46);
                 grassC = mix(grassC, grassPebbleColor, grassPebbles * 0.82);
+                // Increase luminance separation across the complete grass
+                // tile surface while preserving its established hue balance.
+                float grassLuminance = dot(
+                    grassC,
+                    vec3(0.299, 0.587, 0.114)
+                );
+                float contrastedGrassLuminance = max(
+                    (grassLuminance - 0.25) * 1.16 + 0.25,
+                    0.02
+                );
+                grassC *= contrastedGrassLuminance
+                    / max(grassLuminance, 0.02);
                 grassH = meadow * 0.30 + blades * 0.10
                     + (grassFine - 0.5) * 0.22
                     + grassBarePatch * 0.075 + grassGravelPatch * 0.10
@@ -1070,5 +1083,5 @@ export function applyProceduralGround(material: any, terrainType: string): void 
     };
     // All ground materials share one height-banded program (uniforms
     // differ per material); distinct key from three.js's stock shader.
-    material.customProgramCacheKey = () => 'ground-height-banded-v34-coast-contrast';
+    material.customProgramCacheKey = () => 'ground-height-banded-v39-grass-contrast';
 }

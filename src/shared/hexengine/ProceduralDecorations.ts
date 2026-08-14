@@ -2057,6 +2057,12 @@ function makeDeciduous(
         );
         const crownRadius = (0.14 + crownRng() * 0.05) * girth * DECIDUOUS_CROWN_SCALE
             * crownWidth * depthScale * densityScale;
+        // Textured spruce and pine tiers bend as heavier branch volumes. A
+        // negative weight selects the slow conifer sway and deliberately
+        // excludes the fast broadleaf normal-flutter pass.
+        const clusterWindStrength = resolvedParameters.canopy.texture === 'spruce-2x2'
+            ? -windStrength
+            : windStrength;
         addCluster(
             tree,
             crownRng,
@@ -2066,7 +2072,7 @@ function makeDeciduous(
             childSeed(crownSeed, 0x51ed270b),
             resolvedParameters.canopy.shape,
             resolvedParameters.canopy.heightScale / crownWidth,
-            windStrength,
+            clusterWindStrength,
         );
         cluster++;
     };

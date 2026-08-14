@@ -4,8 +4,8 @@ import { markShadowsDirty } from './ShadowBudget';
 // drives the directional light, the photographed sun in the reflection sky,
 // and the highlight on the water. Lower than the old 13:00 position for
 // longer shadows, while light intensity stays full daylight.
-const DAYLIGHT_AZIMUTH = THREE.MathUtils.degToRad(118);
-const DAYLIGHT_ELEVATION = THREE.MathUtils.degToRad(53);
+const DAYLIGHT_AZIMUTH_DEGREES = 118;
+const DAYLIGHT_ELEVATION_DEGREES = 53;
 const LIGHT_DISTANCE = 100;
 
 export class SunSystem {
@@ -13,6 +13,8 @@ export class SunSystem {
     private static center = new THREE.Vector3();
     private static direction = new THREE.Vector3(0.5, 0.7, -0.5).normalize();
     private static color = new THREE.Color(0xffffff);
+    private static azimuthDegrees = DAYLIGHT_AZIMUTH_DEGREES;
+    private static elevationDegrees = DAYLIGHT_ELEVATION_DEGREES;
 
     static init(scene: any, light: any): void {
         this.light = light;
@@ -32,8 +34,24 @@ export class SunSystem {
     static animate(_seconds: number): void {}
 
     // Unit vector from the board toward the sun.
-    static getDirection(target = new THREE.Vector3()): any {
-        return target.copy(this.direction);
+    static getDirection(target?: any): any {
+        // With no target, return the stable vector reference used by shader
+        // uniforms. setAngles mutates this vector instead of replacing it, so
+        // every material sees live slider changes without recompilation.
+        return target ? target.copy(this.direction) : this.direction;
+    }
+
+    static getAngles(): { azimuth: number; elevation: number } {
+        return {
+            azimuth: this.azimuthDegrees,
+            elevation: this.elevationDegrees,
+        };
+    }
+
+    static setAngles(azimuthDegrees: number, elevationDegrees: number): void {
+        this.azimuthDegrees = ((azimuthDegrees % 360) + 360) % 360;
+        this.elevationDegrees = THREE.MathUtils.clamp(elevationDegrees, 0, 180);
+        this.updateDirectionFromAngles();
     }
 
     static getColor(target = new THREE.Color()): any {
@@ -54,11 +72,19 @@ export class SunSystem {
     }
 
     private static setDaylightDirection(): void {
-        const horizontal = Math.cos(DAYLIGHT_ELEVATION);
+        this.azimuthDegrees = DAYLIGHT_AZIMUTH_DEGREES;
+        this.elevationDegrees = DAYLIGHT_ELEVATION_DEGREES;
+        this.updateDirectionFromAngles();
+    }
+
+    private static updateDirectionFromAngles(): void {
+        const azimuth = THREE.MathUtils.degToRad(this.azimuthDegrees);
+        const elevation = THREE.MathUtils.degToRad(this.elevationDegrees);
+        const horizontal = Math.cos(elevation);
         this.direction.set(
-            Math.cos(DAYLIGHT_AZIMUTH) * horizontal,
-            Math.sin(DAYLIGHT_ELEVATION),
-            Math.sin(DAYLIGHT_AZIMUTH) * horizontal,
+            Math.cos(azimuth) * horizontal,
+            Math.sin(elevation),
+            Math.sin(azimuth) * horizontal,
         ).normalize();
         this.updateLightPosition();
         markShadowsDirty();

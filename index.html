@@ -52,6 +52,43 @@
             user-select: none;
         }
 
+        .sun-controls {
+            position: absolute;
+            top: calc(100% + 6px);
+            right: 0;
+            width: 286px;
+            display: grid;
+            gap: 8px;
+            padding: 10px 12px;
+            border: 1px solid rgba(255, 255, 255, 0.10);
+            border-radius: 7px;
+            background: rgba(14, 18, 24, 0.82);
+            backdrop-filter: blur(3px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+        }
+
+        .sun-control {
+            display: grid;
+            grid-template-columns: 88px minmax(120px, 1fr) 38px;
+            align-items: center;
+            gap: 8px;
+            color: #c4ccd7;
+            font-family: inherit;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .sun-control input {
+            width: 100%;
+            accent-color: #40c4ff;
+        }
+
+        .sun-control output {
+            color: #7ad8ff;
+            font-variant-numeric: tabular-nums;
+            text-align: right;
+        }
+
         /* The skill bar: one button per skill of the selected unit.
            Bottom-centre, between Next Unit and End Turn, so it sits where
            the eye already goes for actions. */

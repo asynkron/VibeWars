@@ -7,6 +7,7 @@
 // whatever the markup happened to say.
 
 import { MAP_CONFIG, MAP_KEY } from '../constants';
+import { SunSystem } from '../shared/hexengine/SunSystem';
 import { viewOptions, toggleViewOption, ViewOptions } from '../shared/hexengine/ViewOptions';
 import { FrameStats } from './frameStats';
 import {
@@ -199,6 +200,55 @@ function syncMinimapOverlay(options: ViewOptions): void {
     overlay.style.display = options.minimap ? 'block' : 'none';
 }
 
+function createSunControls(): HTMLElement {
+    const controls = document.createElement('div');
+    controls.className = 'sun-controls';
+
+    const angles = SunSystem.getAngles();
+    const makeRange = (
+        label: string,
+        max: number,
+        value: number,
+    ): { row: HTMLLabelElement; input: HTMLInputElement; output: HTMLOutputElement } => {
+        const row = document.createElement('label');
+        row.className = 'sun-control';
+
+        const text = document.createElement('span');
+        text.textContent = label;
+
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.min = '0';
+        input.max = String(max);
+        input.step = '1';
+        input.value = String(value);
+
+        const output = document.createElement('output');
+        output.value = `${Math.round(value)}°`;
+
+        row.append(text, input, output);
+        return { row, input, output };
+    };
+
+    const azimuth = makeRange('Solrotation', 360, angles.azimuth);
+    const elevation = makeRange('Sol över plan', 180, angles.elevation);
+    azimuth.input.title = 'Rotate the directional light around the battlefield';
+    elevation.input.title = 'Move the directional light over the battlefield';
+
+    const update = (): void => {
+        const azimuthDegrees = Number(azimuth.input.value);
+        const elevationDegrees = Number(elevation.input.value);
+        azimuth.output.value = `${Math.round(azimuthDegrees)}°`;
+        elevation.output.value = `${Math.round(elevationDegrees)}°`;
+        SunSystem.setAngles(azimuthDegrees, elevationDegrees);
+    };
+    azimuth.input.addEventListener('input', update);
+    elevation.input.addEventListener('input', update);
+
+    controls.append(azimuth.row, elevation.row);
+    return controls;
+}
+
 export function initViewToolbar(): void {
     if (document.getElementById('view-toolbar')) return;
 
@@ -268,6 +318,8 @@ export function initViewToolbar(): void {
         viewButton.addEventListener('click', () => applySavedCameraView(view));
         toolbar.appendChild(viewButton);
     }
+
+    if (MAP_KEY === 'random30fixed') toolbar.appendChild(createSunControls());
 
     document.body.appendChild(toolbar);
     syncMinimapOverlay(viewOptions);
