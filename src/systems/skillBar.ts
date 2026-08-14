@@ -89,16 +89,12 @@ export function showSkillsFor(unit: GameUnit | null): void {
     }
     root.style.display = 'flex';
 
-    // Slot 0 -- the attack -- unless it is somehow unusable, in which case
-    // the first thing that actually is.
-    //
-    // skillReady, not isReady: readiness is the cooldown AND the unspent
-    // action. Arming on the cooldown alone auto-armed the attack of a unit
-    // that had already fired, and lit every spendsAction skill on the bar
-    // for it -- clicks that castArmedSkill then silently refused, because
-    // it checks the real rule.
-    const usable = skills.find((s) => skillReady(unit, s));
-    selectedSkillId = (usable ?? skills[0]).id;
+    // Always return to slot 0. In particular, spending Load must not
+    // automatically arm the still-usable Unload: a non-attack skill consumes
+    // every subsequent map click by design, which made selection and movement
+    // appear locked after a loaded Drover drove away. Unusable skills remain
+    // disabled below; selecting the primary skill does not make it usable.
+    selectedSkillId = skills[0].id;
 
     for (const skill of skills) {
         const button = document.createElement('button');

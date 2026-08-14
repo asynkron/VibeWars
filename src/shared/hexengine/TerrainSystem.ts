@@ -1,8 +1,8 @@
 // TerrainSystem.js
-import { UnitSystem } from './UnitSystem';
 import { addColorVariation } from './utils';
 import { getGameState } from '../../systems/gameStateStore';
 import { TERRAIN_TYPES, terrainTypesRecord, getTerrainColor, getTerrainName, getTerrainBaseHeight, getTerrainHeightVariation, getTerrainHeightModifier, getTerrainThreshold, isImpassable } from './terrainStats';
+import { getMovementCost, getRoadAdjustedMovementCost, unitTypesRecord } from './unitStats';
 import type { TerrainTypeConfig } from '../../types';
 
 class TerrainSystem {
@@ -23,15 +23,14 @@ class TerrainSystem {
     static isImpassable = isImpassable;
 
     static getMoveCost(hex: any, unit: any): number {
-        // Roads speed up ground movement only. Aircraft keep their uniform
-        // terrain cost when crossing a road tile.
         const tile = getGameState().map.getTile(hex.userData.q, hex.userData.r);
-        if (tile?.hasRoad && UnitSystem.unitTypesRecord[unit.type]?.unitClass !== 'air') {
-            return 0.5;
-        }
-
         const terrainType = hex.userData.type?.toUpperCase();
-        const cost = UnitSystem.getMovementCost(unit.type, terrainType);
+        const baseCost = getMovementCost(unit.type, terrainType);
+        const cost = getRoadAdjustedMovementCost(
+            baseCost,
+            unitTypesRecord[unit.type]?.unitClass,
+            !!tile?.hasRoad,
+        );
         // If a unit is provided and has terrain costs defined, use those regardless of terrain's default cost
         if (cost) {
             return cost;

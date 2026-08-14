@@ -104,8 +104,9 @@ describe('a spent action closes the bar', () => {
         expect(disabled[DROVER_UNLOAD.id], 'Unload costs no action and should survive').toBe(false);
     });
 
-    it('arms the first skill that is actually usable, not the first off cooldown', () => {
+    it('does not auto-arm Unload after Load spends the Drover action', () => {
         showSkillsFor(unit('Drover', { hasAttacked: true }));
-        expect(armedSkill()!.spendsAction, 'armed a skill the unit cannot pay for').toBe(false);
+        expect(armedSkill()!.id).toBe('Drover:attack');
+        expect(buttons().find((button) => button.dataset.skill === DROVER_UNLOAD.id)!.disabled).toBe(false);
     });
 });

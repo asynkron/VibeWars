@@ -71,8 +71,12 @@ function terrainKey(type: string): string {
 export function simMoveCost(state: SimState, unitType: string, q: number, r: number): number | null {
     const tile = state.getTile(q, r);
     if (!tile) return null;
-    if (tile.hasRoad && UnitSystem.unitTypesRecord[unitType]?.unitClass !== 'air') return 0.5;
-    const cost = UnitSystem.getMovementCost(unitType, terrainKey(tile.type));
+    const config = UnitSystem.unitTypesRecord[unitType];
+    const cost = UnitSystem.getRoadAdjustedMovementCost(
+        UnitSystem.getMovementCost(unitType, terrainKey(tile.type)),
+        config?.unitClass,
+        tile.hasRoad,
+    );
     return cost ? cost : null;
 }
 
@@ -126,7 +130,8 @@ function simDijkstraUncached(
     // indexes unitTypesRecord by this type unguarded, so an unknown type
     // cannot reach here alive.
     const costs = UnitSystem.unitTypesRecord[unit.type].terrainCosts;
-    const isAir = UnitSystem.unitTypesRecord[unit.type].unitClass === 'air';
+    const unitClass = UnitSystem.unitTypesRecord[unit.type].unitClass;
+    const isAir = unitClass === 'air';
 
     const closed = new Set<number>();
     const startKey = unit.r * cols + unit.q;
@@ -169,7 +174,11 @@ function simDijkstraUncached(
             // mover will enter. Give that final edge zero cost so even an air
             // target over impassable ground can be routed TOWARD; callers
             // deliberately stop before this final step.
-            const terrainCost = tile.hasRoad && !isAir ? 0.5 : costs[terrainKey(tile.type)];
+            const terrainCost = UnitSystem.getRoadAdjustedMovementCost(
+                costs[terrainKey(tile.type)],
+                unitClass,
+                tile.hasRoad,
+            );
             if (!isDestination && !terrainCost) continue;
             const cost = isDestination ? 0 : terrainCost!;
 
@@ -294,7 +303,8 @@ export function simCostFieldFrom(
     const field = new Map<number, number>();
     const closed = new Set<number>();
     const costs = UnitSystem.unitTypesRecord[unitType].terrainCosts;
-    const isAir = UnitSystem.unitTypesRecord[unitType].unitClass === 'air';
+    const unitClass = UnitSystem.unitTypesRecord[unitType].unitClass;
+    const isAir = unitClass === 'air';
     const startKey = fromR * cols + fromQ;
     field.set(startKey, 0);
 
@@ -320,7 +330,11 @@ export function simCostFieldFrom(
             )) continue;
             const tile = state.getTile(nq, nr);
             if (!tile) continue;
-            const step = tile.hasRoad && !isAir ? 0.5 : costs[terrainKey(tile.type)];
+            const step = UnitSystem.getRoadAdjustedMovementCost(
+                costs[terrainKey(tile.type)],
+                unitClass,
+                tile.hasRoad,
+            );
             if (!step) continue;
             const nextKey = nr * cols + nq;
             const next = currentCost + step;

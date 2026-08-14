@@ -633,6 +633,19 @@ export function getMovementCost(type: string, terrainType: string): number | nul
     return unitTypesRecord[type].terrainCosts[terrainType];
 }
 
+// A road is a discount on terrain the unit can already traverse; it never
+// creates new passability. Naval units also ignore roads even on malformed
+// road-over-water tiles, just as aircraft do.
+export function getRoadAdjustedMovementCost(
+    baseCost: number | null | undefined,
+    unitClass: string | undefined,
+    hasRoad: boolean,
+): number | null | undefined {
+    if (!baseCost) return baseCost;
+    if (hasRoad && unitClass !== 'air' && unitClass !== 'naval') return 0.5;
+    return baseCost;
+}
+
 // The hard rule's read side: a side that spawned vital units and has none
 // left has lost outright -- checked by both match loops (headless.ts and
 // GameState.nextTurn), so the sim batteries and the live banner agree.

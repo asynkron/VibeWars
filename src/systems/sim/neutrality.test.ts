@@ -40,7 +40,8 @@ const FAST_PLAN = {
 };
 const CASES: Array<{ name: string; map: any; seed: number; engines: [string, string]; digest: string }> = [
     { name: 'rotor12x18 parthian vs parthian, seed 1', map: rotor12x18MapProvider, seed: 1, engines: ['parthian', 'parthian'], digest: '96bade0e:89' },
-    { name: 'rotor12x18 parthian vs parthian, seed 2', map: rotor12x18MapProvider, seed: 2, engines: ['parthian', 'parthian'], digest: 'd2c788c1:134' },
+    // Changed deliberately when roads stopped granting boats access to land.
+    { name: 'rotor12x18 parthian vs parthian, seed 2', map: rotor12x18MapProvider, seed: 2, engines: ['parthian', 'parthian'], digest: '9127575b:171' },
     { name: 'rotor12x18 parthian vs baseline, seed 3', map: rotor12x18MapProvider, seed: 3, engines: ['parthian', 'baseline'], digest: 'bb5ab690:82' },
     { name: 'rotor12x18 baseline vs parthian, seed 4', map: rotor12x18MapProvider, seed: 4, engines: ['baseline', 'parthian'], digest: '82609fa6:101' },
     { name: 'mirror8 parthian vs parthian, seed 1', map: mirror8MapProvider, seed: 1, engines: ['parthian', 'parthian'], digest: '86357ac0:95' },

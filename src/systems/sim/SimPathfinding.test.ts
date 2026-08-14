@@ -32,9 +32,17 @@ function makeState(tileAt: (q: number, r: number) => any, units: any[], building
 const key = (q: number, r: number) => r * 6 + q;
 
 describe('simMoveCost', () => {
-    it('roads cost 0.5 for ground units but do not boost aircraft', () => {
-        const state = makeState((q, r) => (q === 3 && r === 2 ? { ...water(), hasRoad: true } : grass()), [makeUnit()]);
+    it('roads discount passable land without granting boats or tanks new terrain', () => {
+        const state = makeState((q, r) => {
+            if (q === 3 && r === 2) return { ...grass(), hasRoad: true };
+            if (q === 4 && r === 2) return { ...water(), hasRoad: true };
+            return grass();
+        }, [makeUnit()]);
+
         expect(simMoveCost(state, 'Bulwark', 3, 2)).toBe(0.5);
+        expect(simMoveCost(state, 'AttackBoat', 3, 2)).toBeNull();
+        expect(simMoveCost(state, 'Bulwark', 4, 2)).toBeNull();
+        expect(simMoveCost(state, 'AttackBoat', 4, 2)).toBe(1);
         expect(simMoveCost(state, 'Nightjar', 3, 2)).toBe(1);
     });
 
@@ -48,6 +56,16 @@ describe('simMoveCost', () => {
 });
 
 describe('simDijkstra', () => {
+    it('does not let a boat pathfind across roads on land', () => {
+        const state = makeState(
+            (q, r) => ({ ...grass(), hasRoad: !(q === 2 && r === 2) }),
+            [makeUnit({ type: 'AttackBoat', move: 4 })]
+        );
+
+        expect(simDijkstra(state, 0, 4).reachable.size).toBe(1);
+        expect(simCostFieldFrom(state, 'AttackBoat', 2, 2).size).toBe(1);
+    });
+
     it('does not extend aircraft movement along roads', () => {
         const state = makeState(
             (q, r) => ({ ...grass(), hasRoad: !(q === 2 && r === 2) }),
