@@ -18,9 +18,11 @@ import {
     camera,
     cameraTarget,
     getCameraHeight,
+    getRuntimeColorGrade,
     renderer,
     setBloomEnabled,
     setCameraHeight,
+    setRuntimeColorGrade,
 } from '../render';
 
 interface ToggleSpec {
@@ -212,6 +214,14 @@ function createSceneControls(): HTMLElement {
 
     const angles = SunSystem.getAngles();
     const waterCalibration = getRuntimeMaterialCalibration('water');
+    const runtimeGrade = getRuntimeColorGrade();
+    const sceneGrade = {
+        exposure: runtimeGrade?.exposure ?? 1,
+        contrast: runtimeGrade?.contrast ?? 1,
+        saturation: runtimeGrade?.saturation ?? 1,
+        gamma: runtimeGrade?.gamma ?? 1,
+        balance: runtimeGrade?.balance ?? [1, 1, 1] as [number, number, number],
+    };
     const makeRange = (
         label: string,
         min: number,
@@ -248,6 +258,9 @@ function createSceneControls(): HTMLElement {
     const waterSaturation = makeRange('Vattenmättnad', 0, 300, waterCalibration.saturation * 100, percent);
     const waterContrast = makeRange('Vattenkontrast', 0, 300, waterCalibration.contrast * 100, percent);
     const waterBrightness = makeRange('Vattenljushet', 0, 300, waterCalibration.exposure * 100, percent);
+    const sceneBrightness = makeRange('Total ljushet', 0, 300, sceneGrade.exposure * 100, percent);
+    const sceneContrast = makeRange('Total kontrast', 0, 300, sceneGrade.contrast * 100, percent);
+    const sceneSaturation = makeRange('Total mättnad', 0, 300, sceneGrade.saturation * 100, percent);
     azimuth.input.title = 'Rotate the directional light around the battlefield';
     elevation.input.title = 'Move the directional light over the battlefield';
     strength.input.title = 'Adjust the strength of the directional sunlight';
@@ -255,6 +268,9 @@ function createSceneControls(): HTMLElement {
     waterSaturation.input.title = 'Adjust saturation of the final rendered water colour';
     waterContrast.input.title = 'Adjust contrast of the final rendered water colour';
     waterBrightness.input.title = 'Adjust brightness of the final rendered water colour';
+    sceneBrightness.input.title = 'Adjust brightness of the complete rendered scene';
+    sceneContrast.input.title = 'Adjust contrast of the complete rendered scene';
+    sceneSaturation.input.title = 'Adjust saturation of the complete rendered scene';
 
     const updateSun = (): void => {
         const azimuthDegrees = Number(azimuth.input.value);
@@ -284,6 +300,15 @@ function createSceneControls(): HTMLElement {
         waterBrightness.output.value = percent(waterCalibration.exposure * 100);
         setRuntimeMaterialCalibration('water', waterCalibration);
     };
+    const updateSceneGrade = (): void => {
+        sceneGrade.exposure = Number(sceneBrightness.input.value) / 100;
+        sceneGrade.contrast = Number(sceneContrast.input.value) / 100;
+        sceneGrade.saturation = Number(sceneSaturation.input.value) / 100;
+        sceneBrightness.output.value = percent(sceneGrade.exposure * 100);
+        sceneContrast.output.value = percent(sceneGrade.contrast * 100);
+        sceneSaturation.output.value = percent(sceneGrade.saturation * 100);
+        setRuntimeColorGrade(sceneGrade);
+    };
     azimuth.input.addEventListener('input', updateSun);
     elevation.input.addEventListener('input', updateSun);
     strength.input.addEventListener('input', updateSun);
@@ -291,6 +316,9 @@ function createSceneControls(): HTMLElement {
     waterSaturation.input.addEventListener('input', updateWater);
     waterContrast.input.addEventListener('input', updateWater);
     waterBrightness.input.addEventListener('input', updateWater);
+    sceneBrightness.input.addEventListener('input', updateSceneGrade);
+    sceneContrast.input.addEventListener('input', updateSceneGrade);
+    sceneSaturation.input.addEventListener('input', updateSceneGrade);
     window.addEventListener('vibewars-camera-view-changed', syncPerspective);
 
     controls.append(
@@ -301,6 +329,9 @@ function createSceneControls(): HTMLElement {
         waterSaturation.row,
         waterContrast.row,
         waterBrightness.row,
+        sceneBrightness.row,
+        sceneContrast.row,
+        sceneSaturation.row,
     );
     return controls;
 }

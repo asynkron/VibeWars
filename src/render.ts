@@ -104,6 +104,7 @@ const BLOOM_MSAA_SAMPLES = 4;
 
 interface RuntimeColorGrade {
     exposure: number;
+    contrast?: number;
     saturation: number;
     gamma: number;
     balance: [number, number, number];
@@ -113,6 +114,7 @@ const SCENE_COLOR_GRADE_SHADER = {
     uniforms: {
         tDiffuse: { value: null },
         exposure: { value: 1 },
+        contrast: { value: 1 },
         saturation: { value: 1 },
         gamma: { value: 1 },
         colorBalance: { value: new THREE.Vector3(1, 1, 1) },
@@ -128,6 +130,7 @@ const SCENE_COLOR_GRADE_SHADER = {
     fragmentShader: /* glsl */`
         uniform sampler2D tDiffuse;
         uniform float exposure;
+        uniform float contrast;
         uniform float saturation;
         uniform float gamma;
         uniform vec3 colorBalance;
@@ -139,6 +142,7 @@ const SCENE_COLOR_GRADE_SHADER = {
             color = pow(color, vec3(gamma));
             float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
             color = mix(vec3(luminance), color, saturation);
+            color = max((color - 0.5) * contrast + 0.5, vec3(0.0));
             gl_FragColor = vec4(color, source.a);
         }
     `,
@@ -171,6 +175,7 @@ function buildComposer() {
     colorGradePass.enabled = colorGrade !== undefined;
     if (colorGrade) {
         colorGradePass.uniforms.exposure.value = colorGrade.exposure;
+        colorGradePass.uniforms.contrast.value = colorGrade.contrast ?? 1;
         colorGradePass.uniforms.saturation.value = colorGrade.saturation;
         colorGradePass.uniforms.gamma.value = colorGrade.gamma;
         colorGradePass.uniforms.colorBalance.value.set(...colorGrade.balance);
@@ -189,6 +194,7 @@ function setRuntimeColorGrade(grade: RuntimeColorGrade): void {
     if (!colorGradePass) return;
     colorGradePass.enabled = true;
     colorGradePass.uniforms.exposure.value = grade.exposure;
+    colorGradePass.uniforms.contrast.value = grade.contrast ?? 1;
     colorGradePass.uniforms.saturation.value = grade.saturation;
     colorGradePass.uniforms.gamma.value = grade.gamma;
     colorGradePass.uniforms.colorBalance.value.set(...grade.balance);
@@ -200,6 +206,7 @@ function getRuntimeColorGrade(): RuntimeColorGrade | null {
     const balance = colorGradePass.uniforms.colorBalance.value;
     return {
         exposure: colorGradePass.uniforms.exposure.value,
+        contrast: colorGradePass.uniforms.contrast.value,
         saturation: colorGradePass.uniforms.saturation.value,
         gamma: colorGradePass.uniforms.gamma.value,
         balance: [balance.x, balance.y, balance.z],

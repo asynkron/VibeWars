@@ -547,6 +547,7 @@ export const fixedRandomMediumMapProvider = createRandomMap(
         // scene grade must not hide one material getting worse behind gains
         // elsewhere.
         exposure: 1,
+        contrast: 1,
         saturation: 1,
         gamma: 1,
         balance: [1, 1, 1],

@@ -21,6 +21,7 @@ export interface StartingUnit {
 
 export interface SceneColorGrade {
     readonly exposure: number;
+    readonly contrast?: number;
     readonly saturation: number;
     readonly gamma: number;
     readonly balance: readonly [number, number, number];
