@@ -52,6 +52,11 @@ const FULL_TURF_TYPES = new Set(['grass', 'forest']);
 const COAST_TYPE = 'sand';
 const COAST_BLADES_PER_TILE = 56;
 const COAST_INLAND_MIN = 0.34;
+// Coast growth should read as sparse reeds rather than clipped meadow grass:
+// distinctly taller, but still varied enough not to form an even wall.
+const COAST_BLADE_SCALE_MIN = 1.25;
+const COAST_BLADE_SCALE_RANGE = 0.55;
+const MAX_BLADE_SCALE = COAST_BLADE_SCALE_MIN + COAST_BLADE_SCALE_RANGE;
 
 // The palette colour a tile carries is much darker than the turf the ground
 // shader actually draws from it -- that shader mixes grass between 0.55 and
@@ -309,7 +314,7 @@ class GrassSystem {
             radius = Math.max(radius, Math.sqrt(dx * dx + dy * dy + dz * dz));
         }
         // Plus the tile itself, the tallest blade, and the wind's reach.
-        radius += MAP_CONFIG.HEX_RADIUS + BLADE_HEIGHT * 1.35 + 0.05;
+        radius += MAP_CONFIG.HEX_RADIUS + BLADE_HEIGHT * MAX_BLADE_SCALE + 0.05;
         geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0, 0), radius);
 
         const maxBladeCount = tileMeshes.reduce(
@@ -386,7 +391,7 @@ class GrassSystem {
                 // almost no area at all.
                 dummy.rotation.z = (random() - 0.5) * 0.7;
                 const scale = isCoast
-                    ? (0.22 + coastInland * 0.26) + random() * 0.28
+                    ? COAST_BLADE_SCALE_MIN + random() * COAST_BLADE_SCALE_RANGE
                     : 0.65 + random() * 0.7;
                 dummy.scale.set(1, scale, 1);
                 dummy.updateMatrix();
@@ -395,10 +400,10 @@ class GrassSystem {
                 // The tile's own colour, so blades sit in the band beneath
                 // them rather than in a green of their own.
                 if (isCoast) {
-                    // Young sparse growth in the soil band is shorter and
-                    // darker than meadow grass. Matching full-turf brightness
-                    // would turn these few blades into a luminous shoreline.
-                    colour.setRGB(0.17, 0.205, 0.08);
+                    // A restrained dark-green reed tint. Keep it muted so it
+                    // belongs to the damp coast instead of becoming a bright
+                    // neon fringe around the water.
+                    colour.setRGB(0.11, 0.225, 0.075);
                 } else if (vertexColour) {
                     colour.setRGB(vertexColour.getX(13), vertexColour.getY(13), vertexColour.getZ(13));
                 } else {
@@ -407,6 +412,12 @@ class GrassSystem {
                 colour.multiplyScalar(
                     (isCoast ? 1.05 : BLADE_BRIGHTEN) * (0.85 + random() * 0.35),
                 );
+                // Pull the moving geometry away from cyan and toward the
+                // warmer yellow-green of real sunlit grass. This is a colour
+                // balance only; the tile shader underneath stays unchanged.
+                colour.r *= 1.18;
+                colour.g *= 1.05;
+                colour.b *= 0.62;
                 mesh.setColorAt(index, colour);
                 index++;
             }

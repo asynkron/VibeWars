@@ -938,7 +938,7 @@ const DECOR_LEAF_GLINT_FRAGMENT = /* glsl */ `
         float crownHighlight = leafLightMask
             * smoothstep(0.38, 0.86, leafSunFacing);
         float coniferMask = 1.0 - step(1.5, vDecorCanopyTexture);
-        float crownHighlightStrength = mix(0.26, 0.60, coniferMask);
+        float crownHighlightStrength = mix(0.20, 0.60, coniferMask);
         float crownShadow = leafLightMask * (1.0 - leafSunWash);
         reflectedLight.directDiffuse *= sunBoost;
         reflectedLight.directDiffuse *= 1.0
@@ -1230,7 +1230,7 @@ function applyOrganicDetail(material: any): void {
                 '#include <normal_fragment_begin>\n normal = groundPerturbNormal(vDecorWorldPos, normal, dBumpH, 0.14);'
             );
     };
-    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v20';
+    material.customProgramCacheKey = () => 'decor-organic-rock-procedural-wind-v21';
 }
 
 function mat(color: number, kind: number = 0) {
