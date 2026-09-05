@@ -1,3 +1,6 @@
+import { seededRandom } from '../seededRandom';
+import { tileRng } from './tileVegetation';
+import { hash } from './utils';
 // Procedural hex decorations -- no model assets. Simple primitive
 // assemblies (cones, blobs, boxes) generated deterministically per tile
 // from a (q, r)-seeded PRNG, and matched to the TERRAIN TYPE instead of
@@ -33,33 +36,6 @@ import {
     leaderBranchAzimuth,
     sideBranchLengthAtTrunkLevel,
 } from './deciduousTreeMath';
-
-// Kept local for the same reason as tileVegetation's pinned copy: utils.ts
-// imports GridSystem, while this leaf render module must also be usable by
-// focused viewers without booting the complete map dependency graph.
-function hash(seed: number): number {
-    let h = seed;
-    h = ((h >> 16) ^ h) * 0x45d9f3b;
-    h = ((h >> 16) ^ h) * 0x45d9f3b;
-    h = (h >> 16) ^ h;
-    return h;
-}
-
-// Deterministic per-tile PRNG (mulberry32 over a q/r hash).
-function tileRng(q: number, r: number): () => number {
-    let a = (hash(q * 733 + r * 3079) ^ 0x9e3779b9) >>> 0;
-    return seededRng(a);
-}
-
-function seededRng(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
 
 // Derive a child seed without consuming its parent's random stream. Recursive
 // tree nodes use their structural address as the salt, so adding descendants
@@ -243,30 +219,6 @@ const LEAF_DIST_FRINGE = 0.7;
 function bakeHash(x: number, y: number): number {
     const s = Math.sin(x * 157.1 + y * 269.5) * 43758.5453123;
     return s - Math.floor(s);
-}
-
-function bakeNoise(x: number, y: number): number {
-    const ix = Math.floor(x);
-    const iy = Math.floor(y);
-    const fx = x - ix;
-    const fy = y - iy;
-    const ux = fx * fx * (3 - 2 * fx);
-    const uy = fy * fy * (3 - 2 * fy);
-    const a = bakeHash(ix, iy);
-    const b = bakeHash(ix + 1, iy);
-    const c = bakeHash(ix, iy + 1);
-    const d = bakeHash(ix + 1, iy + 1);
-    const lo = a + (b - a) * ux;
-    const hi = c + (d - c) * ux;
-    return lo + (hi - lo) * uy;
-}
-
-// GLSL smoothstep, reversed edges included: the dot mask calls it with
-// rOuter > rInner, which the spec handles as a descending ramp.
-function bakeSmoothstep(e0: number, e1: number, x: number): number {
-    let t = (x - e0) / (e1 - e0);
-    t = t < 0 ? 0 : t > 1 ? 1 : t;
-    return t * t * (3 - 2 * t);
 }
 
 // One exactly-uniform value per cell of the wrapped lattice.
@@ -2047,7 +1999,7 @@ function makeDeciduous(
     const treeStructureSeed = childSeed(seed, 0x2f6e2b1);
     const addTipCrown = (tip: any, localBranchCount: number, crownSeed: number, trunkLevel: number): void => {
         if (dead || resolvedParameters.canopy.shape === 'none') return;
-        const crownRng = seededRng(childSeed(crownSeed, 0x63d8359));
+        const crownRng = seededRandom(childSeed(crownSeed, 0x63d8359));
         const depthScale = Math.pow(0.78, resolvedParameters.branches.levels - 1);
         const densityScale = Math.sqrt(3 / Math.max(2, localBranchCount));
         const crownWidth = canopyWidthAtTrunkLevel(
@@ -2095,7 +2047,7 @@ function makeDeciduous(
         trunkLevel: number = 0,
     ): void => {
         forks++;
-        const nodeRng = seededRng(nodeSeed);
+        const nodeRng = seededRandom(nodeSeed);
         // Zero preserves the old tip-owned crowns. Raising the value moves
         // ownership toward the trunk: this joint gets the crown, while all
         // remaining twig generations continue growing through its volume.
@@ -2135,7 +2087,7 @@ function makeDeciduous(
                 .lerp(LIMB_UP, 0.06 + nodeRng() * 0.06)
                 .normalize();
             const branchSeed = childSeed(nodeSeed, 0x2000 + branch);
-            const branchRng = seededRng(childSeed(branchSeed, 0x31));
+            const branchRng = seededRandom(childSeed(branchSeed, 0x31));
             const child = growLimb(
                 tree, branchRng, from, direction, branchLength,
                 // At gameplay scale a branch only needs a solid silhouette.
@@ -2174,7 +2126,7 @@ function makeDeciduous(
         crownAlreadyOwned: boolean = false,
     ): void => {
         forks++;
-        const nodeRng = seededRng(nodeSeed);
+        const nodeRng = seededRandom(nodeSeed);
         const remainingTrunkLevels = resolvedParameters.trunk.levels - level;
         const ownsLeaderCrown = !crownAlreadyOwned
             && resolvedParameters.canopy.depthFromTip > 0
@@ -2226,7 +2178,7 @@ function makeDeciduous(
                 .lerp(LIMB_UP, 0.04 + nodeRng() * 0.05)
                 .normalize();
             const sideSeed = childSeed(nodeSeed, 0x4000 + side);
-            const sideRng = seededRng(childSeed(sideSeed, 0x61));
+            const sideRng = seededRandom(childSeed(sideSeed, 0x61));
             const sideBranch = growLimb(
                 tree, sideRng, from, direction, sideBranchLength,
                 sideBaseRadius, sideTipRadius, 2, 3,
@@ -2258,7 +2210,7 @@ function makeDeciduous(
         const leaderBaseRadius = parentTipRadius;
         const leaderTipRadius = leaderBaseRadius * trunkTaperPerJoint;
         const leaderSeed = childSeed(nodeSeed, 0x7f4a7c15);
-        const leaderRng = seededRng(childSeed(leaderSeed, 0x91));
+        const leaderRng = seededRandom(childSeed(leaderSeed, 0x91));
         const leader = growLimb(
             tree, leaderRng, from, leaderDirection, trunkLevelLength * (1.04 + nodeRng() * 0.08),
             leaderBaseRadius, leaderTipRadius, 1, 4,
@@ -2889,8 +2841,6 @@ function fitDeciduousTreeScatter(piece: any, requestedScatter: number): number {
 // vertex's position in ITS OWN mesh; after a merge `position` is
 // tile-local, so the original is carried alongside it. Get that wrong and
 // every tree on the map silently changes pattern scale.
-
-const MERGE_ATTRS = ['position', 'normal', 'uv'] as const;
 
 function mergeDecorations(group: any): any | null {
     group.updateMatrixWorld(true);

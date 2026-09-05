@@ -10,7 +10,7 @@
 // providers without creating an import cycle through TerrainSystem/render.
 // The registry asserts the two stay in sync at startup instead.
 
-import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
+import * as TerrainSystem from '../../shared/hexengine/terrainStats';
 import type { BuildingSpawn, TileLike } from '../../types';
 
 export interface StartingUnit {

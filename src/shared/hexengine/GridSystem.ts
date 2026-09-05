@@ -14,7 +14,7 @@ import { TerrainChunkSystem } from './TerrainChunkSystem';
 import { RoadChunkSystem } from './RoadChunkSystem';
 import { DecorationChunkSystem } from './DecorationChunkSystem';
 import { markShadowsDirty } from './ShadowBudget';
-import { addColorVariation, getVertexOffsets } from './utils';
+import { getVertexOffsets } from './utils';
 import { MAP_CONFIG, CRATER_COLOR } from '../../constants';
 import { getGameState, getGameStateOrNull } from '../../systems/gameStateStore';
 import { selectedMapProvider } from '../../systems/maps/mapRegistry';

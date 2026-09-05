@@ -54,7 +54,6 @@ class UnitSystem {
     static getClassModifier = getClassModifier;
     static getMovementCost = getMovementCost;
 
-
     static async loadUnitModels() {
         await ModelSystem.loadModels(this.unitTypes);
     }
@@ -138,68 +137,6 @@ class UnitSystem {
             transparent: true,
             depthWrite: false
         }));
-    }
-
-    static createModelWithColor(model: any, playerColor: number, usePlayerColor: boolean = true, replaceColor: number | null = null) {
-        const modelClone = model.clone();
-
-        if (usePlayerColor) {
-            modelClone.traverse((child: any) => {
-                if (child instanceof THREE.Mesh) {
-                    if (Array.isArray(child.material)) {
-                        child.material = child.material.map((mat: any) => {
-                            const clonedMat = mat.clone();
-                            clonedMat.color.setHex(playerColor);
-                            return clonedMat;
-                        });
-                    } else {
-                        child.material = child.material.clone();
-                        child.material.color.setHex(playerColor);
-                    }
-                }
-            });
-        } else if (replaceColor !== null) {
-            // Function to check if a color is close to the target color using Euclidean distance in RGB space
-            const isColorClose = (color1: number, color2: number): boolean => {
-                const r1 = (color1 >> 16) & 0xFF;
-                const g1 = (color1 >> 8) & 0xFF;
-                const b1 = color1 & 0xFF;
-                const r2 = (color2 >> 16) & 0xFF;
-                const g2 = (color2 >> 8) & 0xFF;
-                const b2 = color2 & 0xFF;
-
-                // Calculate Euclidean distance in RGB space
-                const distance = Math.sqrt(
-                    Math.pow(r1 - r2, 2) +
-                    Math.pow(g1 - g2, 2) +
-                    Math.pow(b1 - b2, 2)
-                );
-
-                // Allow for a maximum distance of 50 units in RGB space
-                return distance < 50;
-            };
-
-            modelClone.traverse((child: any) => {
-                if (child instanceof THREE.Mesh) {
-                    if (Array.isArray(child.material)) {
-                        child.material = child.material.map((mat: any) => {
-                            const clonedMat = mat.clone();
-                            if (isColorClose(clonedMat.color.getHex(), replaceColor)) {
-                                clonedMat.color.setHex(playerColor);
-                            }
-                            return clonedMat;
-                        });
-                    } else {
-                        child.material = child.material.clone();
-                        if (isColorClose(child.material.color.getHex(), replaceColor)) {
-                            child.material.color.setHex(playerColor);
-                        }
-                    }
-                }
-            });
-        }
-
-        return modelClone;
     }
 
     static createUnit(type: string, q: number, r: number, playerIndex: number) {

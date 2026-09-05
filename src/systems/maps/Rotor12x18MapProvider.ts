@@ -23,11 +23,10 @@
 // tile.hasRoad (randomRoads: 0). Column 0 rotates onto column 11, so the
 // pair is symmetric under the same transform as everything else.
 
-import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
-import { hash } from '../../shared/hexengine/utils';
-import { distanceField, shoreFactor, symmetricRelief } from '../../shared/hexengine/terrainRelief';
-import { MapProvider, StartingUnit, Tile } from './MapProvider';
-import type { BuildingSpawn, TileLike } from '../../types';
+import * as TerrainSystem from '../../shared/hexengine/terrainStats';
+import { symmetricRelief } from '../../shared/hexengine/terrainRelief';
+import { createRotationalMap } from './rotationalMap';
+import type { BuildingSpawn } from '../../types';
 
 const ROWS = 18;
 const COLS = 12;
@@ -46,14 +45,6 @@ const NORTH_LAYOUT = [
     'GFFGGGGFFGGG', // r7: forest belt with a gap at q5/q6
     'GGGGGSSGGGGG', // r8: sand saddle at the waist of the map
 ];
-
-const CHAR_TO_TYPE: Record<string, string> = {
-    G: 'GRASS',
-    F: 'FOREST',
-    S: 'SAND',
-    W: 'WATER',
-    M: 'MOUNTAIN',
-};
 
 // Roads, authored for the northern half only; the southern half gets the
 // half-turn image of it, so the network maps onto itself exactly like the
@@ -80,13 +71,6 @@ const NORTH_ROADS: Array<[number, number]> = [
     [5, 8],
 ];
 
-// (q, r) keys of every road tile, north half plus its half-turn image.
-const ROAD_TILES = new Set<string>();
-for (const [q, r] of NORTH_ROADS) {
-    ROAD_TILES.add(`${q},${r}`);
-    ROAD_TILES.add(`${COLS - 1 - q},${ROWS - 1 - r}`);
-}
-
 // Same roster as the 8x8 map: the full rock/paper/scissors triangle --
 // tank (Bulwark) beats AA (Halberd) beats air (Nightjar) beats tank --
 // plus artillery (Kestrel) and the only capturing class (Pike).
@@ -97,11 +81,6 @@ const ROSTER: Array<{ type: string; q: number }> = [
     { type: 'Nightjar', q: 7 },
     { type: 'Pike', q: 8 },
 ];
-
-// The CPU's back row is r0 and the player's is r17. Rotating the CPU
-// roster gives the player's, so each unit type starts the same distance
-// from the centre on both sides.
-const ROTATE_Q = (q: number) => COLS - 1 - q;
 
 // One neutral forge depot per half. The depot is FOUR pieces on four
 // adjacent hexes, and the pieces are named for where they sit: viewed from
@@ -169,41 +148,6 @@ const FACTORIES: BuildingSpawn[] = [
 // -- lifted onto the relief at the group's anchor. Only the anchor is
 // sampled, and the two depots' anchors are each other's image under the
 // map's rotation, so the two pads are identical by construction.
-// How far the ground rises and falls, on top of each terrain's own base
-// height. 0.55 either way makes the land span about 1.1 -- seven times the
-// 0.153 the middle half of it used to fit inside, and about two thirds of a
-// hex radius, which is the point where a slope is clearly a slope from the
-// game camera without the map turning into badlands.
-const RELIEF_AMPLITUDE = 0.55;
-
-// How much of each terrain's own heightVariation survives as per-tile
-// texture. The relief carries the shape of the land now; this is only so
-// that neighbouring tiles of one type are not identical plates. Forest
-// (0.6) stays visibly rougher than grass (0.3), which is what those numbers
-// were always for.
-const TEXTURE_SHARE = 0.35;
-
-// How many hexes it takes for the ground to climb from the waterline to its
-// full height. Three: two is still a wall, four would flatten most of a
-// 12x18 map with four lakes on it.
-const SHORE_REACH = 3;
-
-// The least a land tile may stand above the waterline. Without it a sand
-// tile at the water's edge with the relief against it lands within a
-// hundredth of the surface and reads as submerged.
-const MIN_FREEBOARD = 0.1;
-
-const terrainAt = (q: number, r: number): string => {
-    const southern = r >= ROWS / 2;
-    const sourceQ = southern ? ROTATE_Q(q) : q;
-    const sourceR = southern ? ROWS - 1 - r : r;
-    return CHAR_TO_TYPE[NORTH_LAYOUT[sourceR][sourceQ]] ?? 'GRASS';
-};
-
-// cell key -> groupId, so generate() can look a pad up by tile. Pure data,
-// safe to build at module load.
-const DEPOT_GROUP_AT = new Map(FACTORIES.map((piece) => [`${piece.q},${piece.r}`, piece.groupId!]));
-
 // groupId -> the one height every piece of that depot stands on. Computed
 // ONCE PER DEPOT and not per tile: sampling the relief separately for each
 // piece is exactly how four pieces end up at four heights.
@@ -211,7 +155,7 @@ const DEPOT_GROUP_AT = new Map(FACTORIES.map((piece) => [`${piece.q},${piece.r}`
 // Called from generate(), never at module load. TerrainSystem reaches
 // BuildingSystem, which reaches mapRegistry, which reaches back here -- so
 // touching it while this module is still evaluating finds it undefined.
-function depotPadHeights(): Map<string, number> {
+function depotPadHeights(terrainAt: (q: number, r: number) => string): Map<string, number> {
     const pads = new Map<string, number>();
     // The highest base height in the group, so no piece is left buried.
     for (const piece of FACTORIES) {
@@ -226,98 +170,21 @@ function depotPadHeights(): Map<string, number> {
     for (const piece of FACTORIES) {
         if (piece.type !== 'forgeDepotN') continue;
         const relief = symmetricRelief(piece.q, piece.r, COLS, ROWS);
-        pads.set(piece.groupId!, pads.get(piece.groupId!)! + relief * RELIEF_AMPLITUDE);
+        pads.set(piece.groupId!, pads.get(piece.groupId!)! + relief * 0.55);
     }
-    return pads;
+    return new Map(FACTORIES.map((piece) => [
+        `${piece.q},${piece.r}`, pads.get(piece.groupId!)!,
+    ]));
 }
 
-export const rotor12x18MapProvider: MapProvider = {
+export const rotor12x18MapProvider = createRotationalMap({
     key: 'rotor12x18',
     name: 'Half Turn (12x18)',
     rows: ROWS,
     cols: COLS,
-    randomRoads: 0,
+    northLayout: NORTH_LAYOUT,
+    northRoads: NORTH_ROADS,
+    roster: ROSTER,
     buildings: FACTORIES,
-    spawns: {
-        cpu: ROSTER.map(({ type, q }) => ({ type, q, r: 0 })),
-        player: ROSTER.map(({ type, q }) => ({ type, q: ROTATE_Q(q), r: ROWS - 1 })),
-    },
-
-    generate(): TileLike[][] {
-        const waterLevel = TerrainSystem.getTerrainBaseHeight('WATER');
-        // Hexes to the nearest lake, for the shore ramp below. The water
-        // layout is symmetric under the map's rotation and these are
-        // integers, so the field is exactly symmetric too.
-        const fromWater = distanceField(COLS, ROWS, (q, r) => terrainAt(q, r) === 'WATER');
-        const pads = depotPadHeights();
-
-        const tiles: TileLike[][] = [];
-        for (let q = 0; q < COLS; q++) {
-            tiles[q] = [];
-            for (let r = 0; r < ROWS; r++) {
-                // Southern rows read the northern layout rotated half a
-                // turn -- both coordinates flip, which is what makes this
-                // a rotation rather than a reflection.
-                const southern = r >= ROWS / 2;
-                const sourceQ = southern ? ROTATE_Q(q) : q;
-                const sourceR = southern ? ROWS - 1 - r : r;
-                const terrainType = CHAR_TO_TYPE[NORTH_LAYOUT[sourceR][sourceQ]] ?? 'GRASS';
-
-                const baseHeight = TerrainSystem.getTerrainBaseHeight(terrainType);
-                // In [-1, 1], continuous across the map and identical at
-                // every pair of cells the rotation swaps.
-                const relief = symmetricRelief(q, r, COLS, ROWS);
-                const group = DEPOT_GROUP_AT.get(`${q},${r}`);
-
-                let height: number;
-                if (terrainType === 'WATER') {
-                    height = baseHeight;
-                } else if (group) {
-                    // One pad for all four pieces, riding the relief but
-                    // not the shore ramp: the northern depot stands on the
-                    // lake shore, and a depot half-drowned in its own beach
-                    // is worse than a depot on a headland above it. Its
-                    // tile keeps a flat top anyway -- smoothHexTile returns
-                    // early for building tiles -- so the drop to the water
-                    // is a quay wall rather than a crater slope.
-                    height = pads.get(group)!;
-                } else {
-                    // A little of the old per-tile jitter survives as
-                    // surface texture, so tiles of the same type are not
-                    // identical plates -- forest keeps more of it than
-                    // grass, exactly as its heightVariation always said.
-                    const texture01 = (hash(sourceQ * 131 + sourceR * 31) & 0xff) / 255;
-                    const variation = TerrainSystem.getTerrainHeightVariation(terrainType);
-                    height = baseHeight + relief * RELIEF_AMPLITUDE + texture01 * variation * TEXTURE_SHARE;
-
-                    if (terrainType === 'MOUNTAIN') {
-                        // Peaks follow the land: tallest where the relief
-                        // is already high, so the ridge reads as a ridge
-                        // rather than as a row of unrelated slabs. A third
-                        // stays per-tile so no two peaks are twins.
-                        const bulk01 = ((relief + 1) / 2) * 0.7 + texture01 * 0.3;
-                        height = baseHeight + relief * RELIEF_AMPLITUDE + bulk01 * variation;
-                    } else {
-                        // The shore ramp. Everything above the waterline is
-                        // scaled down as the water gets closer, so the
-                        // ground SLOPES in over three hexes instead of
-                        // ending in a wall. Mountains are exempt on
-                        // purpose: a cliff into a lake is a cliff, and
-                        // flattening one to a puddle's edge would be worse.
-                        const shore = shoreFactor(fromWater[q][r], SHORE_REACH);
-                        height = waterLevel + (height - waterLevel) * shore;
-                        // Never author land at the waterline itself: it
-                        // would read as submerged, and the drowning rule
-                        // treats anything at or below it as water.
-                        height = Math.max(waterLevel + MIN_FREEBOARD, height);
-                    }
-                }
-
-                const tile = new Tile(height, terrainType, TerrainSystem.getTerrainColor(terrainType));
-                tile.hasRoad = ROAD_TILES.has(`${q},${r}`) && terrainType !== 'WATER';
-                tiles[q][r] = tile;
-            }
-        }
-        return tiles;
-    },
-};
+    pads: depotPadHeights,
+});

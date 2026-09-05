@@ -62,16 +62,8 @@ export const SPLASH_FACTOR = 0.25;
 // Helicopter volley: this many small rockets, all at the target hex.
 export const VOLLEY_COUNT = 4;
 
-// Small fast deterministic PRNG (mulberry32).
-export function mulberry32(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
+import { seededRandom as mulberry32 } from '../../shared/seededRandom';
+export { mulberry32 };
 
 // Deterministic seed from e.g. (turnCounter, attackerIndex, defenderIndex),
 // so the same attack resolves identically in every candidate plan.

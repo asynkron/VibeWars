@@ -6,7 +6,6 @@ import {
     setDecorationCanopyTexture,
     setDecorationCanopyTextureAlphaThreshold,
     setDecorationCanopyTextureEdgeFade,
-    setDecorationCanopyColorAdjust,
     setDecorationCrownOpacity,
     setDecorationLeafGloss,
     setDecorationLeafScale,

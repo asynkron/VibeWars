@@ -15,7 +15,7 @@
 // In human-vs-cpu the human holds the south side: two units, one right
 // answer, an AI that punishes the wrong one.
 
-import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
+import * as TerrainSystem from '../../shared/hexengine/terrainStats';
 import { MapProvider, StartingUnit, Tile } from './MapProvider';
 import type { TileLike } from '../../types';
 

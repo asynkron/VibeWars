@@ -57,11 +57,8 @@
 // (4,6) -- so a defender cannot slide between the two fords at 0.5 a hex and
 // answer every commitment for free.
 
-import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
-import { hash } from '../../shared/hexengine/utils';
-import { distanceField, shoreFactor, symmetricRelief } from '../../shared/hexengine/terrainRelief';
-import { MapProvider, Tile } from './MapProvider';
-import type { BuildingSpawn, TileLike } from '../../types';
+import { createRotationalMap } from './rotationalMap';
+import type { BuildingSpawn } from '../../types';
 
 const ROWS = 10;
 const COLS = 10;
@@ -76,26 +73,6 @@ const NORTH_LAYOUT = [
     'GGSGGFFFWG', // r3: near bank -- open grass west, forest east, pond lobe
     'WWSWMMWSWW', // r4: THE RIVER. Fords at q2 and q7, rock spur at q4/q5
 ];
-
-const CHAR_TO_TYPE: Record<string, string> = {
-    G: 'GRASS',
-    F: 'FOREST',
-    S: 'SAND',
-    W: 'WATER',
-    M: 'MOUNTAIN',
-};
-
-// A short row indexes past its end and yields `undefined`, which the `??`
-// below quietly turns into GRASS -- a miscounted column would open a hole in
-// the river and nothing would say so. Count them once, here, at load.
-if (NORTH_LAYOUT.length !== ROWS / 2) {
-    throw new Error(`ford10: authored ${NORTH_LAYOUT.length} rows, needs ${ROWS / 2}`);
-}
-for (const [index, row] of NORTH_LAYOUT.entries()) {
-    if (row.length !== COLS) {
-        throw new Error(`ford10: row ${index} is ${row.length} characters, needs ${COLS}`);
-    }
-}
 
 // The half turn, the one transform this map is built on.
 const ROTATE_Q = (q: number) => COLS - 1 - q;
@@ -127,13 +104,6 @@ const NORTH_ROADS: Array<[number, number]> = [
     // ...one step east to the throat of the eastern funnel, and in.
     [7, 3], [7, 4],
 ];
-
-// (q, r) keys of every road tile, north half plus its half-turn image.
-const ROAD_TILES = new Set<string>();
-for (const [q, r] of NORTH_ROADS) {
-    ROAD_TILES.add(`${q},${r}`);
-    ROAD_TILES.add(`${ROTATE_Q(q)},${ROTATE_R(r)}`);
-}
 
 // Same roster as the other authored maps: the full rock/paper/scissors
 // triangle -- tank (Bulwark) beats AA (Halberd) beats air (Nightjar) beats
@@ -189,120 +159,15 @@ const FACTORIES: BuildingSpawn[] = [
 
 const BUILDING_TILES = new Set(FACTORIES.map((b) => `${b.q},${b.r}`));
 
-// How far the ground rises and falls on top of each terrain's base height.
-// Same 0.55 the 12x18 map uses, so a slope reads as a slope from the game
-// camera without the map turning into badlands.
-const RELIEF_AMPLITUDE = 0.55;
-
-// How much of each terrain's own heightVariation survives as per-tile
-// texture. The relief carries the shape of the land; this is only so that
-// neighbouring tiles of one type are not identical plates.
-const TEXTURE_SHARE = 0.35;
-
-// How much of MOUNTAIN's heightVariation (4.5) the spur actually takes.
-// Lower than the 12x18 map's full share on purpose: that map has eight
-// mountain tiles spread along a diagonal ridge and a camera far enough back
-// to read it as one. This has FOUR, in a 2x2 block, on a map two thirds the
-// width -- at full variation they stand up as needles in the middle of the
-// river rather than as a rock the infantry scrambles over.
-const MOUNTAIN_BULK = 0.5;
-
-// How many hexes it takes for the ground to climb from the waterline to its
-// full height. Three, as on the 12x18 map: two is still a wall.
-const SHORE_REACH = 3;
-
-// The least a land tile may stand above the waterline. SimState's
-// terrainModified turns any tile at or below WATER's base height into water,
-// and a ford that a Kestrel crater can flood is not a ford.
-const MIN_FREEBOARD = 0.1;
-
-const terrainAt = (q: number, r: number): string => {
-    const southern = r >= ROWS / 2;
-    const sourceQ = southern ? ROTATE_Q(q) : q;
-    const sourceR = southern ? ROTATE_R(r) : r;
-    return CHAR_TO_TYPE[NORTH_LAYOUT[sourceR][sourceQ]] ?? 'GRASS';
-};
-
-export const ford10MapProvider: MapProvider = {
+export const ford10MapProvider = createRotationalMap({
     key: 'ford10',
     name: 'Two Fords (10x10)',
     rows: ROWS,
     cols: COLS,
-    randomRoads: 0,
+    northLayout: NORTH_LAYOUT,
+    northRoads: NORTH_ROADS,
+    roster: ROSTER,
     buildings: FACTORIES,
-    spawns: {
-        cpu: ROSTER.map(({ type, q }) => ({ type, q, r: 0 })),
-        player: ROSTER.map(({ type, q }) => ({ type, q: ROTATE_Q(q), r: ROWS - 1 })),
-    },
-
-    generate(): TileLike[][] {
-        const waterLevel = TerrainSystem.getTerrainBaseHeight('WATER');
-        // Hexes to the nearest water, for the shore ramp below. The water
-        // layout is symmetric under the map's rotation and these are
-        // integers, so the field is exactly symmetric too.
-        const fromWater = distanceField(COLS, ROWS, (q, r) => terrainAt(q, r) === 'WATER');
-
-        const tiles: TileLike[][] = [];
-        for (let q = 0; q < COLS; q++) {
-            tiles[q] = [];
-            for (let r = 0; r < ROWS; r++) {
-                // Southern rows read the northern layout rotated half a
-                // turn -- BOTH coordinates flip, which is what makes this a
-                // rotation rather than a reflection, and a rotation is the
-                // only one of the two an odd-q hex grid respects.
-                const southern = r >= ROWS / 2;
-                const sourceQ = southern ? ROTATE_Q(q) : q;
-                const sourceR = southern ? ROTATE_R(r) : r;
-                const terrainType = CHAR_TO_TYPE[NORTH_LAYOUT[sourceR][sourceQ]] ?? 'GRASS';
-
-                const baseHeight = TerrainSystem.getTerrainBaseHeight(terrainType);
-                // In [-1, 1], continuous across the map and identical at
-                // every pair of cells the rotation swaps -- it averages the
-                // field with its own image, and two-term float addition is
-                // commutative, so the pair agrees bit for bit.
-                const relief = symmetricRelief(q, r, COLS, ROWS);
-                const variation = TerrainSystem.getTerrainHeightVariation(terrainType);
-                // A building tile keeps whatever height is authored here --
-                // GridSystem.smoothHexTile returns early for it -- so the
-                // factory gets a FLAT pad with no per-tile texture on it,
-                // while still riding the same relief and the same shore ramp
-                // as the ground around it. Skipping the ramp instead would
-                // leave it standing on a plinth above its own beach.
-                const isBuilding = BUILDING_TILES.has(`${q},${r}`);
-                const texture01 = isBuilding ? 0 : (hash(sourceQ * 131 + sourceR * 31) & 0xff) / 255;
-
-                let height: number;
-                if (terrainType === 'WATER') {
-                    height = baseHeight;
-                } else if (terrainType === 'MOUNTAIN') {
-                    // The spur follows the land: tallest where the relief is
-                    // already high, so the four tiles read as one rock. No
-                    // shore ramp -- a cliff into a river is a cliff, and
-                    // flattening it to the water's edge would be worse.
-                    const bulk01 = ((relief + 1) / 2) * 0.7 + texture01 * 0.3;
-                    height = baseHeight + relief * RELIEF_AMPLITUDE + bulk01 * variation * MOUNTAIN_BULK;
-                } else {
-                    height = baseHeight + relief * RELIEF_AMPLITUDE + texture01 * variation * TEXTURE_SHARE;
-                    // Everything above the waterline is scaled down as the
-                    // water gets closer, so the banks SLOPE into the river
-                    // over three hexes instead of ending in a crater wall --
-                    // and the fords, water on five sides, end up barely
-                    // proud of the surface, which is what a ford looks like.
-                    const shore = shoreFactor(fromWater[q][r], SHORE_REACH);
-                    height = waterLevel + (height - waterLevel) * shore;
-                    height = Math.max(waterLevel + MIN_FREEBOARD, height);
-                }
-
-                const tile = new Tile(height, terrainType, TerrainSystem.getTerrainColor(terrainType));
-                // Never a road on water, and never one on the rock spur
-                // either: the game checks hasRoad BEFORE the unit's own
-                // terrainCosts, so a road on MOUNTAIN would quietly cost a
-                // Bulwark 0.5 and hand every tank the infantry's crossing.
-                tile.hasRoad =
-                    ROAD_TILES.has(`${q},${r}`) && terrainType !== 'WATER' && terrainType !== 'MOUNTAIN';
-                tiles[q][r] = tile;
-            }
-        }
-        return tiles;
-    },
-};
+    mountainBulk: 0.5,
+    flatTiles: BUILDING_TILES,
+});

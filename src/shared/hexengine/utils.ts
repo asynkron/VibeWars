@@ -1,5 +1,4 @@
 // Shared helper utilities for the hex engine.
-import { GridSystem } from './GridSystem';
 
 function addColorVariation(
   color: number | string,
@@ -37,12 +36,8 @@ function getVertexOffsets(seed: number): { x: number; z: number } {
   };
 }
 
-function getHexIntersects(raycaster: any) {
-  return GridSystem.getHexIntersects(raycaster);
-}
-
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
 
-export { addColorVariation, hash, getVertexOffset, getVertexOffsets, getHexIntersects, clamp };
+export { addColorVariation, hash, getVertexOffset, getVertexOffsets, clamp };

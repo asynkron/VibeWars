@@ -1,33 +1,27 @@
+import { chunkId, indexChunkTiles } from './geometryChunks';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { applyChunkedRoadSurface } from './DecalShaders';
-
-const CHUNK_TILES = 5;
-
-function chunkId(q: number, r: number): string {
-    return `${Math.floor(q / CHUNK_TILES)}:${Math.floor(r / CHUNK_TILES)}`;
-}
 
 export class RoadChunkSystem {
     private static parent: any = null;
     private static chunks = new Map<string, any>();
+    private static roads = new Map<string, any[]>();
 
     static rebuildAll(parent: any): void {
         this.dispose();
         this.parent = parent;
-        const ids = new Set<string>();
-        for (const road of parent.children) {
-            if (road.userData?.isRoadSource) {
-                ids.add(chunkId(road.userData.q, road.userData.r));
-            }
-        }
-        for (const id of ids) this.rebuildChunk(id);
-        this.syncVisibility();
+        this.roads = indexChunkTiles(parent.children.filter((child: any) => child.userData?.isRoadSource));
+        for (const id of this.roads.keys()) this.rebuildChunk(id);
     }
 
     static tileGeometryChanged(q: number, r: number): void {
         if (!this.parent) return;
-        this.rebuildChunk(chunkId(q, r));
-        this.syncVisibility();
+        const id = chunkId(q, r);
+        // RoadSystem replaces source objects after smoothing, so refresh the
+        // changed bucket from the current children before merging it.
+        this.roads.set(id, this.parent.children.filter((child: any) =>
+            child.userData?.isRoadSource && chunkId(child.userData.q, child.userData.r) === id));
+        this.rebuildChunk(id);
     }
 
     static dispose(): void {
@@ -37,6 +31,7 @@ export class RoadChunkSystem {
             mesh.material?.dispose?.();
         }
         this.chunks.clear();
+        this.roads.clear();
         this.parent = null;
     }
 
@@ -49,12 +44,11 @@ export class RoadChunkSystem {
             this.chunks.delete(id);
         }
 
-        this.parent.updateWorldMatrix(true, true);
+        this.parent.updateWorldMatrix(true, false);
         const parentInverse = new THREE.Matrix4().copy(this.parent.matrixWorld).invert();
         const sources: any[] = [];
-        for (const road of this.parent.children) {
-            if (!road.userData?.isRoadSource) continue;
-            if (chunkId(road.userData.q, road.userData.r) !== id) continue;
+        for (const road of this.roads.get(id) ?? []) {
+            road.visible = false;
             road.traverse((child: any) => {
                 if (child.isMesh && child.userData?.roadDirection !== undefined) sources.push(child);
             });
@@ -103,11 +97,6 @@ export class RoadChunkSystem {
         this.chunks.set(id, mesh);
     }
 
-    private static syncVisibility(): void {
-        for (const child of this.parent.children) {
-            if (child.userData?.isRoadSource) child.visible = false;
-        }
-    }
 }
 
 export const roadChunkMath = { chunkId };

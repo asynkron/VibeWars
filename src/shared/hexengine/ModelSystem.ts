@@ -532,71 +532,22 @@ class ModelSystem {
                         : tintIfMatch(child.material);
                 }
             });
-            GlowSystem.claim(modelClone);
-            RotorSystem.claim(modelClone);
-            // After the claims, so the grime lands on the materials that
-            // actually render. Team color stays the base; this lays
-            // weathering over it -- see UnitShader.
-            if (applyPlateWeathering) applyDirtyPlateToModel(modelClone);
-            ModelSystem.enhanceTexturedModelContrast(modelClone, contrastStrength);
-            return modelClone;
-        }
-
-        if (usePlayerColor) {
-            modelClone.traverse((child: any) => {
-                if (child instanceof THREE.Mesh) {
-                    if (Array.isArray(child.material)) {
-                        child.material = child.material.map((mat: any) => {
-                            const clonedMat = mat.clone();
-                            clonedMat.color.setHex(playerColor);
-                            return clonedMat;
-                        });
-                    } else {
-                        child.material = child.material.clone();
-                        child.material.color.setHex(playerColor);
-                    }
+        } else if (usePlayerColor || replaceColor !== null) {
+            const tint = (source: any) => {
+                const material = source.clone();
+                const color = material.color.getHex();
+                const dr = ((color >> 16) & 255) - ((replaceColor! >> 16) & 255);
+                const dg = ((color >> 8) & 255) - ((replaceColor! >> 8) & 255);
+                const db = (color & 255) - (replaceColor! & 255);
+                // Same RGB distance threshold as the original replacement pass.
+                if (usePlayerColor || dr * dr + dg * dg + db * db < 50 * 50) {
+                    material.color.setHex(playerColor);
                 }
-            });
-        }
-
-        if (replaceColor !== null) {
-            // Function to check if a color is close to the target color using Euclidean distance in RGB space
-            const isColorClose = (color1: number, color2: number): boolean => {
-                const r1 = (color1 >> 16) & 0xFF;
-                const g1 = (color1 >> 8) & 0xFF;
-                const b1 = color1 & 0xFF;
-                const r2 = (color2 >> 16) & 0xFF;
-                const g2 = (color2 >> 8) & 0xFF;
-                const b2 = color2 & 0xFF;
-
-                // Calculate Euclidean distance in RGB space
-                const distance = Math.sqrt(
-                    Math.pow(r1 - r2, 2) +
-                    Math.pow(g1 - g2, 2) +
-                    Math.pow(b1 - b2, 2)
-                );
-
-                // Allow for a maximum distance of 50 units in RGB space
-                return distance < 50;
+                return material;
             };
-
             modelClone.traverse((child: any) => {
-                if (child instanceof THREE.Mesh) {
-                    if (Array.isArray(child.material)) {
-                        child.material = child.material.map((mat: any) => {
-                            const clonedMat = mat.clone();
-                            if (isColorClose(clonedMat.color.getHex(), replaceColor)) {
-                                clonedMat.color.setHex(playerColor);
-                            }
-                            return clonedMat;
-                        });
-                    } else {
-                        child.material = child.material.clone();
-                        if (isColorClose(child.material.color.getHex(), replaceColor)) {
-                            child.material.color.setHex(playerColor);
-                        }
-                    }
-                }
+                if (child instanceof THREE.Mesh) child.material = Array.isArray(child.material)
+                    ? child.material.map(tint) : tint(child.material);
             });
         }
 

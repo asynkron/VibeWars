@@ -1,10 +1,4 @@
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-
-const CHUNK_TILES = 5;
-
-function chunkId(q: number, r: number): string {
-    return `${Math.floor(q / CHUNK_TILES)}:${Math.floor(r / CHUNK_TILES)}`;
-}
+import { chunkId, indexChunkTiles, mergeLocalGeometries } from './geometryChunks';
 
 function isProceduralDecoration(decorator: any): boolean {
     const materials = Array.isArray(decorator?.material)
@@ -16,21 +10,14 @@ function isProceduralDecoration(decorator: any): boolean {
 
 export class DecorationChunkSystem {
     private static parent: any = null;
-    private static grid: any[] = [];
+    private static tiles = new Map<string, any[]>();
     private static chunks = new Map<string, any>();
 
     static rebuildAll(parent: any, grid: any[]): void {
         this.dispose();
         this.parent = parent;
-        this.grid = grid;
-        const ids = new Set<string>();
-        for (const hex of grid) {
-            if (isProceduralDecoration(hex.userData?.decorator)) {
-                ids.add(chunkId(hex.userData.q, hex.userData.r));
-            }
-        }
-        for (const id of ids) this.rebuildChunk(id);
-        this.syncVisibility();
+        this.tiles = indexChunkTiles(grid);
+        for (const id of this.tiles.keys()) this.rebuildChunk(id);
     }
 
     // Occupied and burnt tiles leave the cache and render from their original
@@ -42,13 +29,11 @@ export class DecorationChunkSystem {
         if (!!hex.userData.decorationChunkDynamic === dynamic) return;
         hex.userData.decorationChunkDynamic = dynamic;
         this.rebuildChunk(chunkId(hex.userData.q, hex.userData.r));
-        this.syncVisibility();
     }
 
     static tileGeometryChanged(hex: any): void {
         if (!this.parent || !hex?.userData) return;
         this.rebuildChunk(chunkId(hex.userData.q, hex.userData.r));
-        this.syncVisibility();
     }
 
     static dispose(): void {
@@ -58,7 +43,7 @@ export class DecorationChunkSystem {
         }
         this.chunks.clear();
         this.parent = null;
-        this.grid = [];
+        this.tiles.clear();
     }
 
     private static rebuildChunk(id: string): void {
@@ -69,24 +54,16 @@ export class DecorationChunkSystem {
             this.chunks.delete(id);
         }
 
-        const sources = this.grid
-            .filter((hex) => chunkId(hex.userData.q, hex.userData.r) === id)
-            .filter((hex) => !hex.userData.decorationChunkDynamic)
-            .map((hex) => hex.userData.decorator)
-            .filter(isProceduralDecoration);
+        const sources = [];
+        for (const hex of this.tiles.get(id) ?? []) {
+            const decorator = hex.userData.decorator;
+            if (!isProceduralDecoration(decorator)) continue;
+            decorator.visible = !!hex.userData.decorationChunkDynamic;
+            if (!decorator.visible) sources.push(decorator);
+        }
         if (!sources.length) return;
-
-        const copies = sources.map((source) => {
-            const geometry = source.geometry.clone();
-            source.updateMatrix();
-            geometry.applyMatrix4(source.matrix);
-            return geometry;
-        });
-        const geometry = mergeGeometries(copies, false);
-        for (const copy of copies) copy.dispose();
+        const geometry = mergeLocalGeometries(sources);
         if (!geometry) return;
-        geometry.computeBoundingBox();
-        geometry.computeBoundingSphere();
 
         const source = sources[0];
         const mesh = new THREE.Mesh(geometry, source.material);
@@ -99,11 +76,4 @@ export class DecorationChunkSystem {
         this.chunks.set(id, mesh);
     }
 
-    private static syncVisibility(): void {
-        for (const hex of this.grid) {
-            const decorator = hex.userData?.decorator;
-            if (!isProceduralDecoration(decorator)) continue;
-            decorator.visible = !!hex.userData.decorationChunkDynamic;
-        }
-    }
 }

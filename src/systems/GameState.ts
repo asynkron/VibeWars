@@ -387,14 +387,6 @@ class GameState {
         aiStartingUnits.forEach((unitData) => this.spawnUnit(unitData.type, unitData.q, unitData.r, 1));
     }
 
-    clone(): GameState {
-        const clone = new GameState();
-        clone.map = (this.map as any).clone();  // pre-existing: GameMap has no clone() method, throws if ever called (dead code, see git history)
-        clone.players = JSON.parse(JSON.stringify(this.players));
-        clone.units = JSON.parse(JSON.stringify(this.units));
-        clone.currentTurn = this.currentTurn;
-        return clone;
-    }
 }
 
 export { GameState };

@@ -100,11 +100,8 @@
 // mutable state -- the map is the same on every load, in the browser and in
 // the headless simulation, which is what makes it a competitive map.
 
-import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
-import { hash } from '../../shared/hexengine/utils';
-import { distanceField, shoreFactor, symmetricRelief } from '../../shared/hexengine/terrainRelief';
-import { MapProvider, Tile } from './MapProvider';
-import type { BuildingSpawn, TileLike } from '../../types';
+import { createRotationalMap } from './rotationalMap';
+import type { BuildingSpawn } from '../../types';
 
 const ROWS = 14;
 const COLS = 14;
@@ -121,24 +118,6 @@ const NORTH_LAYOUT = [
     'GGGFSMMMGGFGGG', // r5: crown widens; the factory nook is q4
     'GGFSMMMMMSGFGG', // r6: the waist -- lanes are q0..q3 and q9..q13
 ];
-
-const CHAR_TO_TYPE: Record<string, string> = {
-    G: 'GRASS',
-    F: 'FOREST',
-    S: 'SAND',
-    W: 'WATER',
-    M: 'MOUNTAIN',
-};
-
-// A row of the wrong length throws on indexing; a row of the wrong CONTENT
-// falls through to GRASS silently, which is the authoring mistake that is
-// impossible to see in a screenshot. Assert both while the data is still
-// next to the ruler comment above.
-if (NORTH_LAYOUT.length !== ROWS / 2) throw new Error('crown14: authored half is the wrong height');
-for (const row of NORTH_LAYOUT) {
-    if (row.length !== COLS) throw new Error(`crown14: layout row "${row}" is not ${COLS} characters`);
-    for (const ch of row) if (!CHAR_TO_TYPE[ch]) throw new Error(`crown14: unknown terrain char "${ch}"`);
-}
 
 const ROTATE_Q = (q: number) => COLS - 1 - q;
 
@@ -160,13 +139,6 @@ const NORTH_ROADS: Array<[number, number]> = [
     // is exempt from smoothing, so a road under one silently vanishes.
     [2, 6], [3, 6], [3, 5],
 ];
-
-// (q, r) keys of every road tile, north half plus its half-turn image.
-const ROAD_TILES = new Set<string>();
-for (const [q, r] of NORTH_ROADS) {
-    ROAD_TILES.add(`${q},${r}`);
-    ROAD_TILES.add(`${ROTATE_Q(q)},${ROWS - 1 - r}`);
-}
 
 // The full rock/paper/scissors triangle -- tank (Bulwark) beats AA (Halberd)
 // beats air (Nightjar) beats tank -- plus artillery (Kestrel) and the only
@@ -208,102 +180,13 @@ const FACTORIES: BuildingSpawn[] = [
     },
 ];
 
-// How far the ground rises and falls on top of each terrain's base height.
-const RELIEF_AMPLITUDE = 0.55;
-// How much of each terrain's own heightVariation survives as per-tile
-// texture, so neighbouring tiles of one type are not identical plates.
-const TEXTURE_SHARE = 0.35;
-// Hexes for the ground to climb from the waterline to full height.
-const SHORE_REACH = 3;
-// The least a land tile may stand above the waterline. SimState turns any
-// tile at or below water's base height into water, and a Kestrel crater can
-// reach it -- sinking the factory's tile would destroy the factory.
-const MIN_FREEBOARD = 0.1;
-
-const terrainAt = (q: number, r: number): string => {
-    const southern = r >= ROWS / 2;
-    const sourceQ = southern ? ROTATE_Q(q) : q;
-    const sourceR = southern ? ROWS - 1 - r : r;
-    return CHAR_TO_TYPE[NORTH_LAYOUT[sourceR][sourceQ]] ?? 'GRASS';
-};
-
-export const crown14MapProvider: MapProvider = {
+export const crown14MapProvider = createRotationalMap({
     key: 'crown14',
     name: 'Crown (14x14)',
     rows: ROWS,
     cols: COLS,
-    randomRoads: 0,
+    northLayout: NORTH_LAYOUT,
+    northRoads: NORTH_ROADS,
+    roster: ROSTER,
     buildings: FACTORIES,
-    spawns: {
-        cpu: ROSTER.map(({ type, q }) => ({ type, q, r: 0 })),
-        player: ROSTER.map(({ type, q }) => ({ type, q: ROTATE_Q(q), r: ROWS - 1 })),
-    },
-
-    generate(): TileLike[][] {
-        const waterLevel = TerrainSystem.getTerrainBaseHeight('WATER');
-        // Hexes to the nearest lake, for the shore ramp. The water layout is
-        // symmetric under the map's rotation and these are integers, so the
-        // field is exactly symmetric too.
-        const fromWater = distanceField(COLS, ROWS, (q, r) => terrainAt(q, r) === 'WATER');
-
-        const tiles: TileLike[][] = [];
-        for (let q = 0; q < COLS; q++) {
-            tiles[q] = [];
-            for (let r = 0; r < ROWS; r++) {
-                // Southern rows read the northern layout rotated half a
-                // turn -- BOTH coordinates flip, which is what makes this a
-                // rotation rather than a reflection.
-                const southern = r >= ROWS / 2;
-                const sourceQ = southern ? ROTATE_Q(q) : q;
-                const sourceR = southern ? ROWS - 1 - r : r;
-                const terrainType = CHAR_TO_TYPE[NORTH_LAYOUT[sourceR][sourceQ]] ?? 'GRASS';
-
-                const baseHeight = TerrainSystem.getTerrainBaseHeight(terrainType);
-                // In [-1, 1], continuous across the map and identical at
-                // every pair of cells the rotation swaps -- the average of a
-                // field with its own image, which is exact because
-                // floating-point addition of two terms is commutative and
-                // halving is exact in binary.
-                const relief = symmetricRelief(q, r, COLS, ROWS);
-                // Seeded from the SOURCE cell, so a tile and its image get
-                // byte-identical texture.
-                const texture01 = (hash(sourceQ * 131 + sourceR * 31) & 0xff) / 255;
-                const variation = TerrainSystem.getTerrainHeightVariation(terrainType);
-
-                let height: number;
-                if (terrainType === 'WATER') {
-                    height = baseHeight;
-                } else if (terrainType === 'MOUNTAIN') {
-                    // Peaks follow the land: tallest where the relief is
-                    // already high, so the crown reads as one massif rather
-                    // than as eighteen unrelated slabs. A third stays
-                    // per-tile so no two peaks are twins. Mountains are
-                    // exempt from the shore ramp on purpose -- a cliff into
-                    // a lake is a cliff.
-                    const bulk01 = ((relief + 1) / 2) * 0.7 + texture01 * 0.3;
-                    height = baseHeight + relief * RELIEF_AMPLITUDE + bulk01 * variation;
-                } else {
-                    height = baseHeight + relief * RELIEF_AMPLITUDE + texture01 * variation * TEXTURE_SHARE;
-                    // The shore ramp: everything above the waterline is
-                    // scaled down as the water gets closer, so the ground
-                    // SLOPES in over three hexes instead of ending in a
-                    // crater wall.
-                    const shore = shoreFactor(fromWater[q][r], SHORE_REACH);
-                    height = waterLevel + (height - waterLevel) * shore;
-                    height = Math.max(waterLevel + MIN_FREEBOARD, height);
-                }
-
-                const tile = new Tile(height, terrainType, TerrainSystem.getTerrainColor(terrainType));
-                // WATER and MOUNTAIN both excluded: a road is checked before
-                // the unit's own terrainCosts and costs 0.5 to everything,
-                // so a road on the crown would open it to every tank on the
-                // map -- and the shared battery only guards water.
-                tile.hasRoad = ROAD_TILES.has(`${q},${r}`)
-                    && terrainType !== 'WATER'
-                    && terrainType !== 'MOUNTAIN';
-                tiles[q][r] = tile;
-            }
-        }
-        return tiles;
-    },
-};
+});

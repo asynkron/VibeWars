@@ -1,3 +1,5 @@
+import { seededRandom } from '../seededRandom';
+import { hash } from './utils';
 // Does this tile have burnable greenery drawn on it?
 //
 // Fire needs an answer both sides agree on. The renderer knows, because it
@@ -9,38 +11,15 @@
 // the same split unitStats/terrainStats/skills already made: the renderer
 // keeps the meshes, the rule moves somewhere the worker can reach.
 //
-// WHY THIS FILE IMPORTS NOTHING, not even `hash` from ./utils: utils.ts
-// line 2 is `import { GridSystem } from './GridSystem'`, so pulling one
-// seven-line integer function out of it drags in the whole renderer and
-// dies on `new THREE.TextureLoader()` at module load inside a worker. The
-// hash is copied below rather than imported, and tileVegetation.test.ts
-// pins the copy against the original's output.
-//
 // The predicate REPLAYS ProceduralDecorations.createProceduralDecoration's
 // rng stream rather than guessing at it, because the two must agree exactly
 // -- a fire on a visibly bare tile is the bug this file exists to prevent.
 // Draw costs of the helpers it has to skip past: pick() = 1, place() = 3
 // with spin and 2 without (scatter draws 2, the spin draws 1).
 
-// Copy of utils.hash. See the note above for why it is a copy.
-function hash(seed: number): number {
-    let h = seed;
-    h = ((h >> 16) ^ h) * 0x45d9f3b;
-    h = ((h >> 16) ^ h) * 0x45d9f3b;
-    h = (h >> 16) ^ h;
-    return h;
-}
-
-// Copy of ProceduralDecorations.tileRng -- mulberry32 seeded per (q, r), so
-// the same tile always dresses itself the same way.
+// Shared by scenery and fire simulation; neither may change the random stream.
 export function tileRng(q: number, r: number): () => number {
-    let a = (hash(q * 733 + r * 3079) ^ 0x9e3779b9) >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) | 0;
-        let t = Math.imul(a ^ (a >>> 15), 1 | a);
-        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
+    return seededRandom((hash(q * 733 + r * 3079) ^ 0x9e3779b9) >>> 0);
 }
 
 // The height below which a MOUNTAIN tile is "foot" -- alive with undergrowth

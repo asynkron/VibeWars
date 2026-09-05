@@ -2,7 +2,7 @@
 import { GridSystem } from './GridSystem';
 import { UnitSystem } from './UnitSystem';
 import { MAP_CONFIG } from '../../constants';
-import { hexNeighbors, hexToCube, hexDistance } from './hexMath';
+import { hexNeighbors, hexDistance } from './hexMath';
 
 class HexCoord {
   q: number;
@@ -35,17 +35,6 @@ class HexCoord {
   // Delegated to hexMath, which imports nothing that renders -- see there.
   static getNeighbors(q: number, r: number): { q: number; r: number }[] {
     return hexNeighbors(q, r);
-  }
-
-  // q/r are "odd-q" offset coordinates (odd columns shifted down half a
-  // row -- see getNeighbors' isOddColumn branching and getHexPosition's
-  // `r + (q % 2) / 2`). Cube/axial distance formulas only apply after
-  // converting to cube coordinates first; applying them directly to offset
-  // (q, r) undercounts distance across a column-shift boundary. See
-  // https://www.redblobgames.com/grids/hexagons/#conversions-offset for the
-  // conversion this mirrors.
-  private static toCube(q: number, r: number): { x: number; y: number; z: number } {
-    return hexToCube(q, r);
   }
 
   static getDistance(q1: number, r1: number, q2: number, r2: number): number {

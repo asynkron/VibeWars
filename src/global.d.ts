@@ -6,12 +6,6 @@
 // threeGlobal.ts. Engine modules can move to direct imports incrementally.
 declare const THREE: any;
 
-// getMinimapWorldPosition is referenced by game.ts's minimap drag/click
-// handlers but is never defined anywhere in the codebase (pre-existing bug,
-// left as-is during the migration -- see git history for the increment that
-// found it).
-declare const getMinimapWorldPosition: any;
-
 // window extension for values assigned ad hoc across the codebase
 // (window.HEX_ENGINE/.HEX_ENGINE_OPTIONS from options.ts, window.hexGrid/
 // .GridSystem exposed by GridSystem.ts for external scripting integrations).

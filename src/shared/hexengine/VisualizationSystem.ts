@@ -18,12 +18,7 @@ Render Order Hierarchy (from top to bottom):
 */
 
 class VisualizationSystem {
-    static pathLine: any = null;
     static highlightGroup: any = null;
-    static highlightMeshes = new Map();
-    static highlightMaterials = new Map();
-    static highlightGeometries = new Map();
-    static highlightGroups = new Map();
     static initialized = false;
     static initializationPromise: any = null;
     // Smoke and explosion sprites, keyed by path. createParticleEffect used
@@ -61,7 +56,6 @@ class VisualizationSystem {
 
     static cachedRocketModel: any = null;  // Cache for the rocket model
     static rocketModelPromise: any = null;  // Promise for loading the rocket model
-    static dashOffset: any;  // pre-existing: never initialized before use in updatePathAnimation
 
     static disposeObject(object: any) {
         if (!object) return;
@@ -290,102 +284,6 @@ class VisualizationSystem {
         return highlightGroup;
     }
 
-    static updatePathAnimation() {
-        if (this.pathLine && this.pathLine.material) {
-            this.dashOffset -= 0.1;
-            if (this.pathLine.material instanceof THREE.LineDashedMaterial) {
-                this.pathLine.material.scale = 2 + Math.sin(this.dashOffset) * 0.5; // Animate the dash scale
-                this.pathLine.material.needsUpdate = true;
-            }
-        }
-    }
-
-    static createHexGeometry(radius = 1) {
-        const geometry = new THREE.BufferGeometry();
-        const vertices: any[] = [];
-        const indices: any[] = [];
-        const uvs: any[] = [];
-
-        for (let i = 0; i < 6; i++) {
-            const angle = (i * Math.PI) / 3;
-            vertices.push(
-                radius * Math.cos(angle),
-                0,
-                radius * Math.sin(angle)
-            );
-            uvs.push(
-                (Math.cos(angle) + 1) / 2,
-                (Math.sin(angle) + 1) / 2
-            );
-        }
-
-        // Add center vertex
-        vertices.push(0, 0, 0);
-        uvs.push(0.5, 0.5);
-
-        // Create triangles
-        for (let i = 0; i < 6; i++) {
-            indices.push(6, i, (i + 1) % 6);
-        }
-
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-        geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-        geometry.setIndex(indices);
-        geometry.computeVertexNormals();
-
-        return geometry;
-    }
-
-    static createHexMaterial(color = 0x00ff00) {
-        return new THREE.MeshStandardMaterial({
-            color: color,
-            side: THREE.DoubleSide
-        });
-    }
-
-    static createHexMesh(geometry: any, material: any) {
-        return new THREE.Mesh(geometry, material);
-    }
-
-    static createHexHighlight(color = 0xffff00) {
-        const geometry = this.createHexGeometry(1.1); // Slightly larger than regular hex
-        const material = new THREE.MeshBasicMaterial({
-            color: color,
-            transparent: true,
-            opacity: 0.5,
-            side: THREE.DoubleSide,
-            depthTest: true,
-            depthWrite: true
-        });
-        return this.createHexMesh(geometry, material);
-    }
-
-    static createHexOutline(color = 0x000000) {
-        const geometry = new THREE.BufferGeometry();
-        const vertices: any[] = [];
-        const indices: any[] = [];
-
-        for (let i = 0; i < 6; i++) {
-            const angle = (i * Math.PI) / 3;
-            vertices.push(
-                Math.cos(angle),
-                0,
-                Math.sin(angle)
-            );
-        }
-
-        // Create outline indices
-        for (let i = 0; i < 6; i++) {
-            indices.push(i, (i + 1) % 6);
-        }
-
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
-        geometry.setIndex(indices);
-
-        const material = new THREE.LineBasicMaterial({ color: color });
-        return new THREE.LineSegments(geometry, material);
-    }
-
     static showDamageNumber(position: any, damage: number) {
         const canvas = document.createElement('canvas');
         canvas.width = 256;
@@ -458,16 +356,8 @@ class VisualizationSystem {
             particleCount = 100,
             size = 3.0,
             duration = 1500,
-            particleTexturePaths = [
-                'assets/textures/smoke1.png',
-                'assets/textures/smoke2.png',
-                'assets/textures/smoke3.png',
-                'assets/textures/smoke4.png'
-            ],
             particleBaseSize = 0.5,
-            particleMaxSizeFactor = 1.5,
-            particleColor = 0xaaaaaa,
-            particleOpacity = 0.9
+            particleMaxSizeFactor = 1.5
         } = options;
 
         // Create both smoke and explosion effects
@@ -799,258 +689,119 @@ class VisualizationSystem {
         }
     }
 
-    static showAttackEffect(startHex: any, targetHex: any) {
-        // Play random rocket launcher sound
-        // Play jet sound for missile movement with duration matching flight time
-        AudioSystem.playSound('jet', 0.5, 500); // 500ms matches the missile flight duration
+    // Materials belong to each shot; cached geometry/textures belong to the
+    // loader. Fading or disposing one shot must never alter another shot.
+    private static cloneRocket() {
+        const object = this.cachedRocketModel.clone();
+        const materials = new Map<any, any>();
+        const cloneMaterial = (source: any) => {
+            if (!materials.has(source)) materials.set(source, source.clone());
+            return materials.get(source);
+        };
+        object.traverse((child: any) => {
+            if (child.isMesh) child.material = Array.isArray(child.material)
+                ? child.material.map(cloneMaterial) : cloneMaterial(child.material);
+        });
+        return {
+            object,
+            fade(opacity: number) {
+                for (const material of materials.values()) {
+                    material.transparent = true;
+                    material.opacity = opacity;
+                }
+            },
+            dispose() { for (const material of materials.values()) material.dispose(); },
+        };
+    }
 
-        // The projectile model is loaded ONCE, at start-up, and cloned per
-        // shot. It used to build a new FBXLoader and re-fetch the file on
-        // every single attack -- with THREE.Cache off that was a real
-        // request and a full FBX re-parse each time a Halberd, Gunboat or
-        // Shrike fired, which on this map is constantly. The cache it
-        // should have been using was already sitting there, filled by
-        // VisualizationSystem.initialize; showRocketBarrageEffect had been
-        // cloning from it correctly the whole time.
+    // Shared 500ms accelerated flight. Scratch vectors/quaternions are made
+    // once per shot, rather than allocating them on every animation frame.
+    private static flyProjectile(
+        projectile: any, start: any, end: any, arcHeight: number,
+        onFrame: (progress: number, elapsed: number) => void,
+        onImpact: () => void,
+    ) {
+        projectile.position.copy(start);
+        scene.add(projectile);
+        const movement = new THREE.Vector3();
+        const previous = new THREE.Vector3();
+        const pitchAxis = new THREE.Vector3(1, 0, 0);
+        const direction = new THREE.Vector3(end.x - start.x, 0, end.z - start.z).normalize();
+        const heading = new THREE.Quaternion().setFromAxisAngle(
+            new THREE.Vector3(0, 1, 0), Math.atan2(direction.x, direction.z),
+        );
+        const pitch = new THREE.Quaternion();
+        const rotation = new THREE.Quaternion();
+        let startTime: number | undefined;
+        const animate = (timestamp: number) => {
+            startTime ??= timestamp;
+            const elapsed = timestamp - startTime;
+            const progress = Math.min(elapsed / 500, 1) ** 2;
+            previous.copy(projectile.position);
+            projectile.position.set(
+                start.x + (end.x - start.x) * progress,
+                start.y + (end.y - start.y) * progress + Math.sin(progress * Math.PI) * arcHeight,
+                start.z + (end.z - start.z) * progress,
+            );
+            movement.subVectors(projectile.position, previous);
+            pitch.setFromAxisAngle(pitchAxis, -Math.atan2(
+                movement.y, Math.sqrt(movement.x * movement.x + movement.z * movement.z),
+            ));
+            projectile.setRotationFromQuaternion(rotation.copy(heading).multiply(pitch));
+            onFrame(progress, elapsed);
+            if (progress < 1) requestAnimationFrame(animate);
+            else {
+                onImpact();
+                scene.remove(projectile);
+            }
+        };
+        requestAnimationFrame(animate);
+    }
+
+    static showAttackEffect(startHex: any, targetHex: any) {
+        AudioSystem.playSound('jet', 0.5, 500);
         if (!this.cachedRocketModel) {
             this.showAttackEffectFallback(startHex, targetHex);
             return;
         }
-        {
-            const object = this.cachedRocketModel.clone();
-                // Scale the model appropriately (5 times smaller than before)
-                object.scale.set(0.02, 0.02, 0.02);
-
-                // Create a group to hold the model and lights
-                const projectile = new THREE.Group();
-                projectile.add(object);
-
-                // Main intense light for sharp shadows
-                // Borrowed, not created -- see LightPool. It no longer casts:
-                // a shadow-casting POINT light renders the whole scene six
-                // times for its cube map, every frame the explosion lives.
-                const mainLight = LightPool.claim(0xff0000, 10, 8);
-                if (mainLight) projectile.add(mainLight);
-
-                // Calculate start and end positions
-                const startCoord = new HexCoord(startHex.userData.q, startHex.userData.r);
-                const endCoord = new HexCoord(targetHex.userData.q, targetHex.userData.r);
-                const startPos = startCoord.getWorldPosition();
-                const endPos = endCoord.getWorldPosition();
-
-                // Adjust Y positions based on terrain height
-                startPos.y = TerrainSystem.getHeight(startHex) + 1;
-                endPos.y = TerrainSystem.getHeight(targetHex) + 1;
-
-                // Add projectile to scene at start position
-                projectile.position.copy(startPos);
-                scene.add(projectile);
-
-                // Animation parameters
-                const duration = 500; // milliseconds
-                const arcHeight = 2; // maximum height of the arc
-                let startTime: any = null;
-
-                // Animate the projectile
-                const animate = (timestamp: number) => {
-                    if (!startTime) startTime = timestamp;
-                    const elapsed = timestamp - startTime;
-                    const rawProgress = Math.min(elapsed / duration, 1);
-
-                    // Apply quadratic easing for acceleration
-                    const progress = rawProgress * rawProgress;  // Quadratic easing
-
-                    // Calculate current position
-                    const x = startPos.x + (endPos.x - startPos.x) * progress;
-                    const z = startPos.z + (endPos.z - startPos.z) * progress;
-
-                    // Calculate y using a parabolic arc
-                    const y = startPos.y + (endPos.y - startPos.y) * progress +
-                        Math.sin(progress * Math.PI) * arcHeight;
-
-                    // Store previous position for direction calculation
-                    const prevPos = projectile.position.clone();
-
-                    // Update projectile position
-                    projectile.position.set(x, y, z);
-
-                    // Calculate the direction from start to end for Y rotation (heading)
-                    const direction = new THREE.Vector3(
-                        endPos.x - startPos.x,
-                        0, // Ignore vertical difference for initial rotation
-                        endPos.z - startPos.z
-                    ).normalize();
-
-                    // Calculate the angle between the direction and the forward axis
-                    const forward = new THREE.Vector3(0, 0, 1); // Forward axis
-                    const angle = Math.atan2(direction.x, direction.z);
-
-                    // Calculate pitch based on actual movement direction
-                    const movementDirection = new THREE.Vector3().subVectors(projectile.position, prevPos);
-                    const pitch = Math.atan2(
-                        movementDirection.y,
-                        Math.sqrt(movementDirection.x * movementDirection.x + movementDirection.z * movementDirection.z)
-                    );
-
-                    // Create quaternions for pitch and heading
-                    const pitchQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -pitch);
-                    const headingQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle);
-
-                    // Combine quaternions (heading first, then pitch)
-                    const finalQuat = headingQuat.multiply(pitchQuat);
-
-                    // Apply the combined rotation
-                    projectile.setRotationFromQuaternion(finalQuat);
-
-                    // More dramatic pulsing effect
-                    const mainPulse = 10 + Math.sin(elapsed * 0.02) * 4;
-                    mainLight.intensity = mainPulse;
-
-                    // Fade out near the end
-                    if (progress > 0.8) {
-                        const fadeOut = 1 - ((progress - 0.8) * 5);
-                        object.traverse((child: any) => {
-                            if (child.isMesh) {
-                                child.material.transparent = true;
-                                child.material.opacity = fadeOut;
-                            }
-                        });
-                        mainLight.intensity = fadeOut * mainPulse;
-                    }
-
-                    if (progress < 1) {
-                        requestAnimationFrame(animate);
-                    } else {
-                        // Play explosion sound when missile hits
-                        AudioSystem.playSound('explosion', 0.8);
-                        // Create explosion visual effect
-                        this.createExplosion(endPos);
-
-                        // Clean up
-                        this.disposeObject(projectile);
-                    }
-                };
-
-                requestAnimationFrame(animate);
-        }
+        const rocket = this.cloneRocket();
+        rocket.object.scale.setScalar(0.02);
+        this.flyAttack(new THREE.Group().add(rocket.object), startHex, targetHex, rocket.fade, rocket.dispose);
     }
 
-    // Fallback method using sphere if FBX fails to load
     static showAttackEffectFallback(startHex: any, targetHex: any) {
-        // Create a glowing sphere for the projectile
-        const projectileGeometry = new THREE.SphereGeometry(0.2, 16, 16);
-        const projectileMaterial = new THREE.MeshBasicMaterial({
-            color: 0xff0000,
-            transparent: true,
-            opacity: 0.8,
-            emissive: 0xff0000,
-            emissiveIntensity: 2
-        });
-        const projectile = new THREE.Mesh(projectileGeometry, projectileMaterial);
+        const projectile = new THREE.Mesh(
+            new THREE.SphereGeometry(0.2, 16, 16),
+            new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.8 }),
+        );
         projectile.castShadow = true;
+        this.flyAttack(projectile, startHex, targetHex,
+            (opacity) => { projectile.material.opacity = opacity; },
+            () => this.disposeObject(projectile),
+        );
+    }
 
-        // Main intense light for sharp shadows
-        // Borrowed, not created -- see LightPool. It no longer casts:
-        // a shadow-casting POINT light renders the whole scene six
-        // times for its cube map, every frame the explosion lives.
-        const mainLight = LightPool.claim(0xff0000, 10, 8);
-        if (mainLight) projectile.add(mainLight);
-
-        // Calculate start and end positions
-        const startCoord = new HexCoord(startHex.userData.q, startHex.userData.r);
-        const endCoord = new HexCoord(targetHex.userData.q, targetHex.userData.r);
-        const startPos = startCoord.getWorldPosition();
-        const endPos = endCoord.getWorldPosition();
-
-        // Adjust Y positions based on terrain height
-        startPos.y = TerrainSystem.getHeight(startHex) + 1;
-        endPos.y = TerrainSystem.getHeight(targetHex) + 1;
-
-        // Add projectile to scene at start position
-        projectile.position.copy(startPos);
-        scene.add(projectile);
-
-        // Animation parameters
-        const duration = 500; // milliseconds
-        const arcHeight = 2; // maximum height of the arc
-        let startTime: any = null;
-
-        // Animate the projectile
-        const animate = (timestamp: number) => {
-            if (!startTime) startTime = timestamp;
-            const elapsed = timestamp - startTime;
-            const rawProgress = Math.min(elapsed / duration, 1);
-
-            // Apply quadratic easing for acceleration
-            const progress = rawProgress * rawProgress;  // Quadratic easing
-
-            // Calculate current position
-            const x = startPos.x + (endPos.x - startPos.x) * progress;
-            const z = startPos.z + (endPos.z - startPos.z) * progress;
-
-            // Calculate y using a parabolic arc
-            const y = startPos.y + (endPos.y - startPos.y) * progress +
-                Math.sin(progress * Math.PI) * arcHeight;
-
-            // Store previous position for direction calculation
-            const prevPos = projectile.position.clone();
-
-            // Update projectile position
-            projectile.position.set(x, y, z);
-
-            // Calculate the direction from start to end for Y rotation (heading)
-            const direction = new THREE.Vector3(
-                endPos.x - startPos.x,
-                0, // Ignore vertical difference for initial rotation
-                endPos.z - startPos.z
-            ).normalize();
-
-            // Calculate the angle between the direction and the forward axis
-            const forward = new THREE.Vector3(0, 0, 1); // Forward axis
-            const angle = Math.atan2(direction.x, direction.z);
-
-            // Calculate pitch based on actual movement direction
-            const movementDirection = new THREE.Vector3().subVectors(projectile.position, prevPos);
-            const pitch = Math.atan2(
-                movementDirection.y,
-                Math.sqrt(movementDirection.x * movementDirection.x + movementDirection.z * movementDirection.z)
-            );
-
-            // Create quaternions for pitch and heading
-            const pitchQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -pitch);
-            const headingQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle);
-
-            // Combine quaternions (heading first, then pitch)
-            const finalQuat = headingQuat.multiply(pitchQuat);
-
-            // Apply the combined rotation
-            projectile.setRotationFromQuaternion(finalQuat);
-
-            // More dramatic pulsing effect
-            const mainPulse = 10 + Math.sin(elapsed * 0.02) * 4;
-            mainLight.intensity = mainPulse;
-
-            // Fade out near the end
-            if (progress > 0.8) {
-                const fadeOut = 1 - ((progress - 0.8) * 5);
-                projectileMaterial.opacity = fadeOut;
-                mainLight.intensity = fadeOut * mainPulse;
-            }
-
-            if (progress < 1) {
-                requestAnimationFrame(animate);
-            } else {
-                // Play explosion sound when missile hits
-                AudioSystem.playSound('explosion', 0.8);
-                // Create explosion visual effect
-                this.createExplosion(endPos);
-
-                // Clean up
-                this.disposeObject(projectile);
-            }
-        };
-
-        requestAnimationFrame(animate);
+    private static flyAttack(
+        projectile: any, startHex: any, targetHex: any,
+        fade: (opacity: number) => void, dispose: () => void,
+    ) {
+        const light = LightPool.claim(0xff0000, 10, 8);
+        if (light) projectile.add(light);
+        const start = new HexCoord(startHex.userData.q, startHex.userData.r).getWorldPosition();
+        const end = new HexCoord(targetHex.userData.q, targetHex.userData.r).getWorldPosition();
+        start.y = TerrainSystem.getHeight(startHex) + 1;
+        end.y = TerrainSystem.getHeight(targetHex) + 1;
+        this.flyProjectile(projectile, start, end, 2, (progress, elapsed) => {
+            const pulse = 10 + Math.sin(elapsed * 0.02) * 4;
+            const opacity = progress > 0.8 ? 1 - (progress - 0.8) * 5 : 1;
+            if (progress > 0.8) fade(opacity);
+            LightPool.setIntensity(light, pulse * opacity);
+        }, () => {
+            AudioSystem.playSound('explosion', 0.8);
+            this.createExplosion(end);
+            LightPool.release(light);
+            dispose();
+        });
     }
 
     // `options.impacts` ({q, r}[]) predetermines each rocket's landing hex --
@@ -1111,7 +862,8 @@ class VisualizationSystem {
                 : possibleTargets[Math.floor(Math.random() * possibleTargets.length)];
 
             // Clone the cached model
-            const object = this.cachedRocketModel.clone();
+            const rocket = this.cloneRocket();
+            const object = rocket.object;
 
             // Scale the model appropriately
             object.scale.set(0.02 * projectileScale, 0.02 * projectileScale, 0.02 * projectileScale);
@@ -1133,101 +885,17 @@ class VisualizationSystem {
             if (!launchPos) startPos.y = TerrainSystem.getHeight(startHex) + 1;
             if (!impactPos) endPos.y = TerrainSystem.getHeight(randomTarget) + 1;
 
-            // Add projectile to scene at start position
-            projectile.position.copy(startPos);
-            scene.add(projectile);
-
-            // Animation parameters
-            const duration = 500; // milliseconds
-            let startTime: any = null;
-
-            // Animate the projectile
-            const animate = (timestamp: number) => {
-                if (!startTime) startTime = timestamp;
-                const elapsed = timestamp - startTime;
-                const rawProgress = Math.min(elapsed / duration, 1);
-
-                // Apply quadratic easing for acceleration
-                const progress = rawProgress * rawProgress;  // Quadratic easing
-
-                // Calculate current position
-                const x = startPos.x + (endPos.x - startPos.x) * progress;
-                const z = startPos.z + (endPos.z - startPos.z) * progress;
-
-                // Calculate y using a parabolic arc
-                const y = startPos.y + (endPos.y - startPos.y) * progress +
-                    Math.sin(progress * Math.PI) * arcHeight;
-
-                // Store previous position for direction calculation
-                const prevPos = projectile.position.clone();
-
-                // Update projectile position
-                projectile.position.set(x, y, z);
-
-                // Calculate the direction from start to end for Y rotation (heading)
-                const direction = new THREE.Vector3(
-                    endPos.x - startPos.x,
-                    0, // Ignore vertical difference for initial rotation
-                    endPos.z - startPos.z
-                ).normalize();
-
-                // Calculate the angle between the direction and the forward axis
-                const angle = Math.atan2(direction.x, direction.z);
-
-                // Calculate pitch based on actual movement direction
-                const movementDirection = new THREE.Vector3().subVectors(projectile.position, prevPos);
-                const pitch = Math.atan2(
-                    movementDirection.y,
-                    Math.sqrt(movementDirection.x * movementDirection.x + movementDirection.z * movementDirection.z)
-                );
-
-                // Create quaternions for pitch and heading
-                const pitchQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -pitch);
-                const headingQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), angle);
-
-                // Combine quaternions (heading first, then pitch)
-                const finalQuat = headingQuat.multiply(pitchQuat);
-
-                // Apply the combined rotation
-                projectile.setRotationFromQuaternion(finalQuat);
-
-                // Fade out near the end
-                if (progress > 0.8) {
-                    const fadeOut = 1 - ((progress - 0.8) * 5);
-                    object.traverse((child: any) => {
-                        if (child.isMesh) {
-                            child.material.transparent = true;
-                            child.material.opacity = fadeOut;
-                        }
-                    });
+            this.flyProjectile(projectile, startPos, endPos, arcHeight, (progress) => {
+                if (progress > 0.8) rocket.fade(1 - (progress - 0.8) * 5);
+            }, () => {
+                AudioSystem.playSound('explosion', 0.8);
+                this.createExplosion(endPos, { size: 1.5 });
+                rocket.dispose();
+                rocketsInFlight--;
+                if (nextRocketIndex < projectileCount) {
+                    setTimeout(() => fireProjectile(nextRocketIndex++), delayBetweenShots);
                 }
-
-                if (progress < 1) {
-                    requestAnimationFrame(animate);
-                } else {
-                    // Play explosion sound when missile hits
-                    AudioSystem.playSound('explosion', 0.8);
-                    // Create explosion visual effect at the rocket's impact point
-                    this.createExplosion(endPos, {
-                        size: 1.5,
-                    });
-
-                    // Clean up projectile
-                    this.disposeObject(projectile);
-
-                    // Decrement rockets in flight
-                    rocketsInFlight--;
-
-                    // Fire next rocket if we haven't fired all of them
-                    if (nextRocketIndex < projectileCount) {
-                        setTimeout(() => {
-                            fireProjectile(nextRocketIndex++);
-                        }, delayBetweenShots);
-                    }
-                }
-            };
-
-            requestAnimationFrame(animate);
+            });
         };
 
         // Start firing projectiles with a maximum number in flight
@@ -1266,8 +934,6 @@ class VisualizationSystem {
             color: 0x4444ff,
             transparent: true,
             opacity: 0.8,
-            emissive: 0xffffff,
-            emissiveIntensity: 2
         });
 
         const laser = new THREE.Mesh(laserGeometry, laserMaterial);
@@ -1306,8 +972,8 @@ class VisualizationSystem {
             // Flash intensity effect
             const flashIntensity = Math.sin(elapsed * 0.1) * 0.5 + 0.5;
             laserMaterial.opacity = 0.8 * flashIntensity;
-            mainLight.intensity = 15 * flashIntensity;
-            blueLight.intensity = 8 * flashIntensity;
+            LightPool.setIntensity(mainLight, 15 * flashIntensity);
+            LightPool.setIntensity(blueLight, 8 * flashIntensity);
 
             // Scale effect (beam appears to charge up and then dissipate)
             if (progress < 0.2) {

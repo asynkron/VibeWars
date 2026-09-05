@@ -33,7 +33,7 @@ import { GridSystem } from './shared/hexengine/GridSystem';
 import { GrassSystem } from './shared/hexengine/GrassSystem';
 import { HexCoord } from './shared/hexengine/HexCoord';
 import { TerrainSystem } from './shared/hexengine/TerrainSystem';
-import { getHexIntersects } from './shared/hexengine/utils';
+import { getMinimapWorldPosition } from './systems/minimap';
 import { UnitInfoPanel } from './systems/unitInfoPanel';
 import { MAP_CONFIG, MAP_KEY, START_MODE, AI_DIFFICULTY} from './constants';
 import { initViewToolbar } from './systems/viewToolbar';
@@ -61,7 +61,6 @@ const TERRAIN_VIEWER = typeof window !== 'undefined' && (window as any).VIBEWARS
 
 // Game Data
 let selectedUnit: any = null;
-let pathLine: any = null;
 let isDragging = false;
 
 // Exposed so UnitSystem (attack/handleSelection) can read and clear the
@@ -78,10 +77,9 @@ let isDraggingMinimap = false;
 let isRotating = false;
 let previousMousePosition = { x: 0, y: 0 };
 let currentUnitIndex = -1;
-let currentHighlightedHex: any = null;  // Track currently highlighted hex
 
 // Event Listeners
-function setupEventListeners(matrices: CameraMatrices) {
+function setupEventListeners(matrices: CameraMatrices, miniMapCamera: any) {
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
     // Before anything reads the overlay's geometry: this sizes and places
@@ -127,7 +125,7 @@ function setupEventListeners(matrices: CameraMatrices) {
         raycaster.setFromCamera(mouse, camera);
 
         if (isDraggingMinimap) {
-            const worldPos = getMinimapWorldPosition(event, minimapOverlay);
+            const worldPos = getMinimapWorldPosition(event, minimapOverlay, miniMapCamera);
             if (worldPos) {
                 setCameraPosition(worldPos.x, worldPos.z, matrices);
             }
@@ -164,7 +162,7 @@ function setupEventListeners(matrices: CameraMatrices) {
         }
 
         // Always check for hex intersections for highlighting
-        const intersects = getHexIntersects(raycaster);
+        const intersects = GridSystem.getHexIntersects(raycaster);
 
         // Always remove any existing cursor highlights first
         const highlights = group.getObjectByName("highlights");
@@ -209,7 +207,7 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     window.addEventListener('mouseup', (event) => {
         if (isDraggingMinimap) {
-            const worldPos = getMinimapWorldPosition(event, minimapOverlay);
+            const worldPos = getMinimapWorldPosition(event, minimapOverlay, miniMapCamera);
             if (worldPos) {
                 setCameraPosition(worldPos.x, worldPos.z, matrices);
             }
@@ -265,7 +263,6 @@ function setupEventListeners(matrices: CameraMatrices) {
 
     });
 
-
     window.addEventListener('click', (event) => {
         // A click on the UI is not a click on the map.
         //
@@ -291,7 +288,7 @@ function setupEventListeners(matrices: CameraMatrices) {
         mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         raycaster.setFromCamera(mouse, camera);
 
-        const intersects = getHexIntersects(raycaster);
+        const intersects = GridSystem.getHexIntersects(raycaster);
         if (intersects.length > 0) {
             const hexGroup = intersects[0].object.parent;
             const unitOnHex = getGameState().getUnitAt(hexGroup.userData.q, hexGroup.userData.r);
@@ -368,7 +365,7 @@ function setupEventListeners(matrices: CameraMatrices) {
     });
 
     minimapOverlay.addEventListener('click', (event) => {
-        const worldPos = getMinimapWorldPosition(event, minimapOverlay);
+        const worldPos = getMinimapWorldPosition(event, minimapOverlay, miniMapCamera);
         if (worldPos) {
             setCameraPosition(worldPos.x, worldPos.z, matrices);
         }
@@ -428,7 +425,6 @@ function setupEventListeners(matrices: CameraMatrices) {
         // Transform position based on map tilt    
         const position = new THREE.Vector3(worldPos.x, height, worldPos.z);
 
-
         // Set camera position with offset
         camera.position.set(
             position.x,
@@ -467,8 +463,6 @@ function setupEventListeners(matrices: CameraMatrices) {
         renderer.setSize(window.innerWidth, window.innerHeight);
         // The bloom chain has its own render targets to keep in step.
         resizeComposer(window.innerWidth, window.innerHeight);
-        minimapOverlay.style.top = '10px';
-        minimapOverlay.style.right = '10px';
 
     });
 
@@ -536,14 +530,12 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // at once -- see preloadAssets.
     await preloadAssets();
 
-
     // Set up lighting
     initializeLighting();
 
     // Create map first and wait for it to be ready
     const { mapCenterX, mapCenterZ } = await GridSystem.createMap(gameState);
     SunSystem.setCenter(mapCenterX, 0, mapCenterZ);
-
 
     // Only initialize units after map is ready
     // Generate roads after map is created but before units
@@ -573,7 +565,6 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // be grid, roads, smoothing, growth. See GridSystem.decorateTerrain.
     GridSystem.decorateTerrain();
 
-
     // Also part of preloadAssets; both loaders are idempotent, and this is
     // the point where the models are actually needed.
     await Promise.all([UnitSystem.loadUnitModels(), BuildingSystem.loadBuildingModels()]);
@@ -596,7 +587,7 @@ async function initGame(controllers: [PlayerController, PlayerController]) {
     // Set up event listeners and input handling
     const matrices = setupCamera(mapCenterX, mapCenterZ);
     const { miniMapCamera, mapWidth, mapHeight, highlightGroup } = setupMinimap(mapCenterX, mapCenterZ);
-    setupEventListeners(matrices);
+    setupEventListeners(matrices, miniMapCamera);
 
     // The viewer keeps the navigation the listeners provide (pan, rotate,
     // zoom, minimap) but has no turns to end and no units to cycle -- hide
@@ -1109,12 +1100,6 @@ function configureDirectionalLight() {
     directionalLight.shadow.camera.right = mapWidth * 1.05;
     directionalLight.shadow.camera.top = mapHeight * 1.05;
     directionalLight.shadow.camera.bottom = -mapHeight * 1.05;
-
-    // Add light helpers for debugging
-    const helper = new THREE.DirectionalLightHelper(directionalLight, 5);
-    //scene.add(helper);
-    const shadowHelper = new THREE.CameraHelper(directionalLight.shadow.camera);
-    //scene.add(shadowHelper);
 
     return directionalLight;
 }

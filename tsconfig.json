@@ -14,11 +14,8 @@
     "forceConsistentCasingInFileNames": true,
     "isolatedModules": true
   },
-  // All files are real ES modules with noImplicitAny enabled and zero
-  // implicit-any errors (see git log for the file-by-file conversion and
-  // type-tightening passes). Remaining `any` usage is deliberate: THREE.js
-  // callback params (CDN r128 runtime doesn't match @types/three), and a
-  // handful of documented pre-existing dead-code/bug sites.
+  // Engine modules still consume the transitional THREE global. Keep strict
+  // application types while that rendering surface moves to package imports.
   "include": ["**/*.ts", "**/*.js"],
   "exclude": ["node_modules", "dist"]
 }

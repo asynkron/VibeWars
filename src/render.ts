@@ -1,4 +1,3 @@
-import { VisualizationSystem } from './shared/hexengine/VisualizationSystem';
 import { GridSystem } from './shared/hexengine/GridSystem';
 import { AirMarkerSystem } from './shared/hexengine/AirMarkerSystem';
 import { UnitInfoPanel } from './systems/unitInfoPanel';
@@ -147,7 +146,6 @@ const SCENE_COLOR_GRADE_SHADER = {
         }
     `,
 };
-
 
 function buildComposer() {
     const size = new THREE.Vector2(window.innerWidth, window.innerHeight);
@@ -407,7 +405,6 @@ function renderFrame(miniMapCamera: any, matrices: CameraMatrices, highlightGrou
     FrameStats.beginFrame(renderer);
 
     // Update path animation
-    VisualizationSystem.updatePathAnimation();
 
     // Animate water tiles
     const seconds = performance.now() * 0.001;

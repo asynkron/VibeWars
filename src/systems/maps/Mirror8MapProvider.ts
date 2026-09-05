@@ -37,7 +37,7 @@
 // the player on the southern edge, the CPU on the northern, its columns
 // reversed so each unit is its opposite number's half-turn image.
 
-import { TerrainSystem } from '../../shared/hexengine/TerrainSystem';
+import * as TerrainSystem from '../../shared/hexengine/terrainStats';
 import { hash } from '../../shared/hexengine/utils';
 import { MapProvider, StartingUnit, Tile } from './MapProvider';
 import type { BuildingSpawn, TileLike } from '../../types';

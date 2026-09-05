@@ -1,5 +1,6 @@
 import '../../test/threeStub';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as Three from 'three';
 import { MODEL_LOADER_MATERIAL_SETTINGS, ModelSystem } from './ModelSystem';
 
 function material(sharedGlow = false) {
@@ -35,6 +36,31 @@ function model(materials: any[]) {
         },
     };
 }
+
+describe('model team colors', () => {
+    it.each([
+        [true, null, null, 0x123456],
+        [false, null, null, 0x404040],
+        [false, 0x404040, null, 0x123456],
+        [false, 0x714040, null, 0x123456], // RGB distance 49: replace.
+        [false, 0x724040, null, 0x404040], // RGB distance 50: preserve.
+        [true, 0x000000, null, 0x123456],
+        [false, null, 'team', 0x123456],
+        [true, null, 'other', 0x404040], // Named slots take precedence.
+    ] as const)('preserves tint rules (%s, %s, %s)', (useColor, replacement, slot, expected) => {
+        vi.stubGlobal('THREE', Three);
+        try {
+            const original = new Three.MeshBasicMaterial({ color: 0x404040 });
+            original.name = 'team';
+            const source = new Three.Mesh(new Three.BoxGeometry(), [original, original]);
+            const clone = ModelSystem.createModelWithColor(source, 0x123456, useColor, replacement, slot, 0, false);
+            for (const material of clone.material) expect(material.color.getHex()).toBe(expected);
+            expect(original.color.getHex()).toBe(0x404040);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+});
 
 describe('ModelSystem.enhanceTexturedModelContrast', () => {
     it('adds display contrast while preserving an existing material shader pass', () => {
