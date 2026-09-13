@@ -46,10 +46,7 @@ jobs:
       # enough -- whatever lands here is what people play -- and the suite
       # covers the simulation, the map invariants and the worker-safety
       # import graph, none of which a build failure would catch.
-      - run: npm run typecheck
-      - run: npm test
-
-      - run: npm run build
+      - run: make quality
 
       - uses: actions/upload-pages-artifact@v3
         with:
