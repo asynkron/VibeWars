@@ -134,7 +134,7 @@ test("atomically replaces stale and incomplete evidence state", async () => {
     await writeStartedManifest(dir, true);
     await writeEnvelope(dir, envelopeForRun({ testStarted: true, report: report([]) }));
     const files = await readdir(dir);
-    assert.deepEqual(files.sort(), [EVIDENCE_FILE, "producers.json"]);
+    assert.deepEqual(files.sort(), ["producers.json", EVIDENCE_FILE]);
     assert.equal(files.some((file) => file.endsWith(".tmp")), false);
     assert.deepEqual(JSON.parse(await readFile(path.join(dir, "producers.json"), "utf8")), {
       started: [PRODUCER_ID],
