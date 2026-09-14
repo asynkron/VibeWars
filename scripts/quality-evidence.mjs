@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 export const PRODUCER_ID = "vitest-tests";
 export const EVIDENCE_FILE = `${PRODUCER_ID}.quality-evidence.json`;
 const NATIVE_REPORT_FILE = `${PRODUCER_ID}.vitest.json`;
+const NATIVE_REPORTER_FILE = "./scripts/vitest-quality-reporter.mjs";
 const MAX_FAILURES = 100;
 const MAX_MESSAGE_LENGTH = 1_000;
 
@@ -89,8 +90,7 @@ export function translateVitestReport(report, repoRoot = process.cwd()) {
     throw new Error("Vitest JSON report omitted testResults");
   }
 
-  const observed = { total: 0, passed: 0, failed: 0, skipped: 0 };
-  const failures = [];
+  const assertions = [];
   const identities = new Set();
   for (const testFile of report.testResults) {
     if (!testFile || typeof testFile !== "object" || !Array.isArray(testFile.assertionResults)) {
@@ -106,22 +106,35 @@ export function translateVitestReport(report, repoRoot = process.cwd()) {
         ? assertion.ancestorTitles.map((value) => String(value).trim()).filter(Boolean)
         : [];
       const test = String(assertion.title || assertion.fullName || "").trim();
-      if (!file || !test) throw new Error("Vitest assertion omitted a stable file or test identity");
+      const taskId = String(assertion.id || "").trim();
+      if (!file || !test || !taskId) throw new Error("Vitest assertion omitted a stable file, test, or task identity");
       const suite = ancestors.length ? `${file} :: ${ancestors.join(" > ")}` : file;
-      const identity = `${suite}\0${test}`;
-      if (identities.has(identity)) throw new Error(`Vitest emitted duplicate terminal test identity: ${suite} / ${test}`);
-      identities.add(identity);
-
-      observed.total += 1;
-      observed[terminal] += 1;
-      if (terminal === "failed") {
-        failures.push({
-          suite,
-          test,
-          message: cleanMessage(firstFailureMessage(assertion)),
-        });
-      }
+      if (identities.has(taskId)) throw new Error(`Vitest emitted duplicate terminal task identity: ${taskId}`);
+      identities.add(taskId);
+      assertions.push({ assertion, suite, task, taskId, terminal });
     }
+  }
+
+  const observed = { total: 0, passed: 0, failed: 0, skipped: 0 };
+  const failures = [];
+  const displayCounts = new Map();
+  for (const assertion of assertions) {
+    const displayIdentity = `${assertion.suite}\0${assertion.task}`;
+    displayCounts.set(displayIdentity, (displayCounts.get(displayIdentity) || 0) + 1);
+    observed.total += 1;
+    observed[assertion.terminal] += 1;
+  }
+  for (const assertion of assertions) {
+    if (assertion.terminal !== "failed") continue;
+    const displayIdentity = `${assertion.suite}\0${assertion.task}`;
+    const test = displayCounts.get(displayIdentity) > 1
+      ? `${assertion.task} [${assertion.taskId}]`
+      : assertion.task;
+    failures.push({
+      suite: assertion.suite,
+      test,
+      message: cleanMessage(firstFailureMessage(assertion.assertion)),
+    });
   }
 
   if (!sameCounts(summary, observed)) {
@@ -234,8 +247,8 @@ async function runQuality() {
     console.log("quality-evidence: running Vitest with its JSON reporter");
     const result = await runCommand(
       npm,
-      ["test", "--", "--reporter=json", `--outputFile=${nativeReport}`],
-      { cwd: repoRoot },
+      ["test", "--", `--reporter=${NATIVE_REPORTER_FILE}`],
+      { cwd: repoRoot, env: { ...process.env, VIBEWARS_VITEST_REPORT: nativeReport } },
     );
     testStarted = result.started;
     testExecutionError = result.error;

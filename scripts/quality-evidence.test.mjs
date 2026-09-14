@@ -37,8 +37,8 @@ function report(assertions, overrides = {}) {
   };
 }
 
-function assertion(title, status, failureMessages = []) {
-  return { ancestorTitles: ["quality contract"], title, status, failureMessages };
+function assertion(title, status, failureMessages = [], id = `task-${title}`) {
+  return { id, ancestorTitles: ["quality contract"], title, status, failureMessages };
 }
 
 test("main verification declares exactly one matching required producer", async () => {
@@ -70,6 +70,17 @@ test("translates exact counts and stable failed identities", () => {
   assert.equal(payload.counts.failed, payload.failures.length + (payload.omitted_failures || 0));
 });
 
+test("uses native task ids for repeated display names", () => {
+  const payload = translateVitestReport(report([
+    assertion("same", "failed", ["first failure"], "task-1"),
+    assertion("same", "failed", ["second failure"], "task-2"),
+  ]), repoRoot);
+  assert.deepEqual(payload.failures.map((failure) => failure.test), [
+    "same [task-1]",
+    "same [task-2]",
+  ]);
+});
+
 test("rejects malformed, contradictory, duplicate, and incomplete reports", () => {
   assert.throws(() => translateVitestReport(null), /must be an object/);
   assert.throws(
@@ -78,10 +89,10 @@ test("rejects malformed, contradictory, duplicate, and incomplete reports", () =
   );
   assert.throws(
     () => translateVitestReport(report([
-      assertion("same", "passed"),
-      assertion("same", "passed"),
+      assertion("first", "passed", [], "duplicate-task"),
+      assertion("second", "passed", [], "duplicate-task"),
     ])),
-    /duplicate terminal test identity/,
+    /duplicate terminal task identity/,
   );
   assert.throws(
     () => translateVitestReport({
