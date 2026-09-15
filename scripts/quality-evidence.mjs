@@ -111,7 +111,7 @@ export function translateVitestReport(report, repoRoot = process.cwd()) {
       const suite = ancestors.length ? `${file} :: ${ancestors.join(" > ")}` : file;
       if (identities.has(taskId)) throw new Error(`Vitest emitted duplicate terminal task identity: ${taskId}`);
       identities.add(taskId);
-      assertions.push({ assertion, suite, task, taskId, terminal });
+      assertions.push({ assertion, suite, task: test, taskId, terminal });
     }
   }
 
