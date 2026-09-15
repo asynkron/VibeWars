@@ -12,6 +12,24 @@ npm ci
 npm run dev
 ```
 
+Run the same complete verification gate used by CI with `make quality` on
+Linux or macOS, or `make.cmd quality` on Windows. The gate stops on the first
+failure while running the typecheck, test suite and production build. Each step
+also remains available as `make typecheck`, `make test` or `make build` (use
+`make.cmd` in place of `make` on Windows).
+
+Faktorial prepares a fresh checkout with the `worktree` target. Supply the
+checkout path explicitly; paths containing spaces are supported:
+
+```bash
+FAKTORIAL_WORKTREE_PATH="/path/to/worktree" make worktree
+```
+
+```powershell
+$env:FAKTORIAL_WORKTREE_PATH = 'C:\path\to\worktree'
+.\make.cmd worktree
+```
+
 | Command | Purpose |
 | --- | --- |
 | `npm run typecheck` | Strict TypeScript checks |
