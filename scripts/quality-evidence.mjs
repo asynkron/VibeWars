@@ -77,6 +77,10 @@ export function translateVitestReport(report, repoRoot = process.cwd()) {
     throw new Error("Vitest JSON report must be an object");
   }
 
+  if (report.unhandledErrors?.length) {
+    throw new Error(`Vitest unhandled errors: ${report.unhandledErrors.map(cleanMessage).join("; ")}`);
+  }
+
   const summary = {
     total: integerField(report, "numTotalTests"),
     passed: integerField(report, "numPassedTests"),
@@ -97,6 +101,9 @@ export function translateVitestReport(report, repoRoot = process.cwd()) {
       throw new Error("Vitest JSON report contains a test file without assertionResults");
     }
     const file = stableFileName(testFile.name, repoRoot);
+    if (testFile.status === "failed" && !testFile.assertionResults.some((assertion) => assertion.status === "failed")) {
+      throw new Error(`Vitest suite failed: ${file}: ${cleanMessage(testFile.message || "suite failed outside an assertion")}`);
+    }
     for (const assertion of testFile.assertionResults) {
       const terminal = terminalStatus(assertion?.status);
       if (!terminal) {
@@ -247,7 +254,7 @@ async function runQuality() {
     console.log("quality-evidence: running Vitest with its JSON reporter");
     const result = await runCommand(
       npm,
-      ["test", "--", `--reporter=${NATIVE_REPORTER_FILE}`],
+      ["test", "--", "--reporter=default", `--reporter=${NATIVE_REPORTER_FILE}`],
       { cwd: repoRoot, env: { ...process.env, VIBEWARS_VITEST_REPORT: nativeReport } },
     );
     testStarted = result.started;

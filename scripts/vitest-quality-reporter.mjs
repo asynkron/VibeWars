@@ -4,7 +4,7 @@ import path from "node:path";
 const REPORT_PATH_ENV = "VIBEWARS_VITEST_REPORT";
 
 export default class QualityJsonReporter {
-  async onTestRunEnd(testModules) {
+  async onTestRunEnd(testModules, unhandledErrors) {
     const reportPath = String(process.env[REPORT_PATH_ENV] || "").trim();
     if (!reportPath) throw new Error(`${REPORT_PATH_ENV} is required`);
 
@@ -15,6 +15,7 @@ export default class QualityJsonReporter {
       numPendingTests: 0,
       numTodoTests: 0,
       testResults: [],
+      unhandledErrors: unhandledErrors.map((error) => error.stack || error.message || String(error)),
     };
 
     for (const testModule of testModules) {

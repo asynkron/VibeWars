@@ -165,3 +165,19 @@ test("uses portable npm and evidence-directory resolution", () => {
   assert.equal(resolveEvidenceDir({ FAKTORIAL_QUALITY_EVIDENCE_DIR: " custom " }, repoRoot), "custom");
   assert.equal(resolveEvidenceDir({}, repoRoot), path.join(repoRoot, ".faktorial", "quality-evidence"));
 });
+
+
+test("rejects a failed suite even when all discovered assertions passed", () => {
+  const fixture = report([assertion("passes", "passed")]);
+  fixture.testResults.push({ name: path.join(repoRoot, "scripts/fixture.test.mjs"), status: "failed", message: "No test suite found", assertionResults: [] });
+  const envelope = envelopeForRun({ testStarted: true, testExitCode: 1, report: fixture });
+  assert.equal(envelope.status, "translation_failed");
+  assert.match(envelope.reason, /No test suite found/);
+});
+
+test("rejects unhandled runner errors without inventing failed assertion counts", () => {
+  const fixture = report([assertion("passes", "passed")], { unhandledErrors: ["Unhandled fixture rejection"] });
+  const envelope = envelopeForRun({ testStarted: true, testExitCode: 1, report: fixture });
+  assert.equal(envelope.status, "translation_failed");
+  assert.match(envelope.reason, /Unhandled fixture rejection/);
+});
