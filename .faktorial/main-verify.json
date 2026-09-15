@@ -1,0 +1,17 @@
+{
+  "schema_version": "main-verify.v2",
+  "name": "VibeWars quality evidence",
+  "commands": [
+    "node ./scripts/quality-evidence.mjs"
+  ],
+  "timeout": "30m",
+  "evidence": [
+    {
+      "command": "node ./scripts/quality-evidence.mjs",
+      "producer_id": "vitest-tests",
+      "kind": "test-results",
+      "payload_schema": "test-results.v1",
+      "required": true
+    }
+  ]
+}

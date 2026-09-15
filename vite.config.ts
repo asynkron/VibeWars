@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
+import { configDefaults } from 'vitest/config';
 
 export default defineConfig({
   // Relative, so the built page works wherever it is served from. GitHub
@@ -23,6 +24,9 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
+    // These adapter contracts use node:test and run in the quality gate's
+    // preceding Node test phase, not inside Vitest's browser environment.
+    exclude: [...configDefaults.exclude, 'scripts/**/*.test.mjs'],
     setupFiles: ['./src/test/threeStub.ts'],
     // Search/headless-match tests do real work (hundreds of plan
     // evaluations); under parallel load the 5s default flakes.
